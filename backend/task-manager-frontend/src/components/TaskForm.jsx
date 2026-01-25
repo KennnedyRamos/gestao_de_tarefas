@@ -5,6 +5,16 @@ import dayjs from 'dayjs';
 import api from '../services/api';
 import Calendar from './Calendar';
 
+const normalizeLabels = (value) => {
+  if (!value) {
+    return [];
+  }
+  const raw = Array.isArray(value) ? value : String(value).split(',');
+  return raw.map((label) => label.trim()).filter(Boolean);
+};
+
+const labelsToInput = (value) => normalizeLabels(value).join(', ');
+
 const TaskForm = ({ taskId }) => {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -17,16 +27,6 @@ const TaskForm = ({ taskId }) => {
   const [error, setError] = useState('');
   const navigate = useNavigate();
   const selectedDate = dueDate ? dayjs(dueDate) : null;
-
-  const normalizeLabels = (value) => {
-    if (!value) {
-      return [];
-    }
-    const raw = Array.isArray(value) ? value : String(value).split(',');
-    return raw.map((label) => label.trim()).filter(Boolean);
-  };
-
-  const labelsToInput = (value) => normalizeLabels(value).join(', ');
 
   useEffect(() => {
     api.get('/auth/me')

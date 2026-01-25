@@ -20,16 +20,6 @@ Plataforma completa de produtividade com tarefas, rotinas e agenda unificada. Pe
 - Atribuicao de tarefas por usuario (admin)
 - Login com JWT
 
-## Demo
-Em breve. (Posso adicionar o link do deploy quando estiver online.)
-
-## Screenshots
-Sugestao: adicione imagens aqui quando quiser destacar o visual.
-
-| Dashboard | Rotinas | Usuarios |
-| --- | --- | --- |
-| (img) | (img) | (img) |
-
 ## Como rodar localmente
 
 ### 1) Backend
@@ -74,12 +64,10 @@ REACT_APP_API_URL=https://seu-backend.onrender.com
 - Banco: Supabase ou Neon (free)
 - Frontend: Vercel (free)
 
-Posso deixar um passo a passo completo no repo se quiser.
-
 ## Roadmap
 - Notificacoes reais (email/whatsapp com provider)
 - Drag and drop na agenda
 - Exportacao CSV/ICS
 
 ## Licenca
-MIT (sugestao)
+

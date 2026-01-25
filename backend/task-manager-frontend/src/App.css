@@ -1,0 +1,27 @@
+.app-shell {
+  display: flex;
+  min-height: 100vh;
+}
+
+.app-content {
+  flex: 1;
+  background: rgba(255, 255, 255, 0.82);
+  border-left: 1px solid var(--stroke);
+  box-shadow: -24px 0 60px rgba(32, 27, 22, 0.1);
+  backdrop-filter: blur(8px);
+}
+
+.app-page {
+  padding: 0;
+}
+
+@media (max-width: 900px) {
+  .app-shell {
+    flex-direction: column;
+  }
+
+  .app-content {
+    border-left: none;
+    box-shadow: none;
+  }
+}

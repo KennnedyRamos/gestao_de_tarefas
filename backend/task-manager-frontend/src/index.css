@@ -1,0 +1,110 @@
+@import url('https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap');
+
+:root {
+  --bg-top: #f4efe8;
+  --bg-bottom: #e7eef5;
+  --surface: #ffffff;
+  --surface-warm: #fdf8f1;
+  --ink: #2a241f;
+  --muted: #6f675f;
+  --accent: #d06a3a;
+  --accent-soft: #f4dfd1;
+  --accent-cool: #2f6b8f;
+  --stroke: #e3d9cd;
+  --shadow-lg: 0 24px 60px rgba(32, 27, 22, 0.12);
+  --shadow-md: 0 12px 28px rgba(32, 27, 22, 0.12);
+  --radius-lg: 18px;
+  --radius-md: 12px;
+  --font-sans: 'Sora', 'Space Grotesk', sans-serif;
+  --font-display: 'Space Grotesk', 'Sora', sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  color: var(--ink);
+  background: linear-gradient(140deg, var(--bg-top) 0%, var(--bg-bottom) 100%);
+  background-attachment: fixed;
+  position: relative;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background:
+    radial-gradient(600px 240px at 8% 8%, rgba(208, 106, 58, 0.15), transparent 60%),
+    radial-gradient(500px 260px at 92% 18%, rgba(47, 107, 143, 0.12), transparent 60%),
+    radial-gradient(700px 320px at 50% 110%, rgba(208, 106, 58, 0.12), transparent 60%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image: linear-gradient(120deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0));
+  opacity: 0.35;
+  pointer-events: none;
+  z-index: 0;
+}
+
+#root {
+  position: relative;
+  z-index: 1;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-display);
+  letter-spacing: -0.01em;
+}
+
+.page-anim {
+  animation: pageIn 520ms ease-out both;
+}
+
+.stagger-item {
+  animation: cardIn 420ms ease-out both;
+  animation-delay: var(--stagger-delay, 0ms);
+}
+
+@keyframes pageIn {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes cardIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page-anim,
+  .stagger-item {
+    animation: none;
+  }
+}

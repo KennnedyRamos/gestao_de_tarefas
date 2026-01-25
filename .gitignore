@@ -1,0 +1,23 @@
+# Python
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.sqlite3
+*.db
+
+# Virtual environments
+backend/venv/
+
+# Environment files
+backend/.env
+
+# Pytest cache
+backend/.pytest_cache/
+
+# Frontend artifacts
+backend/task-manager-frontend/node_modules/
+backend/task-manager-frontend/build/
+
+# Logs
+*.log

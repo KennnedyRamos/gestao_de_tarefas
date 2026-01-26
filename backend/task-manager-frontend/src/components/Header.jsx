@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { AppBar, Toolbar, Typography, Box, Button } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 import api from '../services/api';
+import { clearAuth } from '../utils/auth';
 
 const Header = () => {
   const [username, setUsername] = useState('Usuario');
@@ -14,7 +15,7 @@ const Header = () => {
   }, []);
 
   const handleLogout = () => {
-    localStorage.removeItem('token');
+    clearAuth();
     navigate('/login');
   };
 

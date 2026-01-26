@@ -8,10 +8,10 @@ import Login from './pages/Login';
 import Users from './pages/Users';
 import Routines from './pages/Routines';
 import Layout from './components/Layout';
-import { isAdmin, isPersonalAdmin } from './utils/auth';
+import { getToken, isAdmin, isPersonalAdmin } from './utils/auth';
 
 const RequireAuth = ({ children }) => {
-  const token = localStorage.getItem('token');
+  const token = getToken();
   return token ? children : <Navigate to="/login" replace />;
 };
 

@@ -5,13 +5,13 @@ import api from '../services/api';
 import { clearAuth } from '../utils/auth';
 
 const Header = () => {
-  const [username, setUsername] = useState('Usuario');
+  const [username, setUsername] = useState('Usuário');
   const navigate = useNavigate();
 
   useEffect(() => {
     api.get('/auth/me')
-      .then((res) => setUsername(res.data.name || 'Usuario'))
-      .catch(() => setUsername('Usuario'));
+      .then((res) => setUsername(res.data.name || 'Usuário'))
+      .catch(() => setUsername('Usuário'));
   }, []);
 
   const handleLogout = () => {
@@ -33,7 +33,7 @@ const Header = () => {
       <Toolbar
         variant="dense"
         sx={{
-          minHeight: { xs: 52, md: 56 },
+          minHeight: { xs: 'var(--header-height-xs)', md: 'var(--header-height-md)' },
           px: { xs: 2, md: 3 },
           display: 'flex',
           alignItems: 'center',
@@ -57,7 +57,7 @@ const Header = () => {
               letterSpacing: '-0.01em'
             }}
           >
-            Ola, {username}!
+            Olá, {username}!
           </Typography>
         </Box>
         <Button

@@ -43,7 +43,7 @@ const Users = () => {
       setUsers(response.data);
       setError('');
     } catch (err) {
-      setError('Acesso negado ou erro ao carregar usuarios.');
+      setError('Acesso negado ou erro ao carregar usuários.');
     }
   };
 
@@ -59,24 +59,24 @@ const Users = () => {
       setEmail('');
       setPassword('');
       setRole('assistente');
-      setSuccess('Usuario criado com sucesso.');
+      setSuccess('Usuário criado com sucesso.');
       setError('');
       loadUsers();
     } catch (err) {
       setSuccess('');
-      setError('Erro ao criar usuario.');
+      setError('Erro ao criar usuário.');
     }
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm('Deseja excluir este usuario?')) {
+    if (!window.confirm('Deseja excluir este usuário?')) {
       return;
     }
     try {
       await api.delete(`/users/${id}`);
       loadUsers();
     } catch (err) {
-      setError('Erro ao excluir usuario.');
+      setError('Erro ao excluir usuário.');
     }
   };
 
@@ -198,7 +198,7 @@ const Users = () => {
                   <Button size="small" onClick={() => handleOpenReset(user)}>
                     Redefinir senha
                   </Button>
-                  <IconButton aria-label="Excluir usuario" onClick={() => handleDelete(user.id)}>
+                  <IconButton aria-label="Excluir usuário" onClick={() => handleDelete(user.id)}>
                     <DeleteIcon fontSize="small" />
                   </IconButton>
                 </TableCell>

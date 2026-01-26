@@ -225,7 +225,7 @@ const Routines = () => {
           }}
         >
           <TextField
-            label="Titulo"
+            label="Título"
             fullWidth
             sx={{ mb: 2 }}
             value={title}
@@ -233,7 +233,7 @@ const Routines = () => {
             required
           />
           <TextField
-            label="Descricao"
+            label="Descrição"
             fullWidth
             multiline
             rows={3}
@@ -252,7 +252,7 @@ const Routines = () => {
             required
           />
           <TextField
-            label="Horario"
+            label="Horário"
             type="time"
             fullWidth
             sx={{ mb: 2 }}

@@ -123,7 +123,7 @@ const TaskForm = ({ taskId }) => {
           }}
         >
           <TextField
-            label="Titulo"
+            label="Título"
             fullWidth
             sx={{ mb: 2 }}
             value={title}
@@ -131,7 +131,7 @@ const TaskForm = ({ taskId }) => {
             required
           />
           <TextField
-            label="Descricão"
+            label="Descrição"
             fullWidth
             multiline
             rows={4}
@@ -172,7 +172,7 @@ const TaskForm = ({ taskId }) => {
           {isAdmin && (
             <TextField
               select
-              label="Responsavel"
+              label="Responsável"
               fullWidth
               sx={{ mb: 2 }}
               value={assigneeId}

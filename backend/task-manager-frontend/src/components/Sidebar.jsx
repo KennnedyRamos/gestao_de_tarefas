@@ -76,7 +76,7 @@ const Sidebar = () => {
     clearMenuCloseTimeout();
     menuCloseTimeoutRef.current = setTimeout(() => {
       setUserMenuAnchor(null);
-    }, 150);
+    }, 260);
   };
 
   const handleUserMenuClick = (event) => {
@@ -160,7 +160,7 @@ const Sidebar = () => {
               selected={isActive('/users')}
               sx={navItemSx}
             >
-              <ListItemText primary="Usuarios" />
+              <ListItemText primary="Usuários" />
             </ListItemButton>
           </List>
         </>
@@ -191,8 +191,8 @@ const Sidebar = () => {
             anchorEl={userMenuAnchor}
             open={userMenuOpen}
             onClose={handleUserMenuClose}
-            anchorOrigin={{ vertical: 'top', horizontal: 'left' }}
-            transformOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+            anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+            transformOrigin={{ vertical: 'top', horizontal: 'left' }}
             MenuListProps={{
               dense: true,
               onMouseEnter: clearMenuCloseTimeout,
@@ -210,7 +210,7 @@ const Sidebar = () => {
             }}
           >
             {users.length === 0 ? (
-              <MenuItem disabled>Nenhum usuario encontrado.</MenuItem>
+              <MenuItem disabled>Nenhum usuário encontrado.</MenuItem>
             ) : (
               users.map((user) => (
                 <MenuItem

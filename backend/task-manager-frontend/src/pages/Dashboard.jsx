@@ -388,7 +388,15 @@ const Dashboard = () => {
             onDelete={showAdmin ? deleteTask : undefined}
           />
         </Box>
-        <Box sx={{ display: 'grid', gap: 2 }}>
+        <Box
+          sx={{
+            display: 'grid',
+            gap: 2,
+            alignSelf: 'start',
+            position: { xs: 'static', md: 'sticky' },
+            top: { xs: 'auto', md: 'calc(var(--header-height-md) + 24px)' }
+          }}
+        >
           <Box sx={panelSx}>
             <Typography variant="subtitle1">Lembretes proximos</Typography>
             <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mt: 1 }}>

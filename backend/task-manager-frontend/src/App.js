@@ -7,6 +7,8 @@ import Assignments from './pages/Assignments';
 import Login from './pages/Login';
 import Users from './pages/Users';
 import Routines from './pages/Routines';
+import Deliveries from './pages/Deliveries';
+import Pickups from './pages/Pickups';
 import Layout from './components/Layout';
 import { getToken, isAdmin, isPersonalAdmin } from './utils/auth';
 import './App.css';
@@ -37,6 +39,8 @@ function App() {
           <Route path="assignments" element={<Assignments />} />
           <Route path="users" element={<RequireAdmin><Users /></RequireAdmin>} />
           <Route path="routines" element={<RequirePersonalAdmin><Routines /></RequirePersonalAdmin>} />
+          <Route path="deliveries" element={<RequireAdmin><Deliveries /></RequireAdmin>} />
+          <Route path="pickups" element={<RequireAdmin><Pickups /></RequireAdmin>} />
         </Route>
       </Routes>
     </Router>

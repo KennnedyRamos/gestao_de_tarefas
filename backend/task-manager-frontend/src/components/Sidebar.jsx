@@ -162,6 +162,20 @@ const Sidebar = () => {
             >
               <ListItemText primary="Usuários" />
             </ListItemButton>
+            <ListItemButton
+              onClick={() => navigate('/deliveries')}
+              selected={isActive('/deliveries')}
+              sx={navItemSx}
+            >
+              <ListItemText primary="Entregas" />
+            </ListItemButton>
+            <ListItemButton
+              onClick={() => navigate('/pickups')}
+              selected={isActive('/pickups')}
+              sx={navItemSx}
+            >
+              <ListItemText primary="Retiradas" />
+            </ListItemButton>
           </List>
         </>
       )}

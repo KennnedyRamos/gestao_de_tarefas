@@ -11,14 +11,14 @@ import { useNavigate } from 'react-router-dom';
 
 import api from '../services/api';
 
+const createEmptyMaterial = () => ({ material: '', quantity: '1' });
+
 const PickupsCreate = () => {
   const navigate = useNavigate();
   const [clientCode, setClientCode] = useState('');
   const [fantasyName, setFantasyName] = useState('');
-  const [description, setDescription] = useState('');
   const [pickupDate, setPickupDate] = useState(dayjs().format('YYYY-MM-DD'));
-  const [material, setMaterial] = useState('');
-  const [quantity, setQuantity] = useState('1');
+  const [materials, setMaterials] = useState([createEmptyMaterial()]);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -29,6 +29,37 @@ const PickupsCreate = () => {
     borderRadius: 'var(--radius-lg)',
     p: 3,
     boxShadow: 'var(--shadow-md)'
+  };
+
+  const handleMaterialChange = (index, field, value) => {
+    setMaterials((prev) => prev.map((item, itemIndex) => {
+      if (itemIndex !== index) {
+        return item;
+      }
+      return { ...item, [field]: value };
+    }));
+  };
+
+  const handleAddMaterial = () => {
+    setMaterials((prev) => [...prev, createEmptyMaterial()]);
+  };
+
+  const handleRemoveMaterial = (index) => {
+    setMaterials((prev) => {
+      if (prev.length <= 1) {
+        return prev;
+      }
+      return prev.filter((_, itemIndex) => itemIndex !== index);
+    });
+  };
+
+  const resetForm = () => {
+    setClientCode('');
+    setFantasyName('');
+    setPickupDate(dayjs().format('YYYY-MM-DD'));
+    setMaterials([createEmptyMaterial()]);
+    setError('');
+    setSuccess('');
   };
 
   const handleSubmit = async (event) => {
@@ -44,41 +75,43 @@ const PickupsCreate = () => {
       setError('Informe a fantasia do cliente.');
       return;
     }
-    if (!description.trim()) {
-      setError('Informe a descrição da retirada.');
-      return;
-    }
     if (!pickupDate) {
       setError('Informe a data da retirada.');
       return;
     }
-    if (!material.trim()) {
-      setError('Informe o material retirado.');
+
+    const normalizedMaterials = materials.map((item) => ({
+      material: (item.material || '').trim(),
+      quantity: Number(item.quantity)
+    }));
+
+    const hasEmptyMaterial = normalizedMaterials.some((item) => !item.material);
+    if (hasEmptyMaterial) {
+      setError('Informe o nome de todos os materiais.');
       return;
     }
 
-    const parsedQuantity = Number(quantity);
-    if (!Number.isInteger(parsedQuantity) || parsedQuantity <= 0) {
-      setError('Informe uma quantidade válida.');
+    const hasInvalidQuantity = normalizedMaterials.some(
+      (item) => !Number.isInteger(item.quantity) || item.quantity <= 0
+    );
+    if (hasInvalidQuantity) {
+      setError('Informe quantidades válidas para todos os materiais.');
       return;
     }
 
-    const descriptionPayload = `Código do cliente: ${clientCode.trim()} | Fantasia: ${fantasyName.trim()} | Descrição: ${description.trim()}`;
+    const totalQuantity = normalizedMaterials.reduce((sum, item) => sum + item.quantity, 0);
+    const descriptionPayload = `Código do cliente: ${clientCode.trim()} | Fantasia: ${fantasyName.trim()}`;
+    const materialPayload = JSON.stringify(normalizedMaterials);
 
     try {
       setSubmitting(true);
       await api.post('/pickups', {
         description: descriptionPayload,
         pickup_date: pickupDate,
-        material: material.trim(),
-        quantity: parsedQuantity
+        material: materialPayload,
+        quantity: totalQuantity
       });
-      setClientCode('');
-      setFantasyName('');
-      setDescription('');
-      setPickupDate(dayjs().format('YYYY-MM-DD'));
-      setMaterial('');
-      setQuantity('1');
+      resetForm();
       setSuccess('Retirada registrada com sucesso.');
     } catch (err) {
       const detail = err?.response?.data?.detail;
@@ -102,7 +135,7 @@ const PickupsCreate = () => {
 
       <Box component="form" onSubmit={handleSubmit} sx={panelSx}>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          Informe o código do cliente, a fantasia e, por fim, a descrição.
+          Informe o código do cliente e a fantasia. Em seguida, adicione os materiais e as quantidades.
         </Typography>
 
         <TextField
@@ -122,16 +155,6 @@ const PickupsCreate = () => {
           required
         />
         <TextField
-          label="Descrição"
-          fullWidth
-          multiline
-          rows={4}
-          sx={{ mb: 2 }}
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          required
-        />
-        <TextField
           label="Data da retirada"
           type="date"
           fullWidth
@@ -141,24 +164,51 @@ const PickupsCreate = () => {
           InputLabelProps={{ shrink: true }}
           required
         />
-        <TextField
-          label="Material retirado"
-          fullWidth
-          sx={{ mb: 2 }}
-          value={material}
-          onChange={(e) => setMaterial(e.target.value)}
-          required
-        />
-        <TextField
-          label="Quantidade"
-          type="number"
-          fullWidth
-          sx={{ mb: 2 }}
-          value={quantity}
-          onChange={(e) => setQuantity(e.target.value)}
-          inputProps={{ min: 1, step: 1 }}
-          required
-        />
+
+        <Box sx={{ display: 'grid', gap: 1.5, mb: 2 }}>
+          <Typography variant="subtitle2">Materiais e quantidades</Typography>
+          {materials.map((item, index) => (
+            <Box
+              key={`material-${index}`}
+              sx={{
+                display: 'grid',
+                gridTemplateColumns: { xs: '1fr', md: 'minmax(0, 1fr) 140px auto' },
+                gap: 1,
+                alignItems: 'center'
+              }}
+            >
+              <TextField
+                label={`Material ${index + 1}`}
+                value={item.material}
+                onChange={(e) => handleMaterialChange(index, 'material', e.target.value)}
+                fullWidth
+                required
+              />
+              <TextField
+                label="Quantidade"
+                type="number"
+                value={item.quantity}
+                onChange={(e) => handleMaterialChange(index, 'quantity', e.target.value)}
+                inputProps={{ min: 1, step: 1 }}
+                required
+              />
+              <Button
+                type="button"
+                variant="outlined"
+                color="error"
+                onClick={() => handleRemoveMaterial(index)}
+                disabled={materials.length === 1}
+              >
+                Remover
+              </Button>
+            </Box>
+          ))}
+          <Box>
+            <Button type="button" variant="outlined" onClick={handleAddMaterial}>
+              Adicionar material
+            </Button>
+          </Box>
+        </Box>
 
         <Box sx={{ display: 'flex', gap: 1 }}>
           <Button type="submit" variant="contained" disabled={submitting}>
@@ -168,16 +218,7 @@ const PickupsCreate = () => {
             type="button"
             variant="outlined"
             disabled={submitting}
-            onClick={() => {
-              setClientCode('');
-              setFantasyName('');
-              setDescription('');
-              setPickupDate(dayjs().format('YYYY-MM-DD'));
-              setMaterial('');
-              setQuantity('1');
-              setError('');
-              setSuccess('');
-            }}
+            onClick={resetForm}
           >
             Limpar
           </Button>

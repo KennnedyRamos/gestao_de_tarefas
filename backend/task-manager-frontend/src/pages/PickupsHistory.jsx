@@ -15,6 +15,30 @@ import { useNavigate } from 'react-router-dom';
 
 import api from '../services/api';
 
+const parseMaterialItems = (value) => {
+  if (!value || typeof value !== 'string') {
+    return [];
+  }
+  const trimmed = value.trim();
+  if (!trimmed.startsWith('[')) {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+    return parsed
+      .map((item) => ({
+        material: String(item?.material || '').trim(),
+        quantity: Number(item?.quantity)
+      }))
+      .filter((item) => item.material && Number.isFinite(item.quantity) && item.quantity > 0);
+  } catch (err) {
+    return [];
+  }
+};
+
 const PickupsHistory = () => {
   const navigate = useNavigate();
   const [pickups, setPickups] = useState([]);
@@ -52,10 +76,16 @@ const PickupsHistory = () => {
   };
 
   const formattedPickups = useMemo(() => {
-    return pickups.map((item) => ({
-      ...item,
-      dateLabel: item.pickup_date ? dayjs(item.pickup_date).format('DD/MM/YYYY') : '-'
-    }));
+    return pickups.map((item) => {
+      const materialItems = parseMaterialItems(item.material);
+      const materialSearchText = materialItems.map((materialItem) => materialItem.material).join(' ');
+      return {
+        ...item,
+        materialItems,
+        materialSearchText,
+        dateLabel: item.pickup_date ? dayjs(item.pickup_date).format('DD/MM/YYYY') : '-'
+      };
+    });
   }, [pickups]);
 
   const normalizedSearch = searchQuery.trim().toLowerCase();
@@ -65,7 +95,12 @@ const PickupsHistory = () => {
     }
     const descriptionValue = (item.description || '').toLowerCase();
     const materialValue = (item.material || '').toLowerCase();
-    return descriptionValue.includes(normalizedSearch) || materialValue.includes(normalizedSearch);
+    const materialItemsValue = (item.materialSearchText || '').toLowerCase();
+    return (
+      descriptionValue.includes(normalizedSearch)
+      || materialValue.includes(normalizedSearch)
+      || materialItemsValue.includes(normalizedSearch)
+    );
   });
 
   return (
@@ -120,12 +155,36 @@ const PickupsHistory = () => {
               <Typography variant="caption" color="text.secondary">
                 Data: {item.dateLabel}
               </Typography>
-              <Typography variant="caption" color="text.secondary">
-                Material: {item.material}
-              </Typography>
-              <Typography variant="caption" color="text.secondary">
-                Quantidade: {item.quantity}
-              </Typography>
+              {item.materialItems.length > 0 ? (
+                <>
+                  <Typography variant="caption" color="text.secondary">
+                    Materiais:
+                  </Typography>
+                  <Box sx={{ display: 'grid', gap: 0.25 }}>
+                    {item.materialItems.map((materialItem, materialIndex) => (
+                      <Typography
+                        key={`${item.id}-material-${materialIndex}`}
+                        variant="caption"
+                        color="text.secondary"
+                      >
+                        {materialItem.material} — {materialItem.quantity}
+                      </Typography>
+                    ))}
+                  </Box>
+                  <Typography variant="caption" color="text.secondary">
+                    Quantidade total: {item.quantity}
+                  </Typography>
+                </>
+              ) : (
+                <>
+                  <Typography variant="caption" color="text.secondary">
+                    Material: {item.material}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Quantidade: {item.quantity}
+                  </Typography>
+                </>
+              )}
             </CardContent>
           </Card>
         ))
@@ -135,4 +194,3 @@ const PickupsHistory = () => {
 };
 
 export default PickupsHistory;
-

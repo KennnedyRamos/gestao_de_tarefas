@@ -388,7 +388,7 @@ const ComodatosDashboard = () => {
     }));
     return [...deliveryActivities, ...pickupActivities]
       .sort((a, b) => b.dateValue.valueOf() - a.dateValue.valueOf())
-      .slice(0, 12);
+      .slice(0, 3);
   }, [deliveriesInPeriod, pickupsInPeriod]);
 
   const periodInputType = 'month';

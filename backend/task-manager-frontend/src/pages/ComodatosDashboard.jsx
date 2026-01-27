@@ -427,14 +427,14 @@ const ComodatosDashboard = () => {
           <Typography variant="caption" color="text.secondary">Entregas</Typography>
           <Typography variant="h4">{deliveriesInPeriod.length}</Typography>
           <Typography variant="body2" color="text.secondary">
-            {deliveryDocsComplete} com NF e contrato ({deliveryDocsRate}%)
+            Total de entregas no mês selecionado
           </Typography>
         </Box>
         <Box sx={panelSx}>
           <Typography variant="caption" color="text.secondary">Retiradas</Typography>
           <Typography variant="h4">{pickupsInPeriod.length}</Typography>
           <Typography variant="body2" color="text.secondary">
-            {pickupsWithPhoto} com foto ({pickupPhotoRate}%)
+            Total de retiradas no mês selecionado
           </Typography>
         </Box>
         <Box sx={panelSx}>

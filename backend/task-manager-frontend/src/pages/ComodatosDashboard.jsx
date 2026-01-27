@@ -4,6 +4,7 @@ import {
   Box,
   Button,
   Divider,
+  IconButton,
   ToggleButton,
   ToggleButtonGroup,
   Typography
@@ -11,6 +12,8 @@ import {
 import dayjs from 'dayjs';
 import isoWeek from 'dayjs/plugin/isoWeek';
 import { useNavigate } from 'react-router-dom';
+import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
+import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 
 import api from '../services/api';
 
@@ -229,7 +232,7 @@ const ComodatosDashboard = () => {
       const pickupsCount = pickupCounts.get(key) || 0;
       return {
         key,
-        label: day.format('DD/MM'),
+        label: day.format('D'),
         deliveriesCount,
         pickupsCount,
         total: deliveriesCount + pickupsCount
@@ -312,6 +315,27 @@ const ComodatosDashboard = () => {
     }
     setPeriodDate(dayjs(value));
   };
+
+  const monthLabel = useMemo(() => {
+    const base = periodDate && typeof periodDate.isValid === 'function' && periodDate.isValid()
+      ? periodDate
+      : dayjs();
+    return base.startOf('month').format('MM/YYYY');
+  }, [periodDate]);
+
+  const shiftMonth = (direction) => {
+    setPeriodType('month');
+    setHoveredDayKey('');
+    setPeriodDate((prev) => {
+      const base = prev && typeof prev.isValid === 'function' && prev.isValid()
+        ? prev
+        : dayjs();
+      return base.startOf('month').add(direction, 'month');
+    });
+  };
+
+  const handlePrevMonth = () => shiftMonth(-1);
+  const handleNextMonth = () => shiftMonth(1);
 
   return (
     <Box sx={{ p: 3, display: 'grid', gap: 2 }}>
@@ -433,6 +457,42 @@ const ComodatosDashboard = () => {
               </Typography>
               <Divider />
               <Box sx={{ display: 'grid', gap: 1 }}>
+                <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+                  <Box
+                    sx={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 0.5,
+                      border: '1px solid var(--stroke)',
+                      borderRadius: 999,
+                      px: 0.5,
+                      py: 0.25,
+                      backgroundColor: 'var(--surface)'
+                    }}
+                  >
+                    <IconButton
+                      size="small"
+                      onClick={handlePrevMonth}
+                      aria-label="Mês anterior"
+                    >
+                      <ChevronLeftIcon fontSize="small" />
+                    </IconButton>
+                    <Typography
+                      variant="subtitle2"
+                      sx={{ minWidth: 78, textAlign: 'center', fontWeight: 700 }}
+                    >
+                      {monthLabel}
+                    </Typography>
+                    <IconButton
+                      size="small"
+                      onClick={handleNextMonth}
+                      aria-label="Próximo mês"
+                    >
+                      <ChevronRightIcon fontSize="small" />
+                    </IconButton>
+                  </Box>
+                </Box>
+
                 <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
                     <Box

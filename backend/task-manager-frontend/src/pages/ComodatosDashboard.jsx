@@ -8,14 +8,11 @@ import {
   Typography
 } from '@mui/material';
 import dayjs from 'dayjs';
-import isoWeek from 'dayjs/plugin/isoWeek';
 import { useNavigate } from 'react-router-dom';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 
 import api from '../services/api';
-
-dayjs.extend(isoWeek);
 
 const panelSx = {
   backgroundColor: 'var(--surface)',
@@ -254,62 +251,55 @@ const ComodatosDashboard = () => {
   }, [activityByDay, hoveredDayKey]);
 
   const weekSummaries = useMemo(() => {
-    const weeklyMap = new Map();
+    const today = dayjs();
+    const daysInMonth = periodStart.daysInMonth();
+    const isCurrentMonth = periodStart.isSame(today, 'month');
+    const dayLimit = isCurrentMonth ? Math.min(today.date(), daysInMonth) : daysInMonth;
+    const displayEnd = periodStart.date(dayLimit).endOf('day');
+    const weekCount = Math.max(1, Math.ceil(dayLimit / 7));
 
-    const ensureWeek = (weekStartValue) => {
-      const weekStart = weekStartValue.startOf('isoWeek');
-      const weekKey = weekStart.format('YYYY-[W]WW');
-      if (!weeklyMap.has(weekKey)) {
-        weeklyMap.set(weekKey, {
-          key: weekKey,
-          weekStart,
-          weekEnd: weekStart.endOf('isoWeek'),
-          deliveries: 0,
-          pickups: 0,
-          total: 0
-        });
+    const summaries = Array.from({ length: weekCount }, (_, index) => {
+      const weekIndex = index + 1;
+      const startDay = index * 7 + 1;
+      const endDay = Math.min((index + 1) * 7, dayLimit);
+      const weekStart = periodStart.date(startDay).startOf('day');
+      const weekEnd = periodStart.date(endDay).endOf('day');
+      return {
+        key: `${periodStart.format('YYYY-MM')}-S${weekIndex}`,
+        weekIndex,
+        weekLabel: `Semana ${weekIndex}`,
+        weekStart,
+        weekEnd,
+        label: `${weekStart.format('DD/MM')} - ${weekEnd.format('DD/MM')}`,
+        deliveries: 0,
+        pickups: 0,
+        total: 0
+      };
+    });
+
+    const addToWeek = (dateValue, type) => {
+      if (!dateValue || !dateValue.isValid() || dateValue.isAfter(displayEnd, 'day')) {
+        return;
       }
-      return weeklyMap.get(weekKey);
+      const computedIndex = Math.ceil(dateValue.date() / 7);
+      const boundedIndex = Math.min(weekCount, Math.max(1, computedIndex));
+      const entry = summaries[boundedIndex - 1];
+      if (!entry) {
+        return;
+      }
+      if (type === 'delivery') {
+        entry.deliveries += 1;
+      } else {
+        entry.pickups += 1;
+      }
+      entry.total += 1;
     };
 
-    periodDays.forEach((day) => {
-      ensureWeek(day);
-    });
+    deliveriesInPeriod.forEach((item) => addToWeek(item.dateValue, 'delivery'));
+    pickupsInPeriod.forEach((item) => addToWeek(item.dateValue, 'pickup'));
 
-    deliveriesInPeriod.forEach((item) => {
-      const entry = ensureWeek(item.dateValue);
-      entry.deliveries += 1;
-      entry.total += 1;
-    });
-
-    pickupsInPeriod.forEach((item) => {
-      const entry = ensureWeek(item.dateValue);
-      entry.pickups += 1;
-      entry.total += 1;
-    });
-
-    return Array.from(weeklyMap.values())
-      .map((entry) => {
-        const boundedStart = entry.weekStart.isBefore(periodStart, 'day')
-          ? periodStart.startOf('day')
-          : entry.weekStart.startOf('day');
-        const boundedEnd = entry.weekEnd.isAfter(periodEnd, 'day')
-          ? periodEnd.startOf('day')
-          : entry.weekEnd.startOf('day');
-        return {
-          ...entry,
-          boundedStart,
-          boundedEnd,
-          label: `${boundedStart.format('DD/MM')} - ${boundedEnd.format('DD/MM')}`
-        };
-      })
-      .sort((a, b) => a.weekStart.valueOf() - b.weekStart.valueOf())
-      .map((entry, index) => ({
-        ...entry,
-        weekIndex: index + 1,
-        weekLabel: `Semana ${index + 1}`
-      }));
-  }, [deliveriesInPeriod, pickupsInPeriod, periodDays, periodStart, periodEnd]);
+    return summaries;
+  }, [deliveriesInPeriod, pickupsInPeriod, periodStart]);
 
   useEffect(() => {
     if (!hoveredDayKey) {
@@ -799,27 +789,41 @@ const ComodatosDashboard = () => {
                       {monthLabel}
                     </Typography>
                   </Box>
-                  <Box sx={{ display: 'grid', gap: 0.35 }}>
+                  <Box
+                    sx={{
+                      display: 'flex',
+                      gap: 1,
+                      overflowX: 'auto',
+                      overflowY: 'hidden',
+                      pb: 0.5,
+                      minWidth: 0
+                    }}
+                  >
                     {weekSummaries.map((week) => (
                       <Box
                         key={week.key}
                         sx={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          gap: 1,
-                          borderBottom: '1px dashed var(--stroke)',
-                          py: 0.35
+                          flex: '0 0 auto',
+                          minWidth: 190,
+                          border: '1px solid var(--stroke)',
+                          borderRadius: 'var(--radius-md)',
+                          p: 1,
+                          display: 'grid',
+                          gap: 0.25,
+                          backgroundColor: 'var(--surface)'
                         }}
                       >
-                        <Typography variant="body2" sx={{ fontWeight: 800, minWidth: 82 }}>
+                        <Typography variant="body2" sx={{ fontWeight: 800 }}>
                           {week.weekLabel}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          {week.label}
                         </Typography>
                         <Box
                           sx={{
                             display: 'flex',
                             alignItems: 'center',
-                            justifyContent: 'flex-end',
+                            justifyContent: 'space-between',
                             gap: 1.25,
                             flexWrap: 'wrap'
                           }}

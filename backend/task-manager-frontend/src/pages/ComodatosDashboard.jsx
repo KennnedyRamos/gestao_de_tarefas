@@ -92,6 +92,7 @@ const ComodatosDashboard = () => {
   const [periodDate, setPeriodDate] = useState(dayjs());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [hoveredDayKey, setHoveredDayKey] = useState('');
 
   useEffect(() => {
     const loadData = async () => {
@@ -237,6 +238,33 @@ const ComodatosDashboard = () => {
   }, [deliveriesInPeriod, pickupsInPeriod, periodDays]);
 
   const maxActivityTotal = activityByDay.reduce((max, item) => Math.max(max, item.total), 0) || 1;
+
+  const maxActivityDayKey = useMemo(() => {
+    const maxItem = activityByDay.reduce((best, item) => {
+      if (!best || item.total > best.total) {
+        return item;
+      }
+      return best;
+    }, null);
+    return maxItem?.key || '';
+  }, [activityByDay]);
+
+  const maxActivityDay = useMemo(() => {
+    if (!maxActivityDayKey) {
+      return null;
+    }
+    return activityByDay.find((item) => item.key === maxActivityDayKey) || null;
+  }, [activityByDay, maxActivityDayKey]);
+
+  useEffect(() => {
+    if (!hoveredDayKey) {
+      return;
+    }
+    const stillExists = activityByDay.some((item) => item.key === hoveredDayKey);
+    if (!stillExists) {
+      setHoveredDayKey('');
+    }
+  }, [activityByDay, hoveredDayKey]);
 
   const recentActivities = useMemo(() => {
     const deliveryActivities = deliveriesInPeriod.map((item) => ({
@@ -434,76 +462,150 @@ const ComodatosDashboard = () => {
                   </Box>
                 </Box>
 
-                <Box
-                  sx={{
-                    display: 'flex',
-                    alignItems: 'flex-end',
-                    gap: 1,
-                    minHeight: 200,
-                    overflowX: 'auto',
-                    pt: 1,
-                    pb: 0.5,
-                    borderBottom: '1px dashed var(--stroke)'
-                  }}
-                >
-                  {activityByDay.map((item) => {
-                    const safeTotal = item.total || 0;
-                    const totalHeight = safeTotal === 0
-                      ? 8
-                      : Math.max(24, Math.round((safeTotal / maxActivityTotal) * 150));
-                    const deliveriesHeight = safeTotal === 0
-                      ? 0
-                      : Math.round((item.deliveriesCount / safeTotal) * totalHeight);
-                    const pickupsHeight = safeTotal === 0
-                      ? 0
-                      : Math.max(0, totalHeight - deliveriesHeight);
+                {maxActivityDay && maxActivityDay.total > 0 && (
+                  <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
+                    Maior volume: {dayjs(maxActivityDay.key).format('DD/MM/YYYY')} · {maxActivityDay.total} ações
+                  </Typography>
+                )}
 
-                    return (
-                      <Box
-                        key={item.key}
-                        sx={{
-                          minWidth: 42,
-                          display: 'grid',
-                          gap: 0.5,
-                          justifyItems: 'center'
-                        }}
-                      >
-                        <Typography variant="caption" color="text.secondary">
-                          {safeTotal}
-                        </Typography>
+                <Box sx={{ display: 'flex', justifyContent: 'center' }}>
+                  <Box sx={{ width: 'min(100%, 980px)' }}>
+                    <Box
+                      sx={{
+                        display: 'flex',
+                        alignItems: 'flex-end',
+                        justifyContent: 'center',
+                        gap: 1,
+                        minHeight: 230,
+                        overflowX: 'auto',
+                        overflowY: 'visible',
+                        px: 1,
+                        pt: 5,
+                        pb: 0.75,
+                        borderBottom: '1px solid var(--stroke)',
+                        backgroundImage:
+                          'repeating-linear-gradient(to top, rgba(15, 23, 42, 0.06) 0, rgba(15, 23, 42, 0.06) 1px, transparent 1px, transparent 36px)'
+                      }}
+                    >
+                      {activityByDay.map((item) => {
+                        const safeTotal = item.total || 0;
+                        const totalHeight = safeTotal === 0
+                          ? 10
+                          : Math.max(28, Math.round((safeTotal / maxActivityTotal) * 165));
+                        const deliveriesHeight = safeTotal === 0
+                          ? 0
+                          : Math.round((item.deliveriesCount / safeTotal) * totalHeight);
+                        const pickupsHeight = safeTotal === 0
+                          ? 0
+                          : Math.max(0, totalHeight - deliveriesHeight);
+                        const isMaxDay = item.key === maxActivityDayKey && safeTotal > 0;
+                        const isHovered = hoveredDayKey === item.key;
 
-                        <Box
-                          sx={{
-                            width: 28,
-                            height: totalHeight,
-                            borderRadius: 1.5,
-                            overflow: 'hidden',
-                            display: 'flex',
-                            flexDirection: 'column-reverse',
-                            border: '1px solid var(--stroke)',
-                            backgroundColor: 'rgba(15, 23, 42, 0.04)'
-                          }}
-                        >
+                        return (
                           <Box
+                            key={item.key}
                             sx={{
-                              height: pickupsHeight,
-                              backgroundColor: 'rgba(47, 107, 143, 0.85)'
+                              minWidth: 46,
+                              display: 'grid',
+                              gap: 0.5,
+                              justifyItems: 'center',
+                              position: 'relative'
                             }}
-                          />
-                          <Box
-                            sx={{
-                              height: deliveriesHeight,
-                              backgroundColor: 'rgba(208, 106, 58, 0.8)'
-                            }}
-                          />
-                        </Box>
+                          >
+                            {isHovered && (
+                              <Box
+                                sx={{
+                                  position: 'absolute',
+                                  top: 4,
+                                  minWidth: 168,
+                                  px: 1,
+                                  py: 0.75,
+                                  borderRadius: 1.25,
+                                  border: '1px solid var(--stroke)',
+                                  backgroundColor: 'var(--surface)',
+                                  boxShadow: 'var(--shadow-md)',
+                                  zIndex: 3,
+                                  display: 'grid',
+                                  gap: 0.25,
+                                  pointerEvents: 'none'
+                                }}
+                              >
+                                <Typography variant="caption" sx={{ fontWeight: 700 }}>
+                                  {dayjs(item.key).format('DD/MM/YYYY')}
+                                </Typography>
+                                <Typography variant="caption" color="text.secondary">
+                                  Entregas: {item.deliveriesCount}
+                                </Typography>
+                                <Typography variant="caption" color="text.secondary">
+                                  Retiradas: {item.pickupsCount}
+                                </Typography>
+                                <Typography variant="caption" sx={{ fontWeight: 700 }}>
+                                  Total: {safeTotal}
+                                </Typography>
+                              </Box>
+                            )}
 
-                        <Typography variant="caption" color="text.secondary">
-                          {item.label}
-                        </Typography>
-                      </Box>
-                    );
-                  })}
+                            <Typography
+                              variant="caption"
+                              color={isMaxDay ? 'text.primary' : 'text.secondary'}
+                              sx={{ fontWeight: isMaxDay ? 700 : 500 }}
+                            >
+                              {safeTotal}
+                            </Typography>
+
+                            <Box
+                              onMouseEnter={() => setHoveredDayKey(item.key)}
+                              onMouseLeave={() => setHoveredDayKey('')}
+                              onFocus={() => setHoveredDayKey(item.key)}
+                              onBlur={() => setHoveredDayKey('')}
+                              role="img"
+                              aria-label={`Dia ${item.label} com ${safeTotal} ações`}
+                              tabIndex={0}
+                              sx={{
+                                width: 32,
+                                height: totalHeight,
+                                borderRadius: 1.75,
+                                overflow: 'hidden',
+                                display: 'flex',
+                                flexDirection: 'column-reverse',
+                                border: isMaxDay ? '2px solid rgba(208, 106, 58, 0.9)' : '1px solid var(--stroke)',
+                                backgroundColor: 'rgba(15, 23, 42, 0.05)',
+                                boxShadow: isMaxDay
+                                  ? '0 0 0 3px rgba(208, 106, 58, 0.18)'
+                                  : 'none',
+                                transform: isHovered ? 'translateY(-2px)' : 'translateY(0)',
+                                transition: 'transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease',
+                                cursor: safeTotal > 0 ? 'pointer' : 'default',
+                                outline: isHovered ? '2px solid rgba(47, 107, 143, 0.35)' : 'none',
+                                outlineOffset: 2
+                              }}
+                            >
+                              <Box
+                                sx={{
+                                  height: pickupsHeight,
+                                  backgroundColor: 'rgba(47, 107, 143, 0.9)'
+                                }}
+                              />
+                              <Box
+                                sx={{
+                                  height: deliveriesHeight,
+                                  backgroundColor: 'rgba(208, 106, 58, 0.85)'
+                                }}
+                              />
+                            </Box>
+
+                            <Typography
+                              variant="caption"
+                              color={isMaxDay ? 'text.primary' : 'text.secondary'}
+                              sx={{ fontWeight: isMaxDay ? 700 : 500 }}
+                            >
+                              {item.label}
+                            </Typography>
+                          </Box>
+                        );
+                      })}
+                    </Box>
+                  </Box>
                 </Box>
               </Box>
             </Box>

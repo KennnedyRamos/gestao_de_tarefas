@@ -6,6 +6,7 @@ import {
   Card,
   CardContent,
   IconButton,
+  TextField,
   Typography
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
@@ -21,6 +22,7 @@ const Deliveries = () => {
   const [pdfOne, setPdfOne] = useState(null);
   const [pdfTwo, setPdfTwo] = useState(null);
   const [fileInputKey, setFileInputKey] = useState(0);
+  const [searchQuery, setSearchQuery] = useState('');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -129,6 +131,15 @@ const Deliveries = () => {
       pdfOneHref: toAbsoluteUrl(item.pdf_one_url),
       pdfTwoHref: toAbsoluteUrl(item.pdf_two_url)
     };
+  });
+
+  const normalizedSearch = searchQuery.trim().toLowerCase();
+  const filteredDeliveries = formattedDeliveries.filter((item) => {
+    if (!normalizedSearch) {
+      return true;
+    }
+    const descriptionValue = (item.description || '').toLowerCase();
+    return descriptionValue.includes(normalizedSearch);
   });
 
   return (
@@ -300,10 +311,22 @@ const Deliveries = () => {
 
         <Box sx={{ display: 'grid', gap: 2 }}>
           <Typography variant="h6">Histórico</Typography>
-          {formattedDeliveries.length === 0 ? (
-            <Typography color="text.secondary">Nenhuma entrega registrada.</Typography>
+          <TextField
+            label="Pesquisar por codigo ou fantasia"
+            placeholder="Ex.: 12345 ou Nome Fantasia"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            size="small"
+            fullWidth
+          />
+          {filteredDeliveries.length === 0 ? (
+            <Typography color="text.secondary">
+              {formattedDeliveries.length === 0
+                ? 'Nenhuma entrega registrada.'
+                : 'Nenhuma entrega encontrada para essa pesquisa.'}
+            </Typography>
           ) : (
-            formattedDeliveries.map((item, index) => (
+            filteredDeliveries.map((item, index) => (
               <Card
                 key={item.id}
                 className="stagger-item"

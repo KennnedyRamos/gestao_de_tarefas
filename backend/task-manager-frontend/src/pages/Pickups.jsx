@@ -20,6 +20,7 @@ const Pickups = () => {
   const [pickupDate, setPickupDate] = useState(dayjs().format('YYYY-MM-DD'));
   const [material, setMaterial] = useState('');
   const [quantity, setQuantity] = useState('1');
+  const [searchQuery, setSearchQuery] = useState('');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -110,6 +111,16 @@ const Pickups = () => {
       dateLabel: item.pickup_date ? dayjs(item.pickup_date).format('DD/MM/YYYY') : '-'
     }));
   }, [pickups]);
+
+  const normalizedSearch = searchQuery.trim().toLowerCase();
+  const filteredPickups = formattedPickups.filter((item) => {
+    if (!normalizedSearch) {
+      return true;
+    }
+    const descriptionValue = (item.description || '').toLowerCase();
+    const materialValue = (item.material || '').toLowerCase();
+    return descriptionValue.includes(normalizedSearch) || materialValue.includes(normalizedSearch);
+  });
 
   return (
     <Box sx={{ p: 3 }}>
@@ -207,10 +218,22 @@ const Pickups = () => {
 
         <Box sx={{ display: 'grid', gap: 2 }}>
           <Typography variant="h6">Histórico</Typography>
-          {formattedPickups.length === 0 ? (
-            <Typography color="text.secondary">Nenhuma retirada registrada.</Typography>
+          <TextField
+            label="Pesquisar por codigo ou fantasia"
+            placeholder="Ex.: 12345 ou Nome Fantasia"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            size="small"
+            fullWidth
+          />
+          {filteredPickups.length === 0 ? (
+            <Typography color="text.secondary">
+              {formattedPickups.length === 0
+                ? 'Nenhuma retirada registrada.'
+                : 'Nenhuma retirada encontrada para essa pesquisa.'}
+            </Typography>
           ) : (
-            formattedPickups.map((item, index) => (
+            filteredPickups.map((item, index) => (
               <Card
                 key={item.id}
                 className="stagger-item"

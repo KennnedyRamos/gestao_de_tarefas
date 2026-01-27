@@ -8,7 +8,6 @@ const Header = () => {
   const [username, setUsername] = useState('Usuário');
   const navigate = useNavigate();
   const logoSrc = `${process.env.PUBLIC_URL}/logo192.png`;
-  const iconSrc = `${process.env.PUBLIC_URL}/favicon.ico`;
 
   useEffect(() => {
     api.get('/auth/me')
@@ -43,19 +42,6 @@ const Header = () => {
         }}
       >
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <Box
-            component="img"
-            src={iconSrc}
-            alt="Ícone"
-            sx={{
-              width: 28,
-              height: 28,
-              borderRadius: 1,
-              backgroundColor: '#fff',
-              p: 0.25,
-              boxShadow: 'var(--shadow-md)'
-            }}
-          />
           <Box
             component="img"
             src={logoSrc}

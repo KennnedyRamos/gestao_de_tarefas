@@ -13,6 +13,8 @@ import api from '../services/api';
 
 const PickupsCreate = () => {
   const navigate = useNavigate();
+  const [clientCode, setClientCode] = useState('');
+  const [fantasyName, setFantasyName] = useState('');
   const [description, setDescription] = useState('');
   const [pickupDate, setPickupDate] = useState(dayjs().format('YYYY-MM-DD'));
   const [material, setMaterial] = useState('');
@@ -34,6 +36,14 @@ const PickupsCreate = () => {
     setSuccess('');
     setError('');
 
+    if (!clientCode.trim()) {
+      setError('Informe o código do cliente.');
+      return;
+    }
+    if (!fantasyName.trim()) {
+      setError('Informe a fantasia do cliente.');
+      return;
+    }
     if (!description.trim()) {
       setError('Informe a descrição da retirada.');
       return;
@@ -53,14 +63,18 @@ const PickupsCreate = () => {
       return;
     }
 
+    const descriptionPayload = `Código do cliente: ${clientCode.trim()} | Fantasia: ${fantasyName.trim()} | Descrição: ${description.trim()}`;
+
     try {
       setSubmitting(true);
       await api.post('/pickups', {
-        description: description.trim(),
+        description: descriptionPayload,
         pickup_date: pickupDate,
         material: material.trim(),
         quantity: parsedQuantity
       });
+      setClientCode('');
+      setFantasyName('');
       setDescription('');
       setPickupDate(dayjs().format('YYYY-MM-DD'));
       setMaterial('');
@@ -88,9 +102,25 @@ const PickupsCreate = () => {
 
       <Box component="form" onSubmit={handleSubmit} sx={panelSx}>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          Na descrição, informe o código do cliente e o nome fantasia.
+          Informe o código do cliente, a fantasia e, por fim, a descrição.
         </Typography>
 
+        <TextField
+          label="Código do cliente"
+          fullWidth
+          sx={{ mb: 2 }}
+          value={clientCode}
+          onChange={(e) => setClientCode(e.target.value)}
+          required
+        />
+        <TextField
+          label="Fantasia"
+          fullWidth
+          sx={{ mb: 2 }}
+          value={fantasyName}
+          onChange={(e) => setFantasyName(e.target.value)}
+          required
+        />
         <TextField
           label="Descrição"
           fullWidth
@@ -139,6 +169,8 @@ const PickupsCreate = () => {
             variant="outlined"
             disabled={submitting}
             onClick={() => {
+              setClientCode('');
+              setFantasyName('');
               setDescription('');
               setPickupDate(dayjs().format('YYYY-MM-DD'));
               setMaterial('');

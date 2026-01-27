@@ -12,6 +12,8 @@ import api from '../services/api';
 
 const DeliveriesCreate = () => {
   const navigate = useNavigate();
+  const [clientCode, setClientCode] = useState('');
+  const [fantasyName, setFantasyName] = useState('');
   const [description, setDescription] = useState('');
   const [deliveryDate, setDeliveryDate] = useState(dayjs().format('YYYY-MM-DD'));
   const [deliveryTime, setDeliveryTime] = useState('');
@@ -35,6 +37,14 @@ const DeliveriesCreate = () => {
     setSuccess('');
     setError('');
 
+    if (!clientCode.trim()) {
+      setError('Informe o código do cliente.');
+      return;
+    }
+    if (!fantasyName.trim()) {
+      setError('Informe a fantasia do cliente.');
+      return;
+    }
     if (!description.trim()) {
       setError('Informe a descrição da entrega.');
       return;
@@ -48,8 +58,10 @@ const DeliveriesCreate = () => {
       return;
     }
 
+    const descriptionPayload = `Código do cliente: ${clientCode.trim()} | Fantasia: ${fantasyName.trim()} | Descrição: ${description.trim()}`;
+
     const formData = new FormData();
-    formData.append('description', description.trim());
+    formData.append('description', descriptionPayload);
     formData.append('delivery_date', deliveryDate);
     if (deliveryTime) {
       formData.append('delivery_time', deliveryTime);
@@ -62,6 +74,8 @@ const DeliveriesCreate = () => {
       await api.post('/deliveries', formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
+      setClientCode('');
+      setFantasyName('');
       setDescription('');
       setDeliveryDate(dayjs().format('YYYY-MM-DD'));
       setDeliveryTime('');
@@ -91,10 +105,51 @@ const DeliveriesCreate = () => {
 
       <Box component="form" onSubmit={handleSubmit} sx={panelSx}>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          Na descrição, informe o código do cliente e o nome fantasia.
+          Informe o código do cliente, a fantasia e, por fim, a descrição.
         </Typography>
 
         <Box sx={{ display: 'grid', gap: 2 }}>
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 2 }}>
+            <Box>
+              <Typography variant="caption" color="text.secondary">
+                Código do cliente
+              </Typography>
+              <input
+                type="text"
+                value={clientCode}
+                onChange={(e) => setClientCode(e.target.value)}
+                style={{
+                  width: '100%',
+                  marginTop: 6,
+                  padding: 10,
+                  borderRadius: 12,
+                  border: '1px solid var(--stroke)',
+                  fontFamily: 'var(--font-sans)'
+                }}
+                required
+              />
+            </Box>
+            <Box>
+              <Typography variant="caption" color="text.secondary">
+                Fantasia
+              </Typography>
+              <input
+                type="text"
+                value={fantasyName}
+                onChange={(e) => setFantasyName(e.target.value)}
+                style={{
+                  width: '100%',
+                  marginTop: 6,
+                  padding: 10,
+                  borderRadius: 12,
+                  border: '1px solid var(--stroke)',
+                  fontFamily: 'var(--font-sans)'
+                }}
+                required
+              />
+            </Box>
+          </Box>
+
           <Box>
             <Typography variant="caption" color="text.secondary">
               Descrição
@@ -212,6 +267,8 @@ const DeliveriesCreate = () => {
               variant="outlined"
               disabled={submitting}
               onClick={() => {
+                setClientCode('');
+                setFantasyName('');
                 setDescription('');
                 setDeliveryDate(dayjs().format('YYYY-MM-DD'));
                 setDeliveryTime('');

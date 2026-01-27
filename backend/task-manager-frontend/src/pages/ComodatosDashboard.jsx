@@ -404,41 +404,107 @@ const ComodatosDashboard = () => {
                 Volume de entregas e retiradas por dia no período selecionado.
               </Typography>
               <Divider />
-              <Box sx={{ display: 'grid', gap: 0.75 }}>
-                {activityByDay.map((item) => {
-                  const deliveriesWidth = Math.max(6, Math.round((item.deliveriesCount / maxActivityTotal) * 100));
-                  const pickupsWidth = Math.max(6, Math.round((item.pickupsCount / maxActivityTotal) * 100));
-                  return (
-                    <Box key={item.key} sx={{ display: 'grid', gap: 0.25 }}>
-                      <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+              <Box sx={{ display: 'grid', gap: 1 }}>
+                <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                    <Box
+                      sx={{
+                        width: 12,
+                        height: 12,
+                        borderRadius: 1,
+                        backgroundColor: 'rgba(208, 106, 58, 0.8)'
+                      }}
+                    />
+                    <Typography variant="caption" color="text.secondary">
+                      Entregas
+                    </Typography>
+                  </Box>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                    <Box
+                      sx={{
+                        width: 12,
+                        height: 12,
+                        borderRadius: 1,
+                        backgroundColor: 'rgba(47, 107, 143, 0.85)'
+                      }}
+                    />
+                    <Typography variant="caption" color="text.secondary">
+                      Retiradas
+                    </Typography>
+                  </Box>
+                </Box>
+
+                <Box
+                  sx={{
+                    display: 'flex',
+                    alignItems: 'flex-end',
+                    gap: 1,
+                    minHeight: 200,
+                    overflowX: 'auto',
+                    pt: 1,
+                    pb: 0.5,
+                    borderBottom: '1px dashed var(--stroke)'
+                  }}
+                >
+                  {activityByDay.map((item) => {
+                    const safeTotal = item.total || 0;
+                    const totalHeight = safeTotal === 0
+                      ? 8
+                      : Math.max(24, Math.round((safeTotal / maxActivityTotal) * 150));
+                    const deliveriesHeight = safeTotal === 0
+                      ? 0
+                      : Math.round((item.deliveriesCount / safeTotal) * totalHeight);
+                    const pickupsHeight = safeTotal === 0
+                      ? 0
+                      : Math.max(0, totalHeight - deliveriesHeight);
+
+                    return (
+                      <Box
+                        key={item.key}
+                        sx={{
+                          minWidth: 42,
+                          display: 'grid',
+                          gap: 0.5,
+                          justifyItems: 'center'
+                        }}
+                      >
+                        <Typography variant="caption" color="text.secondary">
+                          {safeTotal}
+                        </Typography>
+
+                        <Box
+                          sx={{
+                            width: 28,
+                            height: totalHeight,
+                            borderRadius: 1.5,
+                            overflow: 'hidden',
+                            display: 'flex',
+                            flexDirection: 'column-reverse',
+                            border: '1px solid var(--stroke)',
+                            backgroundColor: 'rgba(15, 23, 42, 0.04)'
+                          }}
+                        >
+                          <Box
+                            sx={{
+                              height: pickupsHeight,
+                              backgroundColor: 'rgba(47, 107, 143, 0.85)'
+                            }}
+                          />
+                          <Box
+                            sx={{
+                              height: deliveriesHeight,
+                              backgroundColor: 'rgba(208, 106, 58, 0.8)'
+                            }}
+                          />
+                        </Box>
+
                         <Typography variant="caption" color="text.secondary">
                           {item.label}
                         </Typography>
-                        <Typography variant="caption" color="text.secondary">
-                          {item.total} ações
-                        </Typography>
                       </Box>
-                      <Box sx={{ display: 'grid', gap: 0.25 }}>
-                        <Box
-                          sx={{
-                            height: 8,
-                            borderRadius: 999,
-                            backgroundColor: 'rgba(208, 106, 58, 0.16)',
-                            width: `${item.deliveriesCount === 0 ? 0 : deliveriesWidth}%`
-                          }}
-                        />
-                        <Box
-                          sx={{
-                            height: 8,
-                            borderRadius: 999,
-                            backgroundColor: 'rgba(47, 107, 143, 0.22)',
-                            width: `${item.pickupsCount === 0 ? 0 : pickupsWidth}%`
-                          }}
-                        />
-                      </Box>
-                    </Box>
-                  );
-                })}
+                    );
+                  })}
+                </Box>
               </Box>
             </Box>
 
@@ -586,4 +652,3 @@ const ComodatosDashboard = () => {
 };
 
 export default ComodatosDashboard;
-

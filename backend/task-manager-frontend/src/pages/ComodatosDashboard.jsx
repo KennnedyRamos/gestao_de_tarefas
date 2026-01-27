@@ -73,6 +73,32 @@ const formatPeriodRange = (start, end) => {
   return `${start.format('DD/MM/YYYY')} - ${end.format('DD/MM/YYYY')}`;
 };
 
+const getMonthWeekMeta = (baseDate) => {
+  const safeBase = baseDate && typeof baseDate.isValid === 'function' && baseDate.isValid()
+    ? baseDate
+    : dayjs();
+  const today = dayjs();
+  const monthStart = safeBase.startOf('month');
+  const daysInMonth = monthStart.daysInMonth();
+  const isCurrentMonth = monthStart.isSame(today, 'month');
+  const dayLimit = isCurrentMonth ? Math.min(today.date(), daysInMonth) : daysInMonth;
+  const displayEnd = monthStart.date(dayLimit).endOf('day');
+  const weekCount = Math.max(1, Math.ceil(dayLimit / 7));
+  const currentWeekIndex = isCurrentMonth
+    ? Math.min(weekCount, Math.max(1, Math.ceil(today.date() / 7)))
+    : 1;
+  return {
+    monthStart,
+    daysInMonth,
+    isCurrentMonth,
+    dayLimit,
+    displayEnd,
+    weekCount,
+    currentWeekIndex,
+    monthKey: monthStart.format('YYYY-MM')
+  };
+};
+
 const buildMaterialSummary = (items) => {
   if (!items || items.length === 0) {
     return 'Sem materiais informados';
@@ -87,6 +113,10 @@ const ComodatosDashboard = () => {
   const [deliveries, setDeliveries] = useState([]);
   const [pickups, setPickups] = useState([]);
   const [periodDate, setPeriodDate] = useState(dayjs());
+  const [selectedWeekIndex, setSelectedWeekIndex] = useState(() => {
+    const meta = getMonthWeekMeta(dayjs());
+    return meta.currentWeekIndex;
+  });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [hoveredDayKey, setHoveredDayKey] = useState('');
@@ -111,12 +141,27 @@ const ComodatosDashboard = () => {
     loadData();
   }, []);
 
+  const monthMeta = useMemo(() => getMonthWeekMeta(periodDate), [periodDate]);
+
+  useEffect(() => {
+    setSelectedWeekIndex((prev) => {
+      const safePrev = prev || 1;
+      return Math.min(monthMeta.weekCount, Math.max(1, safePrev));
+    });
+  }, [monthMeta.weekCount]);
+
   const { periodStart, periodEnd, periodLabel } = useMemo(() => {
-    const base = periodDate.isValid() ? periodDate : dayjs();
-    const start = base.startOf('month');
-    const end = base.endOf('month');
-    return { periodStart: start, periodEnd: end, periodLabel: `Mês ${base.format('MM/YYYY')}` };
-  }, [periodDate]);
+    const weekIndex = Math.min(monthMeta.weekCount, Math.max(1, selectedWeekIndex || 1));
+    const startDay = (weekIndex - 1) * 7 + 1;
+    const endDay = Math.min(weekIndex * 7, monthMeta.dayLimit);
+    const start = monthMeta.monthStart.date(startDay).startOf('day');
+    const end = monthMeta.monthStart.date(endDay).endOf('day');
+    return {
+      periodStart: start,
+      periodEnd: end,
+      periodLabel: `Semana ${weekIndex} - ${monthMeta.monthStart.format('MM/YYYY')}`
+    };
+  }, [monthMeta, selectedWeekIndex]);
 
   const deliveriesMapped = deliveries.map((item) => {
     const dateValue = dayjs(item.delivery_date);
@@ -143,8 +188,15 @@ const ComodatosDashboard = () => {
     };
   });
 
-  const deliveriesInPeriod = deliveriesMapped.filter((item) => withinPeriod(item.dateValue, periodStart, periodEnd));
-  const pickupsInPeriod = pickupsMapped.filter((item) => withinPeriod(item.dateValue, periodStart, periodEnd));
+  const deliveriesInMonth = deliveriesMapped.filter((item) =>
+    withinPeriod(item.dateValue, monthMeta.monthStart, monthMeta.displayEnd)
+  );
+  const pickupsInMonth = pickupsMapped.filter((item) =>
+    withinPeriod(item.dateValue, monthMeta.monthStart, monthMeta.displayEnd)
+  );
+
+  const deliveriesInPeriod = deliveriesInMonth.filter((item) => withinPeriod(item.dateValue, periodStart, periodEnd));
+  const pickupsInPeriod = pickupsInMonth.filter((item) => withinPeriod(item.dateValue, periodStart, periodEnd));
 
   const deliveryDocsComplete = deliveriesInPeriod.filter((item) => item.hasDocs).length;
   const deliveryDocsRate = deliveriesInPeriod.length === 0
@@ -251,28 +303,23 @@ const ComodatosDashboard = () => {
   }, [activityByDay, hoveredDayKey]);
 
   const weekSummaries = useMemo(() => {
-    const today = dayjs();
-    const daysInMonth = periodStart.daysInMonth();
-    const isCurrentMonth = periodStart.isSame(today, 'month');
-    const dayLimit = isCurrentMonth ? Math.min(today.date(), daysInMonth) : daysInMonth;
-    const displayEnd = periodStart.date(dayLimit).endOf('day');
-    const weekCount = Math.max(1, Math.ceil(dayLimit / 7));
-    const currentWeekIndex = isCurrentMonth ? Math.ceil(dayLimit / 7) : 0;
+    const { monthStart, dayLimit, displayEnd, weekCount, isCurrentMonth, currentWeekIndex } = monthMeta;
 
     const summaries = Array.from({ length: weekCount }, (_, index) => {
       const weekIndex = index + 1;
       const startDay = index * 7 + 1;
       const endDay = Math.min((index + 1) * 7, dayLimit);
-      const weekStart = periodStart.date(startDay).startOf('day');
-      const weekEnd = periodStart.date(endDay).endOf('day');
+      const weekStart = monthStart.date(startDay).startOf('day');
+      const weekEnd = monthStart.date(endDay).endOf('day');
       return {
-        key: `${periodStart.format('YYYY-MM')}-S${weekIndex}`,
+        key: `${monthStart.format('YYYY-MM')}-S${weekIndex}`,
         weekIndex,
         weekLabel: `Semana ${weekIndex}`,
         weekStart,
         weekEnd,
         label: `${weekStart.format('DD/MM')} - ${weekEnd.format('DD/MM')}`,
         isCurrentWeek: isCurrentMonth && weekIndex === currentWeekIndex,
+        isSelectedWeek: weekIndex === selectedWeekIndex,
         deliveries: 0,
         pickups: 0,
         total: 0
@@ -297,11 +344,18 @@ const ComodatosDashboard = () => {
       entry.total += 1;
     };
 
-    deliveriesInPeriod.forEach((item) => addToWeek(item.dateValue, 'delivery'));
-    pickupsInPeriod.forEach((item) => addToWeek(item.dateValue, 'pickup'));
+    deliveriesInMonth.forEach((item) => addToWeek(item.dateValue, 'delivery'));
+    pickupsInMonth.forEach((item) => addToWeek(item.dateValue, 'pickup'));
 
     return summaries;
-  }, [deliveriesInPeriod, pickupsInPeriod, periodStart]);
+  }, [deliveriesInMonth, pickupsInMonth, monthMeta, selectedWeekIndex]);
+
+  const selectedWeekSummary = useMemo(() => {
+    if (!weekSummaries || weekSummaries.length === 0) {
+      return null;
+    }
+    return weekSummaries.find((week) => week.weekIndex === selectedWeekIndex) || weekSummaries[0];
+  }, [weekSummaries, selectedWeekIndex]);
 
   useEffect(() => {
     if (!hoveredDayKey) {
@@ -340,32 +394,59 @@ const ComodatosDashboard = () => {
   const periodInputType = 'month';
   const periodInputValue = periodDate.format('YYYY-MM');
 
+  const setMonthDate = (nextDate, preferredWeekIndex) => {
+    const meta = getMonthWeekMeta(nextDate);
+    const defaultWeekIndex = meta.isCurrentMonth ? meta.currentWeekIndex : 1;
+    const targetWeekIndex = preferredWeekIndex ?? defaultWeekIndex;
+    const clampedWeekIndex = Math.min(meta.weekCount, Math.max(1, targetWeekIndex));
+    setPeriodDate(meta.monthStart);
+    setSelectedWeekIndex(clampedWeekIndex);
+  };
+
   const handlePeriodDateChange = (value) => {
     if (!value) {
       return;
     }
-    setPeriodDate(dayjs(`${value}-01`));
+    setHoveredDayKey('');
+    setMonthDate(dayjs(`${value}-01`));
   };
 
-  const monthLabel = useMemo(() => {
+  const monthLabel = monthMeta.monthStart.format('MM/YYYY');
+
+  const shiftMonth = (direction) => {
     const base = periodDate && typeof periodDate.isValid === 'function' && periodDate.isValid()
       ? periodDate
       : dayjs();
-    return base.startOf('month').format('MM/YYYY');
-  }, [periodDate]);
-
-  const shiftMonth = (direction) => {
+    const nextDate = base.startOf('month').add(direction, 'month');
     setHoveredDayKey('');
-    setPeriodDate((prev) => {
-      const base = prev && typeof prev.isValid === 'function' && prev.isValid()
-        ? prev
-        : dayjs();
-      return base.startOf('month').add(direction, 'month');
-    });
+    setMonthDate(nextDate);
   };
 
   const handlePrevMonth = () => shiftMonth(-1);
   const handleNextMonth = () => shiftMonth(1);
+
+  const handlePrevWeek = () => {
+    setHoveredDayKey('');
+    if (selectedWeekIndex > 1) {
+      setSelectedWeekIndex(selectedWeekIndex - 1);
+      return;
+    }
+    const prevMonth = monthMeta.monthStart.subtract(1, 'month');
+    const prevMeta = getMonthWeekMeta(prevMonth);
+    setMonthDate(prevMonth, prevMeta.weekCount);
+  };
+
+  const handleNextWeek = () => {
+    setHoveredDayKey('');
+    if (selectedWeekIndex < monthMeta.weekCount) {
+      setSelectedWeekIndex(selectedWeekIndex + 1);
+      return;
+    }
+    const nextMonth = monthMeta.monthStart.add(1, 'month');
+    const nextMeta = getMonthWeekMeta(nextMonth);
+    const nextWeekIndex = nextMeta.isCurrentMonth ? nextMeta.currentWeekIndex : 1;
+    setMonthDate(nextMonth, nextWeekIndex);
+  };
 
   return (
     <Box sx={{ p: 3, display: 'grid', gap: 2 }}>
@@ -783,50 +864,65 @@ const ComodatosDashboard = () => {
                     backgroundColor: 'rgba(47, 107, 143, 0.05)'
                   }}
                 >
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-                    <Typography variant="caption" color="text.secondary">
-                      Totais por semana
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      {monthLabel}
-                    </Typography>
-                  </Box>
                   <Box
                     sx={{
                       display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
                       gap: 1,
-                      overflowX: 'auto',
-                      overflowY: 'hidden',
-                      pb: 0.5,
-                      minWidth: 0
+                      flexWrap: 'wrap'
                     }}
                   >
-                    {weekSummaries.map((week) => (
+                    <Typography variant="caption" color="text.secondary">
+                      Totais por semana
+                    </Typography>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25 }}>
+                      <IconButton size="small" onClick={handlePrevWeek} aria-label="Semana anterior">
+                        <ChevronLeftIcon fontSize="small" />
+                      </IconButton>
+                      <Typography
+                        variant="caption"
+                        sx={{ fontWeight: 700, minWidth: 86, textAlign: 'center' }}
+                      >
+                        Semana {selectedWeekIndex}
+                      </Typography>
+                      <IconButton size="small" onClick={handleNextWeek} aria-label="Próxima semana">
+                        <ChevronRightIcon fontSize="small" />
+                      </IconButton>
+                      <Typography variant="caption" color="text.secondary" sx={{ ml: 0.5 }}>
+                        {monthLabel}
+                      </Typography>
+                    </Box>
+                  </Box>
+                  <Box sx={{ display: 'grid', gap: 0.5, minWidth: 0 }}>
+                    {selectedWeekSummary ? (
                       <Box
-                        key={week.key}
                         sx={{
-                          flex: '0 0 auto',
-                          minWidth: 190,
-                          border: week.isCurrentWeek
+                          border: selectedWeekSummary.isCurrentWeek
                             ? '1px solid rgba(47, 107, 143, 0.7)'
                             : '1px solid var(--stroke)',
                           borderRadius: 'var(--radius-md)',
-                          p: 1,
+                          p: 1.25,
                           display: 'grid',
                           gap: 0.25,
-                          backgroundColor: week.isCurrentWeek
+                          backgroundColor: selectedWeekSummary.isCurrentWeek
                             ? 'rgba(47, 107, 143, 0.10)'
                             : 'var(--surface)',
-                          boxShadow: week.isCurrentWeek
+                          boxShadow: selectedWeekSummary.isCurrentWeek
                             ? '0 0 0 2px rgba(47, 107, 143, 0.18)'
                             : 'none'
                         }}
                       >
-                        <Typography variant="body2" sx={{ fontWeight: 800 }}>
-                          {week.weekLabel}
-                        </Typography>
+                        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
+                          <Typography variant="body2" sx={{ fontWeight: 800 }}>
+                            {selectedWeekSummary.weekLabel}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            {monthLabel}
+                          </Typography>
+                        </Box>
                         <Typography variant="caption" color="text.secondary">
-                          {week.label}
+                          {selectedWeekSummary.label}
                         </Typography>
                         <Box
                           sx={{
@@ -838,17 +934,21 @@ const ComodatosDashboard = () => {
                           }}
                         >
                           <Typography variant="caption" color="text.secondary">
-                            Entregas: {week.deliveries}
+                            Entregas: {selectedWeekSummary.deliveries}
                           </Typography>
                           <Typography variant="caption" color="text.secondary">
-                            Retiradas: {week.pickups}
+                            Retiradas: {selectedWeekSummary.pickups}
                           </Typography>
                         </Box>
                         <Typography variant="caption" sx={{ fontWeight: 800, textAlign: 'right' }}>
-                          Total: {week.total}
+                          Total: {selectedWeekSummary.total}
                         </Typography>
                       </Box>
-                    ))}
+                    ) : (
+                      <Typography variant="caption" color="text.secondary">
+                        Nenhuma semana disponível para este mês.
+                      </Typography>
+                    )}
                   </Box>
                 </Box>
               </Box>
@@ -952,4 +1052,5 @@ const ComodatosDashboard = () => {
 };
 
 export default ComodatosDashboard;
+
 

@@ -5,19 +5,14 @@ import {
   Button,
   Divider,
   IconButton,
-  ToggleButton,
-  ToggleButtonGroup,
   Typography
 } from '@mui/material';
 import dayjs from 'dayjs';
-import isoWeek from 'dayjs/plugin/isoWeek';
 import { useNavigate } from 'react-router-dom';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 
 import api from '../services/api';
-
-dayjs.extend(isoWeek);
 
 const panelSx = {
   backgroundColor: 'var(--surface)',
@@ -75,7 +70,7 @@ const withinPeriod = (value, start, end) => {
 };
 
 const formatPeriodRange = (start, end) => {
-  return `${start.format('DD/MM/YYYY')} — ${end.format('DD/MM/YYYY')}`;
+  return `${start.format('DD/MM/YYYY')} - ${end.format('DD/MM/YYYY')}`;
 };
 
 const buildMaterialSummary = (items) => {
@@ -91,7 +86,6 @@ const ComodatosDashboard = () => {
   const navigate = useNavigate();
   const [deliveries, setDeliveries] = useState([]);
   const [pickups, setPickups] = useState([]);
-  const [periodType, setPeriodType] = useState('month');
   const [periodDate, setPeriodDate] = useState(dayjs());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -119,20 +113,10 @@ const ComodatosDashboard = () => {
 
   const { periodStart, periodEnd, periodLabel } = useMemo(() => {
     const base = periodDate.isValid() ? periodDate : dayjs();
-    if (periodType === 'day') {
-      const start = base.startOf('day');
-      const end = base.endOf('day');
-      return { periodStart: start, periodEnd: end, periodLabel: base.format('DD/MM/YYYY') };
-    }
-    if (periodType === 'week') {
-      const start = base.startOf('isoWeek');
-      const end = base.endOf('isoWeek');
-      return { periodStart: start, periodEnd: end, periodLabel: `Semana de ${start.format('DD/MM')}` };
-    }
     const start = base.startOf('month');
     const end = base.endOf('month');
     return { periodStart: start, periodEnd: end, periodLabel: `Mês ${base.format('MM/YYYY')}` };
-  }, [periodDate, periodType]);
+  }, [periodDate]);
 
   const deliveriesMapped = deliveries.map((item) => {
     const dateValue = dayjs(item.delivery_date);
@@ -293,27 +277,14 @@ const ComodatosDashboard = () => {
       .slice(0, 12);
   }, [deliveriesInPeriod, pickupsInPeriod]);
 
-  const handlePeriodTypeChange = (event, value) => {
-    if (!value) {
-      return;
-    }
-    setPeriodType(value);
-  };
-
-  const periodInputType = periodType === 'month' ? 'month' : 'date';
-  const periodInputValue = periodType === 'month'
-    ? periodDate.format('YYYY-MM')
-    : periodDate.format('YYYY-MM-DD');
+  const periodInputType = 'month';
+  const periodInputValue = periodDate.format('YYYY-MM');
 
   const handlePeriodDateChange = (value) => {
     if (!value) {
       return;
     }
-    if (periodType === 'month') {
-      setPeriodDate(dayjs(`${value}-01`));
-      return;
-    }
-    setPeriodDate(dayjs(value));
+    setPeriodDate(dayjs(`${value}-01`));
   };
 
   const monthLabel = useMemo(() => {
@@ -324,7 +295,6 @@ const ComodatosDashboard = () => {
   }, [periodDate]);
 
   const shiftMonth = (direction) => {
-    setPeriodType('month');
     setHoveredDayKey('');
     setPeriodDate((prev) => {
       const base = prev && typeof prev.isValid === 'function' && prev.isValid()
@@ -363,16 +333,6 @@ const ComodatosDashboard = () => {
       <Box sx={{ ...panelSx, display: 'grid', gap: 1.5 }}>
         <Typography variant="subtitle1">Filtros</Typography>
         <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, alignItems: 'center' }}>
-          <ToggleButtonGroup
-            value={periodType}
-            exclusive
-            onChange={handlePeriodTypeChange}
-            size="small"
-          >
-            <ToggleButton value="day">Dia</ToggleButton>
-            <ToggleButton value="week">Semana</ToggleButton>
-            <ToggleButton value="month">Mês</ToggleButton>
-          </ToggleButtonGroup>
           <Box sx={{ display: 'grid', gap: 0.25 }}>
             <Typography variant="caption" color="text.secondary">
               Data de referência
@@ -528,17 +488,20 @@ const ComodatosDashboard = () => {
                   </Typography>
                 )}
 
-                <Box sx={{ display: 'flex', justifyContent: 'center' }}>
-                  <Box sx={{ width: 'min(100%, 980px)' }}>
+                <Box sx={{ display: 'flex', justifyContent: 'center', minWidth: 0 }}>
+                  <Box sx={{ width: '100%', maxWidth: 980, minWidth: 0 }}>
                     <Box
                       sx={{
                         display: 'flex',
                         alignItems: 'flex-end',
                         justifyContent: 'center',
-                        gap: 1,
-                        minHeight: 230,
+                        gap: 0.25,
+                        width: '100%',
+                        maxWidth: '100%',
+                        minWidth: 0,
+                        minHeight: 210,
                         overflowX: 'auto',
-                        overflowY: 'visible',
+                        overflowY: 'hidden',
                         px: 1,
                         pt: 5,
                         pb: 0.75,
@@ -550,8 +513,8 @@ const ComodatosDashboard = () => {
                       {activityByDay.map((item) => {
                         const safeTotal = item.total || 0;
                         const totalHeight = safeTotal === 0
-                          ? 10
-                          : Math.max(28, Math.round((safeTotal / maxActivityTotal) * 165));
+                          ? 8
+                          : Math.max(24, Math.round((safeTotal / maxActivityTotal) * 150));
                         const deliveriesHeight = safeTotal === 0
                           ? 0
                           : Math.round((item.deliveriesCount / safeTotal) * totalHeight);
@@ -565,9 +528,11 @@ const ComodatosDashboard = () => {
                           <Box
                             key={item.key}
                             sx={{
-                              minWidth: 46,
+                              flex: '1 1 0',
+                              minWidth: 0,
+                              maxWidth: 34,
                               display: 'grid',
-                              gap: 0.5,
+                              gap: 0.35,
                               justifyItems: 'center',
                               position: 'relative'
                             }}
@@ -622,7 +587,7 @@ const ComodatosDashboard = () => {
                               aria-label={`Dia ${item.label} com ${safeTotal} ações`}
                               tabIndex={0}
                               sx={{
-                                width: 32,
+                                width: 22,
                                 height: totalHeight,
                                 borderRadius: 1.75,
                                 overflow: 'hidden',
@@ -814,3 +779,4 @@ const ComodatosDashboard = () => {
 };
 
 export default ComodatosDashboard;
+

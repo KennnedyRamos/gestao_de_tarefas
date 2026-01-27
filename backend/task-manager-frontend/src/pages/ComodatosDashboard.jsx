@@ -579,7 +579,7 @@ const ComodatosDashboard = () => {
                           sx={{
                             position: 'absolute',
                             left: '50%',
-                            top: '50%',
+                            top: '43%',
                             transform: 'translate(-50%, -50%)',
                             minWidth: 220,
                             maxWidth: 280,

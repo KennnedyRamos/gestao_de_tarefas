@@ -142,6 +142,10 @@ const ComodatosDashboard = () => {
   }, []);
 
   const monthMeta = useMemo(() => getMonthWeekMeta(periodDate), [periodDate]);
+  const { monthFullStart, monthFullEnd } = useMemo(() => ({
+    monthFullStart: monthMeta.monthStart.startOf('day'),
+    monthFullEnd: monthMeta.monthStart.endOf('month')
+  }), [monthMeta.monthStart]);
 
   useEffect(() => {
     setSelectedWeekIndex((prev) => {
@@ -187,6 +191,13 @@ const ComodatosDashboard = () => {
       hasPhoto: Boolean(item.photo_url)
     };
   });
+
+  const deliveriesInMonthFull = deliveriesMapped.filter((item) =>
+    withinPeriod(item.dateValue, monthFullStart, monthFullEnd)
+  );
+  const pickupsInMonthFull = pickupsMapped.filter((item) =>
+    withinPeriod(item.dateValue, monthFullStart, monthFullEnd)
+  );
 
   const deliveriesInMonth = deliveriesMapped.filter((item) =>
     withinPeriod(item.dateValue, monthMeta.monthStart, monthMeta.displayEnd)
@@ -242,23 +253,23 @@ const ComodatosDashboard = () => {
 
   const periodDays = useMemo(() => {
     const days = [];
-    let cursor = periodStart.startOf('day');
-    const end = periodEnd.startOf('day');
+    let cursor = monthFullStart.startOf('day');
+    const end = monthFullEnd.startOf('day');
     while (!cursor.isAfter(end, 'day')) {
       days.push(cursor);
       cursor = cursor.add(1, 'day');
     }
     return days;
-  }, [periodStart, periodEnd]);
+  }, [monthFullStart, monthFullEnd]);
 
   const activityByDay = useMemo(() => {
     const deliveryCounts = new Map();
     const pickupCounts = new Map();
-    deliveriesInPeriod.forEach((item) => {
+    deliveriesInMonthFull.forEach((item) => {
       const key = item.dateValue.format('YYYY-MM-DD');
       deliveryCounts.set(key, (deliveryCounts.get(key) || 0) + 1);
     });
-    pickupsInPeriod.forEach((item) => {
+    pickupsInMonthFull.forEach((item) => {
       const key = item.dateValue.format('YYYY-MM-DD');
       pickupCounts.set(key, (pickupCounts.get(key) || 0) + 1);
     });
@@ -274,7 +285,7 @@ const ComodatosDashboard = () => {
         total: deliveriesCount + pickupsCount
       };
     });
-  }, [deliveriesInPeriod, pickupsInPeriod, periodDays]);
+  }, [deliveriesInMonthFull, pickupsInMonthFull, periodDays]);
 
   const maxActivityTotal = activityByDay.reduce((max, item) => Math.max(max, item.total), 0) || 1;
 

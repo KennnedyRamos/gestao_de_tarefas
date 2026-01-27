@@ -257,6 +257,7 @@ const ComodatosDashboard = () => {
     const dayLimit = isCurrentMonth ? Math.min(today.date(), daysInMonth) : daysInMonth;
     const displayEnd = periodStart.date(dayLimit).endOf('day');
     const weekCount = Math.max(1, Math.ceil(dayLimit / 7));
+    const currentWeekIndex = isCurrentMonth ? Math.ceil(dayLimit / 7) : 0;
 
     const summaries = Array.from({ length: weekCount }, (_, index) => {
       const weekIndex = index + 1;
@@ -271,6 +272,7 @@ const ComodatosDashboard = () => {
         weekStart,
         weekEnd,
         label: `${weekStart.format('DD/MM')} - ${weekEnd.format('DD/MM')}`,
+        isCurrentWeek: isCurrentMonth && weekIndex === currentWeekIndex,
         deliveries: 0,
         pickups: 0,
         total: 0
@@ -805,12 +807,19 @@ const ComodatosDashboard = () => {
                         sx={{
                           flex: '0 0 auto',
                           minWidth: 190,
-                          border: '1px solid var(--stroke)',
+                          border: week.isCurrentWeek
+                            ? '1px solid rgba(47, 107, 143, 0.7)'
+                            : '1px solid var(--stroke)',
                           borderRadius: 'var(--radius-md)',
                           p: 1,
                           display: 'grid',
                           gap: 0.25,
-                          backgroundColor: 'var(--surface)'
+                          backgroundColor: week.isCurrentWeek
+                            ? 'rgba(47, 107, 143, 0.10)'
+                            : 'var(--surface)',
+                          boxShadow: week.isCurrentWeek
+                            ? '0 0 0 2px rgba(47, 107, 143, 0.18)'
+                            : 'none'
                         }}
                       >
                         <Typography variant="body2" sx={{ fontWeight: 800 }}>
@@ -834,10 +843,10 @@ const ComodatosDashboard = () => {
                           <Typography variant="caption" color="text.secondary">
                             Retiradas: {week.pickups}
                           </Typography>
-                          <Typography variant="caption" sx={{ fontWeight: 800 }}>
-                            Total: {week.total}
-                          </Typography>
                         </Box>
+                        <Typography variant="caption" sx={{ fontWeight: 800, textAlign: 'right' }}>
+                          Total: {week.total}
+                        </Typography>
                       </Box>
                     ))}
                   </Box>

@@ -7,6 +7,8 @@ import { clearAuth } from '../utils/auth';
 const Header = () => {
   const [username, setUsername] = useState('Usuário');
   const navigate = useNavigate();
+  const logoSrc = `${process.env.PUBLIC_URL}/logo192.png`;
+  const iconSrc = `${process.env.PUBLIC_URL}/favicon.ico`;
 
   useEffect(() => {
     api.get('/auth/me')
@@ -42,11 +44,28 @@ const Header = () => {
       >
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           <Box
+            component="img"
+            src={iconSrc}
+            alt="Ícone"
             sx={{
-              width: 8,
-              height: 8,
-              borderRadius: '50%',
-              backgroundColor: 'rgba(255, 255, 255, 0.85)'
+              width: 28,
+              height: 28,
+              borderRadius: 1,
+              backgroundColor: '#fff',
+              p: 0.25,
+              boxShadow: 'var(--shadow-md)'
+            }}
+          />
+          <Box
+            component="img"
+            src={logoSrc}
+            alt="Logo"
+            sx={{
+              height: 28,
+              width: 'auto',
+              maxWidth: { xs: 110, md: 140 },
+              objectFit: 'contain',
+              filter: 'drop-shadow(0 2px 4px rgba(0, 0, 0, 0.25))'
             }}
           />
           <Typography

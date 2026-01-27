@@ -248,7 +248,7 @@ const ComodatosDashboard = () => {
       .sort((a, b) => b.quantity - a.quantity);
   }, [pickupsInPeriod]);
 
-  const topMaterials = materialTotals.slice(0, 8);
+  const topMaterials = materialTotals.slice(0, 3);
   const maxMaterialQuantity = topMaterials.reduce((max, item) => Math.max(max, item.quantity), 0) || 1;
 
   const periodDays = useMemo(() => {
@@ -964,6 +964,9 @@ const ComodatosDashboard = () => {
                 </Box>
               </Box>
               <Divider />
+              <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
+                Últimas Retiradas/Entregas
+              </Typography>
               {recentActivities.length === 0 ? (
                 <Typography color="text.secondary">Nenhuma movimentação no período selecionado.</Typography>
               ) : (

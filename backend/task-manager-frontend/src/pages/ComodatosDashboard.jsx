@@ -804,23 +804,36 @@ const ComodatosDashboard = () => {
                       <Box
                         key={week.key}
                         sx={{
-                          display: 'grid',
-                          gap: 0.1,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          gap: 1,
                           borderBottom: '1px dashed var(--stroke)',
-                          pb: 0.25
+                          py: 0.35
                         }}
                       >
-                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 1 }}>
-                          <Typography variant="body2" sx={{ fontWeight: 800 }}>
-                            {week.weekLabel}
+                        <Typography variant="body2" sx={{ fontWeight: 800, minWidth: 82 }}>
+                          {week.weekLabel}
+                        </Typography>
+                        <Box
+                          sx={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'flex-end',
+                            gap: 1.25,
+                            flexWrap: 'wrap'
+                          }}
+                        >
+                          <Typography variant="caption" color="text.secondary">
+                            Entregas: {week.deliveries}
                           </Typography>
                           <Typography variant="caption" color="text.secondary">
-                            {week.total}
+                            Retiradas: {week.pickups}
+                          </Typography>
+                          <Typography variant="caption" sx={{ fontWeight: 800 }}>
+                            Total: {week.total}
                           </Typography>
                         </Box>
-                        <Typography variant="caption" color="text.secondary">
-                          Entregas: {week.deliveries} · Retiradas: {week.pickups}
-                        </Typography>
                       </Box>
                     ))}
                   </Box>

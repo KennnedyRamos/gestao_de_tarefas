@@ -216,7 +216,7 @@ const DeliveriesCreate = () => {
           <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 2 }}>
             <Box>
               <Typography variant="caption" color="text.secondary">
-                PDF 1
+                NF
               </Typography>
               <input
                 key={`pdf-one-${fileInputKey}`}
@@ -237,7 +237,7 @@ const DeliveriesCreate = () => {
             </Box>
             <Box>
               <Typography variant="caption" color="text.secondary">
-                PDF 2
+                Contrato
               </Typography>
               <input
                 key={`pdf-two-${fileInputKey}`}
@@ -289,4 +289,3 @@ const DeliveriesCreate = () => {
 };
 
 export default DeliveriesCreate;
-

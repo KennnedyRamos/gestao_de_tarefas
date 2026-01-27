@@ -144,7 +144,7 @@ const DeliveriesHistory = () => {
                   target="_blank"
                   rel="noreferrer"
                 >
-                  Abrir PDF 1
+                  Abrir NF
                 </Button>
                 <Button
                   size="small"
@@ -153,7 +153,7 @@ const DeliveriesHistory = () => {
                   target="_blank"
                   rel="noreferrer"
                 >
-                  Abrir PDF 2
+                  Abrir contrato
                 </Button>
               </Box>
             </CardContent>

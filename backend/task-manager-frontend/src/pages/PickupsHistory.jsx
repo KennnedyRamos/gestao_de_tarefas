@@ -197,7 +197,28 @@ const PickupsHistory = () => {
                 </>
               )}
               {item.photoHref && (
-                <Box sx={{ mt: 0.5 }}>
+                <Box sx={{ display: 'grid', gap: 0.5, mt: 0.5 }}>
+                  <Box
+                    component="a"
+                    href={item.photoHref}
+                    target="_blank"
+                    rel="noreferrer"
+                    sx={{ display: 'inline-block', width: 180 }}
+                  >
+                    <Box
+                      component="img"
+                      src={item.photoHref}
+                      alt={`Foto da retirada ${item.id}`}
+                      sx={{
+                        width: '100%',
+                        height: 120,
+                        objectFit: 'cover',
+                        borderRadius: 1,
+                        border: '1px solid var(--stroke)',
+                        boxShadow: 'var(--shadow-md)'
+                      }}
+                    />
+                  </Box>
                   <Button
                     size="small"
                     variant="outlined"

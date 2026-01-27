@@ -168,6 +168,13 @@ const Sidebar = () => {
           <Divider sx={{ my: 1.5 }} />
           <List>
             <ListItemButton
+              onClick={() => navigate('/comodatos')}
+              selected={isActive('/comodatos')}
+              sx={navItemSx}
+            >
+              <ListItemText primary="Dashboard de comodatos" />
+            </ListItemButton>
+            <ListItemButton
               onClick={() => navigate('/deliveries/create')}
               selected={isActive('/deliveries/create')}
               sx={navItemSx}
@@ -274,4 +281,3 @@ const Sidebar = () => {
 };
 
 export default Sidebar;
-

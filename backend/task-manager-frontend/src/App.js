@@ -7,6 +7,7 @@ import Assignments from './pages/Assignments';
 import Login from './pages/Login';
 import Users from './pages/Users';
 import Routines from './pages/Routines';
+import ComodatosDashboard from './pages/ComodatosDashboard';
 import DeliveriesCreate from './pages/DeliveriesCreate';
 import DeliveriesHistory from './pages/DeliveriesHistory';
 import PickupsCreate from './pages/PickupsCreate';
@@ -41,6 +42,7 @@ function App() {
           <Route path="assignments" element={<Assignments />} />
           <Route path="users" element={<RequireAdmin><Users /></RequireAdmin>} />
           <Route path="routines" element={<RequirePersonalAdmin><Routines /></RequirePersonalAdmin>} />
+          <Route path="comodatos" element={<RequireAdmin><ComodatosDashboard /></RequireAdmin>} />
           <Route
             path="deliveries"
             element={<RequireAdmin><Navigate to="/deliveries/history" replace /></RequireAdmin>}

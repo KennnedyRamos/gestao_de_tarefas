@@ -7,8 +7,10 @@ import Assignments from './pages/Assignments';
 import Login from './pages/Login';
 import Users from './pages/Users';
 import Routines from './pages/Routines';
-import Deliveries from './pages/Deliveries';
-import Pickups from './pages/Pickups';
+import DeliveriesCreate from './pages/DeliveriesCreate';
+import DeliveriesHistory from './pages/DeliveriesHistory';
+import PickupsCreate from './pages/PickupsCreate';
+import PickupsHistory from './pages/PickupsHistory';
 import Layout from './components/Layout';
 import { getToken, isAdmin, isPersonalAdmin } from './utils/auth';
 import './App.css';
@@ -39,8 +41,18 @@ function App() {
           <Route path="assignments" element={<Assignments />} />
           <Route path="users" element={<RequireAdmin><Users /></RequireAdmin>} />
           <Route path="routines" element={<RequirePersonalAdmin><Routines /></RequirePersonalAdmin>} />
-          <Route path="deliveries" element={<RequireAdmin><Deliveries /></RequireAdmin>} />
-          <Route path="pickups" element={<RequireAdmin><Pickups /></RequireAdmin>} />
+          <Route
+            path="deliveries"
+            element={<RequireAdmin><Navigate to="/deliveries/history" replace /></RequireAdmin>}
+          />
+          <Route path="deliveries/create" element={<RequireAdmin><DeliveriesCreate /></RequireAdmin>} />
+          <Route path="deliveries/history" element={<RequireAdmin><DeliveriesHistory /></RequireAdmin>} />
+          <Route
+            path="pickups"
+            element={<RequireAdmin><Navigate to="/pickups/history" replace /></RequireAdmin>}
+          />
+          <Route path="pickups/create" element={<RequireAdmin><PickupsCreate /></RequireAdmin>} />
+          <Route path="pickups/history" element={<RequireAdmin><PickupsHistory /></RequireAdmin>} />
         </Route>
       </Routes>
     </Router>

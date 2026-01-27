@@ -1,9 +1,19 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Box, Button, Divider, List, ListItemButton, ListItemText, Menu, MenuItem } from '@mui/material';
+import {
+  Box,
+  Button,
+  Divider,
+  List,
+  ListItemButton,
+  ListItemText,
+  Menu,
+  MenuItem
+} from '@mui/material';
+import MenuIcon from '@mui/icons-material/Menu';
 import { useLocation, useNavigate } from 'react-router-dom';
+
 import api from '../services/api';
 import { isAdmin, isPersonalAdmin } from '../utils/auth';
-import MenuIcon from '@mui/icons-material/Menu';
 
 const Sidebar = () => {
   const navigate = useNavigate();
@@ -38,6 +48,7 @@ const Sidebar = () => {
     : null;
   const isActive = (path) => location.pathname === path;
   const userMenuOpen = Boolean(userMenuAnchor);
+
   const navItemSx = {
     borderRadius: 2,
     mb: 0.5,
@@ -131,7 +142,7 @@ const Sidebar = () => {
             selected={isActive('/create-task')}
             sx={navItemSx}
           >
-            <ListItemText primary="Criar Tarefa" />
+            <ListItemText primary="Criar tarefa" />
           </ListItemButton>
         )}
         <ListItemButton
@@ -151,10 +162,42 @@ const Sidebar = () => {
           </ListItemButton>
         )}
       </List>
+
       {showAdmin && (
         <>
           <Divider sx={{ my: 1.5 }} />
           <List>
+            <ListItemButton
+              onClick={() => navigate('/deliveries/create')}
+              selected={isActive('/deliveries/create')}
+              sx={navItemSx}
+            >
+              <ListItemText primary="Entregas" />
+            </ListItemButton>
+            <ListItemButton
+              onClick={() => navigate('/deliveries/history')}
+              selected={isActive('/deliveries/history')}
+              sx={navItemSx}
+            >
+              <ListItemText primary="Histórico de entregas" />
+            </ListItemButton>
+            <ListItemButton
+              onClick={() => navigate('/pickups/create')}
+              selected={isActive('/pickups/create')}
+              sx={navItemSx}
+            >
+              <ListItemText primary="Retiradas" />
+            </ListItemButton>
+            <ListItemButton
+              onClick={() => navigate('/pickups/history')}
+              selected={isActive('/pickups/history')}
+              sx={navItemSx}
+            >
+              <ListItemText primary="Histórico de retiradas" />
+            </ListItemButton>
+
+            <Divider sx={{ my: 1 }} />
+
             <ListItemButton
               onClick={() => navigate('/users')}
               selected={isActive('/users')}
@@ -162,23 +205,10 @@ const Sidebar = () => {
             >
               <ListItemText primary="Usuários" />
             </ListItemButton>
-            <ListItemButton
-              onClick={() => navigate('/deliveries')}
-              selected={isActive('/deliveries')}
-              sx={navItemSx}
-            >
-              <ListItemText primary="Entregas" />
-            </ListItemButton>
-            <ListItemButton
-              onClick={() => navigate('/pickups')}
-              selected={isActive('/pickups')}
-              sx={navItemSx}
-            >
-              <ListItemText primary="Retiradas" />
-            </ListItemButton>
           </List>
         </>
       )}
+
       {showAdmin && (
         <Box sx={{ mt: 'auto', px: 1, pb: 1, display: 'flex', justifyContent: 'flex-start' }}>
           <Button
@@ -199,7 +229,7 @@ const Sidebar = () => {
               boxShadow: 'var(--shadow-md)'
             }}
           >
-            Usuarios
+            Usuários
           </Button>
           <Menu
             anchorEl={userMenuAnchor}
@@ -244,3 +274,4 @@ const Sidebar = () => {
 };
 
 export default Sidebar;
+

@@ -8,11 +8,14 @@ import {
   Typography
 } from '@mui/material';
 import dayjs from 'dayjs';
+import isoWeek from 'dayjs/plugin/isoWeek';
 import { useNavigate } from 'react-router-dom';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 
 import api from '../services/api';
+
+dayjs.extend(isoWeek);
 
 const panelSx = {
   backgroundColor: 'var(--surface)',
@@ -242,6 +245,59 @@ const ComodatosDashboard = () => {
     }
     return activityByDay.find((item) => item.key === maxActivityDayKey) || null;
   }, [activityByDay, maxActivityDayKey]);
+
+  const weekSummaries = useMemo(() => {
+    const weeklyMap = new Map();
+
+    const ensureWeek = (weekStartValue) => {
+      const weekStart = weekStartValue.startOf('isoWeek');
+      const weekKey = weekStart.format('YYYY-[W]WW');
+      if (!weeklyMap.has(weekKey)) {
+        weeklyMap.set(weekKey, {
+          key: weekKey,
+          weekStart,
+          weekEnd: weekStart.endOf('isoWeek'),
+          deliveries: 0,
+          pickups: 0,
+          total: 0
+        });
+      }
+      return weeklyMap.get(weekKey);
+    };
+
+    periodDays.forEach((day) => {
+      ensureWeek(day);
+    });
+
+    deliveriesInPeriod.forEach((item) => {
+      const entry = ensureWeek(item.dateValue);
+      entry.deliveries += 1;
+      entry.total += 1;
+    });
+
+    pickupsInPeriod.forEach((item) => {
+      const entry = ensureWeek(item.dateValue);
+      entry.pickups += 1;
+      entry.total += 1;
+    });
+
+    return Array.from(weeklyMap.values())
+      .map((entry) => {
+        const boundedStart = entry.weekStart.isBefore(periodStart, 'day')
+          ? periodStart.startOf('day')
+          : entry.weekStart.startOf('day');
+        const boundedEnd = entry.weekEnd.isAfter(periodEnd, 'day')
+          ? periodEnd.startOf('day')
+          : entry.weekEnd.startOf('day');
+        return {
+          ...entry,
+          boundedStart,
+          boundedEnd,
+          label: `${boundedStart.format('DD/MM')} - ${boundedEnd.format('DD/MM')}`
+        };
+      })
+      .sort((a, b) => a.weekStart.valueOf() - b.weekStart.valueOf());
+  }, [deliveriesInPeriod, pickupsInPeriod, periodDays, periodStart, periodEnd]);
 
   useEffect(() => {
     if (!hoveredDayKey) {
@@ -542,20 +598,20 @@ const ComodatosDashboard = () => {
                                 sx={{
                                   position: 'absolute',
                                   top: 4,
-                                  minWidth: 168,
-                                  px: 1,
-                                  py: 0.75,
-                                  borderRadius: 1.25,
+                                  minWidth: 196,
+                                  px: 1.25,
+                                  py: 1,
+                                  borderRadius: 1.5,
                                   border: '1px solid var(--stroke)',
                                   backgroundColor: 'var(--surface)',
                                   boxShadow: 'var(--shadow-md)',
                                   zIndex: 3,
                                   display: 'grid',
-                                  gap: 0.25,
+                                  gap: 0.35,
                                   pointerEvents: 'none'
                                 }}
                               >
-                                <Typography variant="caption" sx={{ fontWeight: 700 }}>
+                                <Typography variant="subtitle2" sx={{ fontWeight: 800, lineHeight: 1.2 }}>
                                   {dayjs(item.key).format('DD/MM/YYYY')}
                                 </Typography>
                                 <Typography variant="caption" color="text.secondary">
@@ -679,6 +735,76 @@ const ComodatosDashboard = () => {
               <Typography variant="body2" color="text.secondary">
                 Últimas movimentações de comodatos no período.
               </Typography>
+              <Divider />
+              <Box sx={{ display: 'grid', gap: 0.75 }}>
+                {maxActivityDay && maxActivityDay.total > 0 ? (
+                  <Box
+                    sx={{
+                      border: '1px solid var(--stroke)',
+                      borderRadius: 'var(--radius-md)',
+                      p: 1,
+                      display: 'grid',
+                      gap: 0.25,
+                      backgroundColor: 'rgba(208, 106, 58, 0.06)'
+                    }}
+                  >
+                    <Typography variant="caption" color="text.secondary">
+                      Dia com maior volume
+                    </Typography>
+                    <Typography variant="body2" sx={{ fontWeight: 800 }}>
+                      {dayjs(maxActivityDay.key).format('DD/MM/YYYY')} · {maxActivityDay.total} ações
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Entregas: {maxActivityDay.deliveriesCount} · Retiradas: {maxActivityDay.pickupsCount}
+                    </Typography>
+                  </Box>
+                ) : (
+                  <Typography variant="caption" color="text.secondary">
+                    Nenhuma movimentação registrada neste mês.
+                  </Typography>
+                )}
+
+                <Box
+                  sx={{
+                    border: '1px solid var(--stroke)',
+                    borderRadius: 'var(--radius-md)',
+                    p: 1,
+                    display: 'grid',
+                    gap: 0.5,
+                    backgroundColor: 'rgba(47, 107, 143, 0.05)'
+                  }}
+                >
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                    <Typography variant="caption" color="text.secondary">
+                      Totais por semana
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {monthLabel}
+                    </Typography>
+                  </Box>
+                  <Box sx={{ display: 'grid', gap: 0.35 }}>
+                    {weekSummaries.map((week) => (
+                      <Box
+                        key={week.key}
+                        sx={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'baseline',
+                          borderBottom: '1px dashed var(--stroke)',
+                          pb: 0.25
+                        }}
+                      >
+                        <Typography variant="caption" color="text.secondary">
+                          {week.label}
+                        </Typography>
+                        <Typography variant="body2" sx={{ fontWeight: 800 }}>
+                          {week.total}
+                        </Typography>
+                      </Box>
+                    ))}
+                  </Box>
+                </Box>
+              </Box>
               <Divider />
               {recentActivities.length === 0 ? (
                 <Typography color="text.secondary">Nenhuma movimentação no período selecionado.</Typography>

@@ -17,8 +17,9 @@ class PickupCreate(PickupBase):
 
 class PickupOut(PickupBase):
     id: int
+    photo_path: Optional[str] = None
+    photo_url: Optional[str] = None
     created_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
-

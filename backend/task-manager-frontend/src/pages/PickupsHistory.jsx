@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Alert,
   Box,
@@ -46,6 +46,18 @@ const PickupsHistory = () => {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
 
+  const apiBaseUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+
+  const toAbsoluteUrl = (url) => {
+    if (!url) {
+      return '';
+    }
+    if (url.startsWith('http://') || url.startsWith('https://')) {
+      return url;
+    }
+    return `${apiBaseUrl}${url}`;
+  };
+
   const loadPickups = async () => {
     try {
       setLoading(true);
@@ -75,18 +87,17 @@ const PickupsHistory = () => {
     }
   };
 
-  const formattedPickups = useMemo(() => {
-    return pickups.map((item) => {
-      const materialItems = parseMaterialItems(item.material);
-      const materialSearchText = materialItems.map((materialItem) => materialItem.material).join(' ');
-      return {
-        ...item,
-        materialItems,
-        materialSearchText,
-        dateLabel: item.pickup_date ? dayjs(item.pickup_date).format('DD/MM/YYYY') : '-'
-      };
-    });
-  }, [pickups]);
+  const formattedPickups = pickups.map((item) => {
+    const materialItems = parseMaterialItems(item.material);
+    const materialSearchText = materialItems.map((materialItem) => materialItem.material).join(' ');
+    return {
+      ...item,
+      materialItems,
+      materialSearchText,
+      photoHref: item.photo_url ? toAbsoluteUrl(item.photo_url) : '',
+      dateLabel: item.pickup_date ? dayjs(item.pickup_date).format('DD/MM/YYYY') : '-'
+    };
+  });
 
   const normalizedSearch = searchQuery.trim().toLowerCase();
   const filteredPickups = formattedPickups.filter((item) => {
@@ -184,6 +195,19 @@ const PickupsHistory = () => {
                     Quantidade: {item.quantity}
                   </Typography>
                 </>
+              )}
+              {item.photoHref && (
+                <Box sx={{ mt: 0.5 }}>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    href={item.photoHref}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Abrir foto
+                  </Button>
+                </Box>
               )}
             </CardContent>
           </Card>

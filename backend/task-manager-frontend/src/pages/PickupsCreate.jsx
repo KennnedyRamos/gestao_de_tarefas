@@ -19,6 +19,8 @@ const PickupsCreate = () => {
   const [fantasyName, setFantasyName] = useState('');
   const [pickupDate, setPickupDate] = useState(dayjs().format('YYYY-MM-DD'));
   const [materials, setMaterials] = useState([createEmptyMaterial()]);
+  const [pickupPhoto, setPickupPhoto] = useState(null);
+  const [photoInputKey, setPhotoInputKey] = useState(0);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -58,6 +60,8 @@ const PickupsCreate = () => {
     setFantasyName('');
     setPickupDate(dayjs().format('YYYY-MM-DD'));
     setMaterials([createEmptyMaterial()]);
+    setPickupPhoto(null);
+    setPhotoInputKey((prev) => prev + 1);
     setError('');
     setSuccess('');
   };
@@ -103,13 +107,19 @@ const PickupsCreate = () => {
     const descriptionPayload = `Código do cliente: ${clientCode.trim()} | Fantasia: ${fantasyName.trim()}`;
     const materialPayload = JSON.stringify(normalizedMaterials);
 
+    const formData = new FormData();
+    formData.append('description', descriptionPayload);
+    formData.append('pickup_date', pickupDate);
+    formData.append('material', materialPayload);
+    formData.append('quantity', String(totalQuantity));
+    if (pickupPhoto) {
+      formData.append('photo', pickupPhoto);
+    }
+
     try {
       setSubmitting(true);
-      await api.post('/pickups', {
-        description: descriptionPayload,
-        pickup_date: pickupDate,
-        material: materialPayload,
-        quantity: totalQuantity
+      await api.post('/pickups', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
       });
       resetForm();
       setSuccess('Retirada registrada com sucesso.');
@@ -210,6 +220,24 @@ const PickupsCreate = () => {
           </Box>
         </Box>
 
+        <Box sx={{ display: 'grid', gap: 0.5, mb: 2 }}>
+          <Typography variant="subtitle2">Foto da retirada (opcional)</Typography>
+          <input
+            key={`pickup-photo-${photoInputKey}`}
+            type="file"
+            accept="image/*,.jpg,.jpeg,.png,.webp"
+            onChange={(e) => setPickupPhoto(e.target.files?.[0] || null)}
+            style={{
+              width: '100%',
+              padding: 10,
+              borderRadius: 12,
+              border: '1px solid var(--stroke)',
+              background: 'var(--surface)',
+              fontFamily: 'var(--font-sans)'
+            }}
+          />
+        </Box>
+
         <Box sx={{ display: 'flex', gap: 1 }}>
           <Button type="submit" variant="contained" disabled={submitting}>
             {submitting ? 'Salvando...' : 'Registrar retirada'}
@@ -229,4 +257,3 @@ const PickupsCreate = () => {
 };
 
 export default PickupsCreate;
-

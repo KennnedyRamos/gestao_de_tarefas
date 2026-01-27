@@ -11,5 +11,5 @@ class Pickup(Base):
     pickup_date = Column(Date, nullable=False)
     material = Column(String, nullable=False)
     quantity = Column(Integer, nullable=False, default=1)
+    photo_path = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-

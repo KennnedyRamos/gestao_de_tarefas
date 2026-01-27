@@ -49,6 +49,17 @@ def ensure_task_columns():
 
 ensure_task_columns()
 
+def ensure_pickup_columns():
+    inspector = inspect(engine)
+    if "pickups" not in inspector.get_table_names():
+        return
+    columns = [col["name"] for col in inspector.get_columns("pickups")]
+    with engine.begin() as conn:
+        if "photo_path" not in columns:
+            conn.execute(text("ALTER TABLE pickups ADD COLUMN photo_path VARCHAR"))
+
+ensure_pickup_columns()
+
 def ensure_admin_user():
     if not ADMIN_EMAIL or not ADMIN_PASSWORD:
         return

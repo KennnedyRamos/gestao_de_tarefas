@@ -303,7 +303,12 @@ const ComodatosDashboard = () => {
           label: `${boundedStart.format('DD/MM')} - ${boundedEnd.format('DD/MM')}`
         };
       })
-      .sort((a, b) => a.weekStart.valueOf() - b.weekStart.valueOf());
+      .sort((a, b) => a.weekStart.valueOf() - b.weekStart.valueOf())
+      .map((entry, index) => ({
+        ...entry,
+        weekIndex: index + 1,
+        weekLabel: `Semana ${index + 1}`
+      }));
   }, [deliveriesInPeriod, pickupsInPeriod, periodDays, periodStart, periodEnd]);
 
   useEffect(() => {
@@ -799,18 +804,22 @@ const ComodatosDashboard = () => {
                       <Box
                         key={week.key}
                         sx={{
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          alignItems: 'baseline',
+                          display: 'grid',
+                          gap: 0.1,
                           borderBottom: '1px dashed var(--stroke)',
                           pb: 0.25
                         }}
                       >
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 1 }}>
+                          <Typography variant="body2" sx={{ fontWeight: 800 }}>
+                            {week.weekLabel}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            {week.total}
+                          </Typography>
+                        </Box>
                         <Typography variant="caption" color="text.secondary">
-                          {week.label}
-                        </Typography>
-                        <Typography variant="body2" sx={{ fontWeight: 800 }}>
-                          {week.total}
+                          Entregas: {week.deliveries} · Retiradas: {week.pickups}
                         </Typography>
                       </Box>
                     ))}

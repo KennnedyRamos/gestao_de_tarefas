@@ -246,6 +246,13 @@ const ComodatosDashboard = () => {
     return activityByDay.find((item) => item.key === maxActivityDayKey) || null;
   }, [activityByDay, maxActivityDayKey]);
 
+  const hoveredDayItem = useMemo(() => {
+    if (!hoveredDayKey) {
+      return null;
+    }
+    return activityByDay.find((item) => item.key === hoveredDayKey) || null;
+  }, [activityByDay, hoveredDayKey]);
+
   const weekSummaries = useMemo(() => {
     const weeklyMap = new Map();
 
@@ -551,6 +558,7 @@ const ComodatosDashboard = () => {
                         display: 'flex',
                         alignItems: 'flex-end',
                         justifyContent: 'center',
+                        position: 'relative',
                         gap: 0.25,
                         width: '100%',
                         maxWidth: '100%',
@@ -566,6 +574,43 @@ const ComodatosDashboard = () => {
                           'repeating-linear-gradient(to top, rgba(15, 23, 42, 0.06) 0, rgba(15, 23, 42, 0.06) 1px, transparent 1px, transparent 36px)'
                       }}
                     >
+                      {hoveredDayItem && (
+                        <Box
+                          sx={{
+                            position: 'absolute',
+                            left: '50%',
+                            top: '50%',
+                            transform: 'translate(-50%, -50%)',
+                            minWidth: 220,
+                            maxWidth: 280,
+                            px: 1.75,
+                            py: 1.25,
+                            borderRadius: 2,
+                            border: '1px solid var(--stroke)',
+                            backgroundColor: 'var(--surface)',
+                            boxShadow: 'var(--shadow-md)',
+                            zIndex: 4,
+                            display: 'grid',
+                            gap: 0.4,
+                            textAlign: 'center',
+                            pointerEvents: 'none'
+                          }}
+                        >
+                          <Typography variant="subtitle2" sx={{ fontWeight: 800, lineHeight: 1.2 }}>
+                            {dayjs(hoveredDayItem.key).format('DD/MM/YYYY')}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            Entregas: {hoveredDayItem.deliveriesCount}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            Retiradas: {hoveredDayItem.pickupsCount}
+                          </Typography>
+                          <Typography variant="caption" sx={{ fontWeight: 700 }}>
+                            Total: {hoveredDayItem.total}
+                          </Typography>
+                        </Box>
+                      )}
+
                       {activityByDay.map((item) => {
                         const safeTotal = item.total || 0;
                         const totalHeight = safeTotal === 0
@@ -593,39 +638,6 @@ const ComodatosDashboard = () => {
                               position: 'relative'
                             }}
                           >
-                            {isHovered && (
-                              <Box
-                                sx={{
-                                  position: 'absolute',
-                                  top: 4,
-                                  minWidth: 196,
-                                  px: 1.25,
-                                  py: 1,
-                                  borderRadius: 1.5,
-                                  border: '1px solid var(--stroke)',
-                                  backgroundColor: 'var(--surface)',
-                                  boxShadow: 'var(--shadow-md)',
-                                  zIndex: 3,
-                                  display: 'grid',
-                                  gap: 0.35,
-                                  pointerEvents: 'none'
-                                }}
-                              >
-                                <Typography variant="subtitle2" sx={{ fontWeight: 800, lineHeight: 1.2 }}>
-                                  {dayjs(item.key).format('DD/MM/YYYY')}
-                                </Typography>
-                                <Typography variant="caption" color="text.secondary">
-                                  Entregas: {item.deliveriesCount}
-                                </Typography>
-                                <Typography variant="caption" color="text.secondary">
-                                  Retiradas: {item.pickupsCount}
-                                </Typography>
-                                <Typography variant="caption" sx={{ fontWeight: 700 }}>
-                                  Total: {safeTotal}
-                                </Typography>
-                              </Box>
-                            )}
-
                             <Typography
                               variant="caption"
                               color={isMaxDay ? 'text.primary' : 'text.secondary'}

@@ -15,7 +15,7 @@ const TaskCard = ({ task, toggleComplete, onEdit, onDelete, className, style }) 
   const priority = task.priority || 'media';
   const priorityMeta = {
     alta: { label: 'Alta', color: 'var(--accent)', bg: 'var(--accent-soft)' },
-    media: { label: 'Media', color: 'var(--accent-cool)', bg: 'rgba(47, 107, 143, 0.12)' },
+    media: { label: 'Média', color: 'var(--accent-cool)', bg: 'rgba(47, 107, 143, 0.12)' },
     baixa: { label: 'Baixa', color: 'var(--muted)', bg: 'rgba(111, 103, 95, 0.12)' }
   };
   const priorityStyle = priorityMeta[priority] || priorityMeta.media;
@@ -70,15 +70,15 @@ const TaskCard = ({ task, toggleComplete, onEdit, onDelete, className, style }) 
             ))}
           </Box>
           <Typography variant="body2" color="text.secondary">
-            {task.description || 'Sem descricao.'}
+            {task.description || 'Sem descrição.'}
           </Typography>
           {task.assignee_name && (
             <Typography variant="caption" color="text.secondary">
-              Responsavel: {task.assignee_name}
+              Responsável: {task.assignee_name}
             </Typography>
           )}
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-            Status: {task.completed ? 'Concluida' : 'Pendente'}
+            Status: {task.completed ? 'Concluída' : 'Pendente'}
           </Typography>
           <Typography variant="caption" color="text.secondary">
             Vencimento: {task.due_date && dayjs(task.due_date).isValid()

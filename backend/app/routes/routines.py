@@ -58,7 +58,7 @@ def update_routine(
 ):
     routine = db.query(Routine).filter(Routine.id == routine_id).first()
     if not routine:
-        raise HTTPException(status_code=404, detail="Rotina nao encontrada")
+        raise HTTPException(status_code=404, detail="Rotina não encontrada")
     if hasattr(payload, "model_dump"):
         data = payload.model_dump(exclude_unset=True)
     else:
@@ -78,7 +78,7 @@ def delete_routine(
 ):
     routine = db.query(Routine).filter(Routine.id == routine_id).first()
     if not routine:
-        raise HTTPException(status_code=404, detail="Rotina nao encontrada")
+        raise HTTPException(status_code=404, detail="Rotina não encontrada")
     db.delete(routine)
     db.commit()
     return None

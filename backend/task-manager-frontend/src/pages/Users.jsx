@@ -113,7 +113,7 @@ const Users = () => {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Typography variant="h5" sx={{ mb: 2 }}>Usuarios</Typography>
+      <Typography variant="h5" sx={{ mb: 2 }}>Usuários</Typography>
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
       {success && <Alert severity="success" sx={{ mb: 2 }}>{success}</Alert>}
 
@@ -167,7 +167,7 @@ const Users = () => {
           <MenuItem value="assistente">Assistente</MenuItem>
           <MenuItem value="admin">Admin</MenuItem>
         </Select>
-        <Button type="submit" variant="contained">Criar usuario</Button>
+        <Button type="submit" variant="contained">Criar usuário</Button>
       </Box>
 
       <Box
@@ -185,7 +185,7 @@ const Users = () => {
               <TableCell>Nome</TableCell>
               <TableCell>Email</TableCell>
               <TableCell>Tipo</TableCell>
-              <TableCell align="right">Acoes</TableCell>
+              <TableCell align="right">Ações</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
@@ -206,7 +206,7 @@ const Users = () => {
             ))}
             {users.length === 0 && (
               <TableRow>
-                <TableCell colSpan={4}>Nenhum usuario encontrado.</TableCell>
+                <TableCell colSpan={4}>Nenhum usuário encontrado.</TableCell>
               </TableRow>
             )}
           </TableBody>
@@ -217,7 +217,7 @@ const Users = () => {
         <DialogTitle>Redefinir senha</DialogTitle>
         <DialogContent sx={{ pt: 1 }}>
           <Typography variant="body2" sx={{ mb: 2 }}>
-            Usuario: {resetUser?.name || '-'}
+            Usuário: {resetUser?.name || '-'}
           </Typography>
           <TextField
             autoFocus

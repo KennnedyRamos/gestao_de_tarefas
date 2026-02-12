@@ -54,7 +54,7 @@ const Routines = () => {
     e.preventDefault();
     setSuccess('');
     if (!routineDate || !routineTime) {
-      setError('Informe data e horario.');
+      setError('Informe data e horário.');
       return;
     }
     try {
@@ -319,11 +319,11 @@ const Routines = () => {
                       </Box>
                     </Box>
                     <Typography variant="body2" color="text.secondary">
-                      {item.description || 'Sem descricao.'}
+                      {item.description || 'Sem descrição.'}
                     </Typography>
                     {!isRoutine && (
                       <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                        Status: {isCompleted ? 'Concluida' : 'Pendente'}
+                        Status: {isCompleted ? 'Concluída' : 'Pendente'}
                       </Typography>
                     )}
                     <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
@@ -338,7 +338,7 @@ const Routines = () => {
                     <Checkbox
                       checked={isCompleted}
                       onChange={() => toggleComplete(item.id)}
-                      inputProps={{ 'aria-label': 'Marcar agendamento como concluido' }}
+                      inputProps={{ 'aria-label': 'Marcar agendamento como concluído' }}
                       sx={{
                         color: 'var(--accent)',
                         '&.Mui-checked': {

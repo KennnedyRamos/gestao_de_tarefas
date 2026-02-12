@@ -219,7 +219,7 @@ const Pickups = () => {
         <Box sx={{ display: 'grid', gap: 2 }}>
           <Typography variant="h6">Histórico</Typography>
           <TextField
-            label="Pesquisar por codigo ou fantasia"
+            label="Pesquisar por código ou fantasia"
             placeholder="Ex.: 12345 ou Nome Fantasia"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}

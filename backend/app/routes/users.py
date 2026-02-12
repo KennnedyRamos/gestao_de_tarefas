@@ -64,7 +64,7 @@ def reset_password(
 ):
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
-        raise HTTPException(status_code=404, detail="Usuario nao encontrado")
+        raise HTTPException(status_code=404, detail="Usuário não encontrado")
     user.password = get_password_hash(payload.password)
     db.commit()
     return None

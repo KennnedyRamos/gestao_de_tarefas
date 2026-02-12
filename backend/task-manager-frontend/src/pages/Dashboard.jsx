@@ -281,7 +281,7 @@ const Dashboard = () => {
                 <Typography variant="h6">{tasksToday.length}</Typography>
               </Box>
               <Box>
-                <Typography variant="caption" color="text.secondary">Concluidas</Typography>
+                <Typography variant="caption" color="text.secondary">Concluídas</Typography>
                 <Typography variant="h6">{tasksTodayCompleted.length}</Typography>
               </Box>
               <Box>
@@ -295,7 +295,7 @@ const Dashboard = () => {
             </Box>
             <Box sx={{ mt: 2 }}>
               <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
-                <Typography variant="caption" color="text.secondary">Progresso diario</Typography>
+                <Typography variant="caption" color="text.secondary">Progresso diário</Typography>
                 <Typography variant="caption" color="text.secondary">{todayProgress}%</Typography>
               </Box>
               <LinearProgress
@@ -315,13 +315,13 @@ const Dashboard = () => {
           />
           <Box sx={{ mb: 2 }}>
             <Typography variant="subtitle2" sx={{ mb: 1 }}>
-              Filtros rapidos
+              Filtros rápidos
             </Typography>
             <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 1.5 }}>
               {[
                 { value: 'all', label: 'Todas', color: 'var(--ink)', bg: 'transparent' },
                 { value: 'alta', label: 'Alta', color: '#fff', bg: 'var(--accent)' },
-                { value: 'media', label: 'Media', color: '#fff', bg: 'var(--accent-cool)' },
+                { value: 'media', label: 'Média', color: '#fff', bg: 'var(--accent-cool)' },
                 { value: 'baixa', label: 'Baixa', color: 'var(--ink)', bg: 'var(--accent-soft)' }
               ].map((option) => {
                 const active = priorityFilter === option.value;
@@ -379,7 +379,7 @@ const Dashboard = () => {
           <Tabs value={filter} onChange={(e, newValue) => setFilter(newValue)} sx={{ mb: 2 }}>
             <Tab label="Todas" value="all" />
             <Tab label="Pendentes" value="pending" />
-            <Tab label="Concluidas" value="completed" />
+            <Tab label="Concluídas" value="completed" />
           </Tabs>
           <TaskList
             tasks={filteredTasks}
@@ -398,7 +398,7 @@ const Dashboard = () => {
           }}
         >
           <Box sx={panelSx}>
-            <Typography variant="subtitle1">Lembretes proximos</Typography>
+            <Typography variant="subtitle1">Lembretes próximos</Typography>
             <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mt: 1 }}>
               <FormControlLabel
                 control={
@@ -434,11 +434,11 @@ const Dashboard = () => {
             <Divider sx={{ my: 1.5 }} />
             {!reminderChannels.inApp ? (
               <Typography variant="body2" color="text.secondary">
-                Ative os lembretes in-app para ver os proximos compromissos.
+                Ative os lembretes in-app para ver os próximos compromissos.
               </Typography>
             ) : reminderItems.length === 0 ? (
               <Typography variant="body2" color="text.secondary">
-                Nenhum lembrete nas proximas {reminderWindowMinutes} minutos.
+                Nenhum lembrete nas próximas {reminderWindowMinutes} minutos.
               </Typography>
             ) : (
               reminderItems.map((item) => {

@@ -158,7 +158,7 @@ const TaskForm = ({ taskId }) => {
             onChange={(e) => setPriority(e.target.value)}
           >
             <MenuItem value="alta">Alta</MenuItem>
-            <MenuItem value="media">Media</MenuItem>
+            <MenuItem value="media">Média</MenuItem>
             <MenuItem value="baixa">Baixa</MenuItem>
           </TextField>
           <TextField
@@ -167,7 +167,7 @@ const TaskForm = ({ taskId }) => {
             sx={{ mb: 2 }}
             value={labelsInput}
             onChange={(e) => setLabelsInput(e.target.value)}
-            helperText="Separe por virgula. Ex: urgente, casa"
+            helperText="Separe por vírgula. Ex: urgente, casa"
           />
           {isAdmin && (
             <TextField
@@ -178,7 +178,7 @@ const TaskForm = ({ taskId }) => {
               value={assigneeId}
               onChange={(e) => setAssigneeId(e.target.value)}
             >
-              <MenuItem value="">Sem responsavel</MenuItem>
+              <MenuItem value="">Sem responsável</MenuItem>
               {users.map((user) => (
                 <MenuItem key={user.id} value={String(user.id)}>
                   {user.name} ({user.email})

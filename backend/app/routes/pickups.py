@@ -52,16 +52,16 @@ def parse_date(value: str) -> date:
     try:
         return date.fromisoformat(value)
     except ValueError as exc:
-        raise HTTPException(status_code=422, detail="Data invalida. Use YYYY-MM-DD.") from exc
+        raise HTTPException(status_code=422, detail="Data inválida. Use YYYY-MM-DD.") from exc
 
 
 def parse_quantity(value: str) -> int:
     try:
         parsed = int(value)
     except ValueError as exc:
-        raise HTTPException(status_code=422, detail="Quantidade invalida.") from exc
+        raise HTTPException(status_code=422, detail="Quantidade inválida.") from exc
     if parsed <= 0:
-        raise HTTPException(status_code=422, detail="Quantidade invalida.")
+        raise HTTPException(status_code=422, detail="Quantidade inválida.")
     return parsed
 
 
@@ -77,7 +77,7 @@ def ensure_image(upload: UploadFile) -> str:
     if content_type and not content_type.startswith("image/"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Tipo de arquivo invalido para a foto."
+            detail="Tipo de arquivo inválido para a foto."
         )
     return suffix
 
@@ -177,7 +177,7 @@ def delete_pickup(
 ):
     pickup = db.query(Pickup).filter(Pickup.id == pickup_id).first()
     if not pickup:
-        raise HTTPException(status_code=404, detail="Retirada nao encontrada")
+        raise HTTPException(status_code=404, detail="Retirada não encontrada")
     photo_path = pickup.photo_path
     db.delete(pickup)
     db.commit()

@@ -48,7 +48,7 @@ def parse_date(value: str) -> date:
     try:
         return date.fromisoformat(value)
     except ValueError as exc:
-        raise HTTPException(status_code=422, detail="Data invalida. Use YYYY-MM-DD.") from exc
+        raise HTTPException(status_code=422, detail="Data inválida. Use YYYY-MM-DD.") from exc
 
 
 def parse_time(value: Optional[str]) -> Optional[time]:
@@ -57,7 +57,7 @@ def parse_time(value: Optional[str]) -> Optional[time]:
     try:
         return datetime.strptime(value, "%H:%M").time()
     except ValueError as exc:
-        raise HTTPException(status_code=422, detail="Horario invalido. Use HH:MM.") from exc
+        raise HTTPException(status_code=422, detail="Horário inválido. Use HH:MM.") from exc
 
 
 def ensure_pdf(upload: UploadFile, field_label: str) -> None:
@@ -167,7 +167,7 @@ def delete_delivery(
 ):
     delivery = db.query(Delivery).filter(Delivery.id == delivery_id).first()
     if not delivery:
-        raise HTTPException(status_code=404, detail="Entrega nao encontrada")
+        raise HTTPException(status_code=404, detail="Entrega não encontrada")
     pdf_one_path = delivery.pdf_one_path
     pdf_two_path = delivery.pdf_two_path
     db.delete(delivery)

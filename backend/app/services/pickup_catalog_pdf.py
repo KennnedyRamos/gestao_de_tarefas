@@ -151,7 +151,7 @@ def _signature_table(styles: dict[str, ParagraphStyle]) -> Table:
     table = Table(
         [
             ["", ""],
-            ["Responsável do Cliente", "Responsável Conferência / Logistica"],
+            ["Responsável do Cliente", "Responsável Conferência / Logística"],
             ["RG:", ""],
         ],
         colWidths=[95 * mm, 95 * mm],

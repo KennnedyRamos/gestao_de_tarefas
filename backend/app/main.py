@@ -5,10 +5,10 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import inspect, text
-from app.routes import tasks, auth, users, routines, deliveries, pickups
+from app.routes import tasks, auth, users, routines, deliveries, pickups, pickup_catalog as pickup_catalog_routes
 from app.database.base import Base
 from app.database.session import engine, SessionLocal
-from app.models import task, user, assignment, routine, delivery, pickup
+from app.models import task, user, assignment, routine, delivery, pickup, pickup_catalog
 from app.core.config import ADMIN_EMAIL, ADMIN_PASSWORD, ADMIN_NAME, ADMIN_ROLE, CORS_ORIGINS, parse_cors_origins
 from app.core.security import get_password_hash
 from app.models.user import User
@@ -96,7 +96,11 @@ app.include_router(users.router)
 app.include_router(routines.router)
 app.include_router(deliveries.router)
 app.include_router(pickups.router)
+app.include_router(pickup_catalog_routes.router)
 
 @app.get("/")
 def root():
     return {"message": "API rodando corretamente!"}
+
+
+

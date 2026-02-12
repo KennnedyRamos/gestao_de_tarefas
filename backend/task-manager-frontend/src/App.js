@@ -11,6 +11,7 @@ import ComodatosDashboard from './pages/ComodatosDashboard';
 import DeliveriesCreate from './pages/DeliveriesCreate';
 import DeliveriesHistory from './pages/DeliveriesHistory';
 import PickupsCreate from './pages/PickupsCreate';
+import PickupsDataUpload from './pages/PickupsDataUpload';
 import PickupsHistory from './pages/PickupsHistory';
 import Layout from './components/Layout';
 import { getToken, isAdmin, isPersonalAdmin } from './utils/auth';
@@ -51,9 +52,10 @@ function App() {
           <Route path="deliveries/history" element={<RequireAdmin><DeliveriesHistory /></RequireAdmin>} />
           <Route
             path="pickups"
-            element={<RequireAdmin><Navigate to="/pickups/history" replace /></RequireAdmin>}
+            element={<RequireAdmin><Navigate to="/pickups/create" replace /></RequireAdmin>}
           />
           <Route path="pickups/create" element={<RequireAdmin><PickupsCreate /></RequireAdmin>} />
+          <Route path="pickups/import" element={<RequireAdmin><PickupsDataUpload /></RequireAdmin>} />
           <Route path="pickups/history" element={<RequireAdmin><PickupsHistory /></RequireAdmin>} />
         </Route>
       </Routes>
@@ -62,3 +64,5 @@ function App() {
 }
 
 export default App;
+
+

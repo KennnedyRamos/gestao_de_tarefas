@@ -182,11 +182,18 @@ const Sidebar = () => {
               <ListItemText primary="Histórico de entregas" />
             </ListItemButton>
             <ListItemButton
+              onClick={() => navigate('/pickups/import')}
+              selected={isActive('/pickups/import')}
+              sx={navItemSx}
+            >
+              <ListItemText primary="Atualizar base de retiradas" />
+            </ListItemButton>
+            <ListItemButton
               onClick={() => navigate('/pickups/create')}
               selected={isActive('/pickups/create')}
               sx={navItemSx}
             >
-              <ListItemText primary="Retiradas" />
+              <ListItemText primary="Retiradas (ordem PDF)" />
             </ListItemButton>
             <ListItemButton
               onClick={() => navigate('/pickups/history')}
@@ -284,3 +291,4 @@ const Sidebar = () => {
 };
 
 export default Sidebar;
+

@@ -189,18 +189,18 @@ const Sidebar = () => {
               <ListItemText primary="Atualizar base de retiradas" />
             </ListItemButton>
             <ListItemButton
-              onClick={() => navigate('/pickups/create')}
-              selected={isActive('/pickups/create')}
-              sx={navItemSx}
-            >
-              <ListItemText primary="Retiradas (ordem PDF)" />
-            </ListItemButton>
-            <ListItemButton
               onClick={() => navigate('/pickups/history')}
               selected={isActive('/pickups/history')}
               sx={navItemSx}
             >
-              <ListItemText primary="HistÃ³rico de retiradas" />
+              <ListItemText primary="Histórico de retiradas" />
+            </ListItemButton>
+            <ListItemButton
+              onClick={() => navigate('/pickups/create')}
+              selected={isActive('/pickups/create')}
+              sx={navItemSx}
+            >
+              <ListItemText primary="Ordem de Retirada" />
             </ListItemButton>
 
             <Divider sx={{ my: 1 }} />

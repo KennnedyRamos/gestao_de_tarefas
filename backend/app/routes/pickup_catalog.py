@@ -1,18 +1,18 @@
 import json
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from io import BytesIO
 import re
 from typing import Any
 from urllib.parse import quote
 from urllib.request import urlopen
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session, load_only
 
-from app.core.auth import get_current_admin
+from app.core.auth import require_any_permission, require_permission
 from app.database.deps import get_db
 from app.models.pickup_catalog import (
     PickupCatalogClient,
@@ -63,12 +63,36 @@ MANUAL_CLIENT_FIELDS = {
 }
 
 ORDER_STATUS_VALUES = {"pendente", "concluida", "cancelada"}
-BRAZIL_TZ = ZoneInfo("America/Sao_Paulo")
+
+
+def _resolve_brazil_tz():
+    try:
+        return ZoneInfo("America/Sao_Paulo")
+    except ZoneInfoNotFoundError:
+        # Windows pode não ter base de fusos instalada.
+        return timezone(timedelta(hours=-3))
+
+
+BRAZIL_TZ = _resolve_brazil_tz()
 FOLLOWUP_HOUR = 17
 FOLLOWUP_MINUTE = 30
 MAX_ORDERS_PAGE_SIZE = 200
 DEFAULT_ORDERS_PAGE_SIZE = 60
 CEP_LOOKUP_CACHE: dict[str, str] = {}
+get_pickup_catalog_status_access = require_any_permission(
+    "pickups.create_order",
+    "pickups.import_base",
+    "pickups.orders_history",
+    "pickups.withdrawals_history",
+    "comodatos.view",
+)
+get_pickup_catalog_import_access = require_permission("pickups.import_base")
+get_pickup_catalog_create_access = require_permission("pickups.create_order")
+get_pickup_catalog_orders_access = require_any_permission(
+    "pickups.orders_history",
+    "pickups.withdrawals_history",
+)
+get_pickup_catalog_withdrawals_access = require_permission("pickups.withdrawals_history")
 
 
 def _safe_text(value: Any) -> str:
@@ -481,7 +505,7 @@ def _safe_filename_chunk(text: str) -> str:
 @router.get("/status", response_model=PickupCatalogStatusOut)
 def get_status(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_admin),
+    current_user: User = Depends(get_pickup_catalog_status_access),
 ):
     dataset_ready, stats, loaded_at = _latest_status(db)
     return PickupCatalogStatusOut(dataset_ready=dataset_ready, loaded_at=loaded_at, stats=stats)
@@ -492,7 +516,7 @@ async def upload_csv(
     clients_csv: UploadFile = File(...),
     inventory_csv: UploadFile = File(...),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_admin),
+    current_user: User = Depends(get_pickup_catalog_import_access),
 ):
     clients_bytes = await clients_csv.read()
     inventory_bytes = await inventory_csv.read()
@@ -577,7 +601,7 @@ async def upload_csv(
 def get_client(
     client_code: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_admin),
+    current_user: User = Depends(get_pickup_catalog_create_access),
 ):
     search_code = canonical_code(client_code)
     if not search_code:
@@ -613,7 +637,7 @@ def list_orders(
     status_filter: str | None = Query(default=None, alias="status"),
     q: str | None = Query(default=None),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_admin),
+    current_user: User = Depends(get_pickup_catalog_orders_access),
 ):
     normalized_status_filter = _normalized_order_status(status_filter) if _safe_text(status_filter) else ""
     search_text = _safe_text(q)
@@ -679,7 +703,7 @@ def update_order_status(
     order_id: int,
     payload: PickupCatalogOrderStatusUpdateIn,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_admin),
+    current_user: User = Depends(get_pickup_catalog_withdrawals_access),
 ):
     order = db.query(PickupCatalogOrder).filter(PickupCatalogOrder.id == order_id).first()
     if not order:
@@ -698,7 +722,7 @@ def update_order_status(
 def bulk_update_order_status(
     payload: PickupCatalogOrderBulkStatusUpdateIn,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_admin),
+    current_user: User = Depends(get_pickup_catalog_withdrawals_access),
 ):
     order_ids = sorted({int(order_id) for order_id in payload.order_ids if int(order_id) > 0})
     if not order_ids:
@@ -740,7 +764,7 @@ def get_daily_followup_pending(
     include_orders: bool = Query(default=False),
     orders_limit: int = Query(default=30, ge=1, le=200),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_admin),
+    current_user: User = Depends(get_pickup_catalog_withdrawals_access),
 ):
     now_brazil = _now_brazil()
     today_reference = _today_brazil_date()
@@ -770,7 +794,7 @@ def get_daily_followup_pending(
 def create_order_pdf(
     payload: PickupCatalogPdfRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_admin),
+    current_user: User = Depends(get_pickup_catalog_create_access),
 ):
     client_form = payload.client.model_dump() if hasattr(payload.client, "model_dump") else payload.client.dict()
     search_code = canonical_code(_safe_text(client_form.get("client_code")) or _safe_text(payload.lookup_code))

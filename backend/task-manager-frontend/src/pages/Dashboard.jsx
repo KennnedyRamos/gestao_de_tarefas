@@ -17,7 +17,7 @@ import TaskList from '../components/TaskList';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import Calendar from '../components/Calendar';
 import dayjs from 'dayjs';
-import { isAdmin } from '../utils/auth';
+import { hasPermission } from '../utils/auth';
 import EmailIcon from '@mui/icons-material/Email';
 import WhatsAppIcon from '@mui/icons-material/WhatsApp';
 
@@ -42,7 +42,7 @@ const Dashboard = () => {
   });
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const showAdmin = isAdmin();
+  const canManageTasks = hasPermission('tasks.manage');
   const selectedUserId = searchParams.get('user');
 
   const fetchTasks = async () => {
@@ -384,8 +384,8 @@ const Dashboard = () => {
           <TaskList
             tasks={filteredTasks}
             toggleComplete={toggleComplete}
-            onEdit={showAdmin ? (id) => navigate(`/edit-task/${id}`) : undefined}
-            onDelete={showAdmin ? deleteTask : undefined}
+            onEdit={canManageTasks ? (id) => navigate(`/edit-task/${id}`) : undefined}
+            onDelete={canManageTasks ? deleteTask : undefined}
           />
         </Box>
         <Box

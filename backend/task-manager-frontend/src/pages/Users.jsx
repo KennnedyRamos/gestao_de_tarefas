@@ -1,28 +1,41 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
+  Alert,
   Box,
+  Button,
+  Checkbox,
   Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
+  FormControlLabel,
+  FormGroup,
+  IconButton,
   InputAdornment,
-  Typography,
-  TextField,
-  Button,
-  Alert,
+  MenuItem,
+  Select,
   Table,
+  TableBody,
+  TableCell,
   TableHead,
   TableRow,
-  TableCell,
-  TableBody,
-  IconButton,
-  Select,
-  MenuItem
+  TextField,
+  Typography,
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
+import SettingsIcon from '@mui/icons-material/Settings';
+
 import api from '../services/api';
+import { PERMISSION_OPTIONS, permissionLabel } from '../constants/permissions';
+
+const togglePermission = (currentPermissions, permissionCode) => {
+  if (currentPermissions.includes(permissionCode)) {
+    return currentPermissions.filter((item) => item !== permissionCode);
+  }
+  return [...currentPermissions, permissionCode].sort((a, b) => a.localeCompare(b));
+};
 
 const Users = () => {
   const [users, setUsers] = useState([]);
@@ -31,19 +44,33 @@ const Users = () => {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [role, setRole] = useState('assistente');
+  const [permissions, setPermissions] = useState([]);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+
   const [resetUser, setResetUser] = useState(null);
   const [resetPassword, setResetPassword] = useState('');
   const [showResetPassword, setShowResetPassword] = useState(false);
 
+  const [accessUser, setAccessUser] = useState(null);
+  const [accessRole, setAccessRole] = useState('assistente');
+  const [accessPermissions, setAccessPermissions] = useState([]);
+
+  const permissionsByCode = useMemo(() => {
+    const map = {};
+    PERMISSION_OPTIONS.forEach((item) => {
+      map[item.code] = item.label;
+    });
+    return map;
+  }, []);
+
   const loadUsers = async () => {
     try {
       const response = await api.get('/users');
-      setUsers(response.data);
+      setUsers(Array.isArray(response.data) ? response.data : []);
       setError('');
     } catch (err) {
-      setError('Acesso negado ou erro ao carregar usuários.');
+      setError('Acesso negado ou erro ao carregar usuarios.');
     }
   };
 
@@ -51,32 +78,43 @@ const Users = () => {
     loadUsers();
   }, []);
 
-  const handleCreate = async (e) => {
-    e.preventDefault();
+  const handleCreate = async (event) => {
+    event.preventDefault();
     try {
-      await api.post('/users', { name, email, password, role });
+      await api.post('/users', {
+        name,
+        email,
+        password,
+        role,
+        permissions: role === 'admin' ? [] : permissions,
+      });
       setName('');
       setEmail('');
       setPassword('');
       setRole('assistente');
-      setSuccess('Usuário criado com sucesso.');
+      setPermissions([]);
+      setSuccess('Usuario criado com sucesso.');
       setError('');
       loadUsers();
     } catch (err) {
+      const detail = err?.response?.data?.detail;
       setSuccess('');
-      setError('Erro ao criar usuário.');
+      setError(typeof detail === 'string' ? detail : 'Erro ao criar usuario.');
     }
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm('Deseja excluir este usuário?')) {
+    if (!window.confirm('Deseja excluir este usuario?')) {
       return;
     }
     try {
       await api.delete(`/users/${id}`);
+      setSuccess('Usuario excluido com sucesso.');
+      setError('');
       loadUsers();
     } catch (err) {
-      setError('Erro ao excluir usuário.');
+      const detail = err?.response?.data?.detail;
+      setError(typeof detail === 'string' ? detail : 'Erro ao excluir usuario.');
     }
   };
 
@@ -105,20 +143,67 @@ const Users = () => {
     try {
       await api.put(`/users/${resetUser.id}/password`, { password: resetPassword });
       setSuccess('Senha redefinida com sucesso.');
+      setError('');
       handleCloseReset();
     } catch (err) {
-      setError('Erro ao redefinir senha.');
+      const detail = err?.response?.data?.detail;
+      setError(typeof detail === 'string' ? detail : 'Erro ao redefinir senha.');
     }
+  };
+
+  const handleOpenAccess = (user) => {
+    setAccessUser(user);
+    setAccessRole(user?.role || 'assistente');
+    setAccessPermissions(Array.isArray(user?.permissions) ? user.permissions : []);
+    setError('');
+    setSuccess('');
+  };
+
+  const handleCloseAccess = () => {
+    setAccessUser(null);
+    setAccessRole('assistente');
+    setAccessPermissions([]);
+  };
+
+  const handleSaveAccess = async () => {
+    if (!accessUser) {
+      return;
+    }
+    try {
+      await api.put(`/users/${accessUser.id}/access`, {
+        role: accessRole,
+        permissions: accessRole === 'admin' ? [] : accessPermissions,
+      });
+      setSuccess('Acessos atualizados com sucesso.');
+      setError('');
+      handleCloseAccess();
+      loadUsers();
+    } catch (err) {
+      const detail = err?.response?.data?.detail;
+      setError(typeof detail === 'string' ? detail : 'Erro ao atualizar acessos.');
+    }
+  };
+
+  const renderAccessSummary = (user) => {
+    if (user.role === 'admin') {
+      return 'Todos os acessos';
+    }
+
+    const list = Array.isArray(user.permissions) ? user.permissions : [];
+    if (list.length === 0) {
+      return 'Sem acessos adicionais';
+    }
+    return list.map((code) => permissionsByCode[code] || permissionLabel(code)).join(', ');
   };
 
   return (
     <Box sx={{ p: 3 }}>
-      <Typography variant="h5" sx={{ mb: 2 }}>Usuários</Typography>
-      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
-      {success && <Alert severity="success" sx={{ mb: 2 }}>{success}</Alert>}
+      <Typography variant='h5' sx={{ mb: 2 }}>Usuarios</Typography>
+      {error && <Alert severity='error' sx={{ mb: 2 }}>{error}</Alert>}
+      {success && <Alert severity='success' sx={{ mb: 2 }}>{success}</Alert>}
 
       <Box
-        component="form"
+        component='form'
         onSubmit={handleCreate}
         sx={{
           mb: 3,
@@ -132,28 +217,28 @@ const Users = () => {
         }}
       >
         <TextField
-          label="Nome"
+          label='Nome'
           value={name}
-          onChange={(e) => setName(e.target.value)}
+          onChange={(event) => setName(event.target.value)}
           required
         />
         <TextField
-          label="Email"
+          label='Email'
           value={email}
-          onChange={(e) => setEmail(e.target.value)}
+          onChange={(event) => setEmail(event.target.value)}
           required
         />
         <TextField
-          label="Senha"
+          label='Senha'
           type={showPassword ? 'text' : 'password'}
           value={password}
-          onChange={(e) => setPassword(e.target.value)}
+          onChange={(event) => setPassword(event.target.value)}
           required
           InputProps={{
             endAdornment: (
-              <InputAdornment position="end">
+              <InputAdornment position='end'>
                 <IconButton
-                  edge="end"
+                  edge='end'
                   aria-label={showPassword ? 'Ocultar senha' : 'Mostrar senha'}
                   onClick={() => setShowPassword((prev) => !prev)}
                 >
@@ -163,11 +248,33 @@ const Users = () => {
             )
           }}
         />
-        <Select value={role} onChange={(e) => setRole(e.target.value)}>
-          <MenuItem value="assistente">Assistente</MenuItem>
-          <MenuItem value="admin">Admin</MenuItem>
+
+        <Select value={role} onChange={(event) => setRole(event.target.value)}>
+          <MenuItem value='assistente'>Assistente</MenuItem>
+          <MenuItem value='admin'>Admin</MenuItem>
         </Select>
-        <Button type="submit" variant="contained">Criar usuário</Button>
+
+        {role !== 'admin' && (
+          <Box sx={{ border: '1px solid var(--stroke)', borderRadius: 1.5, p: 1.5 }}>
+            <Typography variant='subtitle2' sx={{ mb: 1 }}>Acessos deste usuario</Typography>
+            <FormGroup>
+              {PERMISSION_OPTIONS.map((item) => (
+                <FormControlLabel
+                  key={item.code}
+                  control={
+                    <Checkbox
+                      checked={permissions.includes(item.code)}
+                      onChange={() => setPermissions((prev) => togglePermission(prev, item.code))}
+                    />
+                  }
+                  label={item.label}
+                />
+              ))}
+            </FormGroup>
+          </Box>
+        )}
+
+        <Button type='submit' variant='contained'>Criar usuario</Button>
       </Box>
 
       <Box
@@ -179,13 +286,14 @@ const Users = () => {
           overflow: 'hidden'
         }}
       >
-        <Table size="small">
+        <Table size='small'>
           <TableHead>
             <TableRow>
               <TableCell>Nome</TableCell>
               <TableCell>Email</TableCell>
               <TableCell>Tipo</TableCell>
-              <TableCell align="right">Ações</TableCell>
+              <TableCell>Acessos</TableCell>
+              <TableCell align='right'>Acoes</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
@@ -194,43 +302,87 @@ const Users = () => {
                 <TableCell>{user.name}</TableCell>
                 <TableCell>{user.email}</TableCell>
                 <TableCell>{user.role}</TableCell>
-                <TableCell align="right">
-                  <Button size="small" onClick={() => handleOpenReset(user)}>
+                <TableCell>{renderAccessSummary(user)}</TableCell>
+                <TableCell align='right'>
+                  <Button size='small' onClick={() => handleOpenAccess(user)} startIcon={<SettingsIcon fontSize='small' />}>
+                    Acessos
+                  </Button>
+                  <Button size='small' onClick={() => handleOpenReset(user)}>
                     Redefinir senha
                   </Button>
-                  <IconButton aria-label="Excluir usuário" onClick={() => handleDelete(user.id)}>
-                    <DeleteIcon fontSize="small" />
+                  <IconButton aria-label='Excluir usuario' onClick={() => handleDelete(user.id)}>
+                    <DeleteIcon fontSize='small' />
                   </IconButton>
                 </TableCell>
               </TableRow>
             ))}
             {users.length === 0 && (
               <TableRow>
-                <TableCell colSpan={4}>Nenhum usuário encontrado.</TableCell>
+                <TableCell colSpan={5}>Nenhum usuario encontrado.</TableCell>
               </TableRow>
             )}
           </TableBody>
         </Table>
       </Box>
 
+      <Dialog open={Boolean(accessUser)} onClose={handleCloseAccess} maxWidth='sm' fullWidth>
+        <DialogTitle>Editar acessos</DialogTitle>
+        <DialogContent sx={{ pt: 1 }}>
+          <Typography variant='body2' sx={{ mb: 2 }}>
+            Usuario: {accessUser?.name || '-'}
+          </Typography>
+
+          <Select
+            fullWidth
+            value={accessRole}
+            onChange={(event) => setAccessRole(event.target.value)}
+            sx={{ mb: 2 }}
+          >
+            <MenuItem value='assistente'>Assistente</MenuItem>
+            <MenuItem value='admin'>Admin</MenuItem>
+          </Select>
+
+          {accessRole !== 'admin' && (
+            <FormGroup>
+              {PERMISSION_OPTIONS.map((item) => (
+                <FormControlLabel
+                  key={item.code}
+                  control={
+                    <Checkbox
+                      checked={accessPermissions.includes(item.code)}
+                      onChange={() => setAccessPermissions((prev) => togglePermission(prev, item.code))}
+                    />
+                  }
+                  label={item.label}
+                />
+              ))}
+            </FormGroup>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseAccess}>Cancelar</Button>
+          <Button variant='contained' onClick={handleSaveAccess}>Salvar</Button>
+        </DialogActions>
+      </Dialog>
+
       <Dialog open={Boolean(resetUser)} onClose={handleCloseReset}>
         <DialogTitle>Redefinir senha</DialogTitle>
         <DialogContent sx={{ pt: 1 }}>
-          <Typography variant="body2" sx={{ mb: 2 }}>
-            Usuário: {resetUser?.name || '-'}
+          <Typography variant='body2' sx={{ mb: 2 }}>
+            Usuario: {resetUser?.name || '-'}
           </Typography>
           <TextField
             autoFocus
             fullWidth
-            label="Nova senha"
+            label='Nova senha'
             type={showResetPassword ? 'text' : 'password'}
             value={resetPassword}
-            onChange={(e) => setResetPassword(e.target.value)}
+            onChange={(event) => setResetPassword(event.target.value)}
             InputProps={{
               endAdornment: (
-                <InputAdornment position="end">
+                <InputAdornment position='end'>
                   <IconButton
-                    edge="end"
+                    edge='end'
                     aria-label={showResetPassword ? 'Ocultar senha' : 'Mostrar senha'}
                     onClick={() => setShowResetPassword((prev) => !prev)}
                   >
@@ -243,7 +395,7 @@ const Users = () => {
         </DialogContent>
         <DialogActions>
           <Button onClick={handleCloseReset}>Cancelar</Button>
-          <Button variant="contained" onClick={handleResetPassword}>
+          <Button variant='contained' onClick={handleResetPassword}>
             Salvar
           </Button>
         </DialogActions>

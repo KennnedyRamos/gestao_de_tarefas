@@ -9,13 +9,15 @@ from uuid import uuid4
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
 
-from app.core.auth import get_current_admin
+from app.core.auth import require_any_permission, require_permission
 from app.database.deps import get_db
 from app.models.delivery import Delivery
 from app.models.user import User
 from app.schemas.delivery import DeliveryOut
 
 router = APIRouter(prefix="/deliveries", tags=["Deliveries"])
+get_deliveries_manager = require_permission("deliveries.manage")
+get_deliveries_viewer = require_any_permission("deliveries.manage", "comodatos.view")
 
 
 def get_uploads_base_dir() -> Path:
@@ -114,7 +116,7 @@ def build_delivery_out(delivery: Delivery) -> DeliveryOut:
 @router.get("/", response_model=list[DeliveryOut])
 def list_deliveries(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_admin)
+    current_user: User = Depends(get_deliveries_viewer)
 ):
     rows = (
         db.query(Delivery)
@@ -132,7 +134,7 @@ def create_delivery(
     pdf_one: UploadFile = File(...),
     pdf_two: UploadFile = File(...),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_admin)
+    current_user: User = Depends(get_deliveries_manager)
 ):
     parsed_date = parse_date(delivery_date)
     parsed_time = parse_time(delivery_time)
@@ -163,7 +165,7 @@ def create_delivery(
 def delete_delivery(
     delivery_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_admin)
+    current_user: User = Depends(get_deliveries_manager)
 ):
     delivery = db.query(Delivery).filter(Delivery.id == delivery_id).first()
     if not delivery:

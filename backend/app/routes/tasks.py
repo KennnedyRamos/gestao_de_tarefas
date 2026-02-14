@@ -6,12 +6,14 @@ from app.models.user import User
 from app.models.assignment import Assignment
 from app.schemas.task import TaskCreate, TaskUpdate, TaskOut
 from app.database.deps import get_db
-from app.core.auth import get_current_user, get_current_admin
+from app.core.auth import get_current_user, require_permission
+from app.core.permissions import has_permission
 
 router = APIRouter(
     prefix="/tasks",
     tags=["tasks"]
 )
+get_tasks_manager = require_permission("tasks.manage")
 
 def build_task_out(task: Task, assignee: Optional[User]):
     return TaskOut(
@@ -44,7 +46,7 @@ def serialize_labels(value):
 def create_task(
     task: TaskCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_admin)
+    current_user: User = Depends(get_tasks_manager)
 ):
     assignee = None
     if task.assignee_id:
@@ -72,7 +74,8 @@ def read_tasks(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    if current_user.role == "admin":
+    can_manage_tasks = has_permission(current_user, "tasks.manage")
+    if can_manage_tasks:
         rows = (
             db.query(Task, User)
             .outerjoin(Assignment, Assignment.task_id == Task.id)
@@ -97,6 +100,7 @@ def read_task(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    can_manage_tasks = has_permission(current_user, "tasks.manage")
     db_task = db.query(Task).filter(Task.id == task_id).first()
     if not db_task:
         raise HTTPException(status_code=404, detail="Task not found")
@@ -104,7 +108,7 @@ def read_task(
     assignee = None
     if assignment:
         assignee = db.query(User).filter(User.id == assignment.user_id).first()
-    if current_user.role != "admin":
+    if not can_manage_tasks:
         if not assignee or assignee.id != current_user.id:
             raise HTTPException(status_code=403, detail="Acesso negado")
     return build_task_out(db_task, assignee)
@@ -116,6 +120,7 @@ def update_task(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    can_manage_tasks = has_permission(current_user, "tasks.manage")
     db_task = db.query(Task).filter(Task.id == task_id).first()
     if not db_task:
         raise HTTPException(status_code=404, detail="Task not found")
@@ -130,7 +135,7 @@ def update_task(
     priority_present = "priority" in data
 
     assignment = db.query(Assignment).filter(Assignment.task_id == task_id).first()
-    if current_user.role != "admin":
+    if not can_manage_tasks:
         if not assignment or assignment.user_id != current_user.id:
             raise HTTPException(status_code=403, detail="Acesso negado")
         allowed = {"completed"}
@@ -172,7 +177,7 @@ def update_task(
 def delete_task(
     task_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_admin)
+    current_user: User = Depends(get_tasks_manager)
 ):
     db_task = db.query(Task).filter(Task.id == task_id).first()
     if not db_task:

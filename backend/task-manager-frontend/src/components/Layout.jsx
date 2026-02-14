@@ -12,7 +12,7 @@ import {
 import Sidebar from './Sidebar';
 import Header from './Header';
 import api from '../services/api';
-import { isAdmin } from '../utils/auth';
+import { hasPermission } from '../utils/auth';
 
 const FOLLOWUP_PROMPT_PREFIX = 'pickup_followup_prompt_';
 const FOLLOWUP_CHECK_INTERVAL_MS = 5 * 60 * 1000;
@@ -27,7 +27,7 @@ const Layout = () => {
   const [followupInfo, setFollowupInfo] = useState(null);
 
   useEffect(() => {
-    if (!isAdmin()) {
+    if (!hasPermission('pickups.withdrawals_history')) {
       return undefined;
     }
 

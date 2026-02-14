@@ -15,7 +15,7 @@ import PickupsDataUpload from './pages/PickupsDataUpload';
 import PickupsHistory from './pages/PickupsHistory';
 import PickupsWithdrawalsHistory from './pages/PickupsWithdrawalsHistory';
 import Layout from './components/Layout';
-import { getToken, isAdmin, isPersonalAdmin } from './utils/auth';
+import { getToken, hasAnyPermission, hasPermission, isAdmin } from './utils/auth';
 import './App.css';
 
 const RequireAuth = ({ children }) => {
@@ -27,8 +27,28 @@ const RequireAdmin = ({ children }) => {
   return isAdmin() ? children : <Navigate to="/dashboard" replace />;
 };
 
-const RequirePersonalAdmin = ({ children }) => {
-  return isPersonalAdmin() ? children : <Navigate to="/dashboard" replace />;
+const RequirePermission = ({ permission, children }) => {
+  return hasPermission(permission) ? children : <Navigate to="/dashboard" replace />;
+};
+
+const RequireAnyPermission = ({ permissions, children }) => {
+  return hasAnyPermission(permissions) ? children : <Navigate to="/dashboard" replace />;
+};
+
+const defaultPickupsRoute = () => {
+  if (hasPermission('pickups.create_order')) {
+    return '/pickups/create';
+  }
+  if (hasPermission('pickups.orders_history')) {
+    return '/pickups/history';
+  }
+  if (hasPermission('pickups.withdrawals_history')) {
+    return '/pickups/withdrawals-history';
+  }
+  if (hasPermission('pickups.import_base')) {
+    return '/pickups/import';
+  }
+  return '/dashboard';
 };
 
 function App() {
@@ -39,26 +59,37 @@ function App() {
         <Route path="/" element={<RequireAuth><Layout /></RequireAuth>}>
           <Route index element={<Navigate to="/dashboard" />} />
           <Route path="dashboard" element={<Dashboard />} />
-          <Route path="create-task" element={<RequireAdmin><CreateTask /></RequireAdmin>} />
-          <Route path="edit-task/:id" element={<RequireAdmin><EditTask /></RequireAdmin>} />
+          <Route path="create-task" element={<RequirePermission permission="tasks.manage"><CreateTask /></RequirePermission>} />
+          <Route path="edit-task/:id" element={<RequirePermission permission="tasks.manage"><EditTask /></RequirePermission>} />
           <Route path="assignments" element={<Assignments />} />
           <Route path="users" element={<RequireAdmin><Users /></RequireAdmin>} />
-          <Route path="routines" element={<RequirePersonalAdmin><Routines /></RequirePersonalAdmin>} />
-          <Route path="comodatos" element={<RequireAdmin><ComodatosDashboard /></RequireAdmin>} />
+          <Route path="routines" element={<RequirePermission permission="routines.manage"><Routines /></RequirePermission>} />
+          <Route path="comodatos" element={<RequirePermission permission="comodatos.view"><ComodatosDashboard /></RequirePermission>} />
           <Route
             path="deliveries"
-            element={<RequireAdmin><Navigate to="/deliveries/history" replace /></RequireAdmin>}
+            element={<RequirePermission permission="deliveries.manage"><Navigate to="/deliveries/history" replace /></RequirePermission>}
           />
-          <Route path="deliveries/create" element={<RequireAdmin><DeliveriesCreate /></RequireAdmin>} />
-          <Route path="deliveries/history" element={<RequireAdmin><DeliveriesHistory /></RequireAdmin>} />
+          <Route path="deliveries/create" element={<RequirePermission permission="deliveries.manage"><DeliveriesCreate /></RequirePermission>} />
+          <Route path="deliveries/history" element={<RequirePermission permission="deliveries.manage"><DeliveriesHistory /></RequirePermission>} />
           <Route
             path="pickups"
-            element={<RequireAdmin><Navigate to="/pickups/create" replace /></RequireAdmin>}
+            element={
+              <RequireAnyPermission
+                permissions={[
+                  'pickups.create_order',
+                  'pickups.import_base',
+                  'pickups.orders_history',
+                  'pickups.withdrawals_history'
+                ]}
+              >
+                <Navigate to={defaultPickupsRoute()} replace />
+              </RequireAnyPermission>
+            }
           />
-          <Route path="pickups/create" element={<RequireAdmin><PickupsCreate /></RequireAdmin>} />
-          <Route path="pickups/import" element={<RequireAdmin><PickupsDataUpload /></RequireAdmin>} />
-          <Route path="pickups/history" element={<RequireAdmin><PickupsHistory /></RequireAdmin>} />
-          <Route path="pickups/withdrawals-history" element={<RequireAdmin><PickupsWithdrawalsHistory /></RequireAdmin>} />
+          <Route path="pickups/create" element={<RequirePermission permission="pickups.create_order"><PickupsCreate /></RequirePermission>} />
+          <Route path="pickups/import" element={<RequirePermission permission="pickups.import_base"><PickupsDataUpload /></RequirePermission>} />
+          <Route path="pickups/history" element={<RequirePermission permission="pickups.orders_history"><PickupsHistory /></RequirePermission>} />
+          <Route path="pickups/withdrawals-history" element={<RequirePermission permission="pickups.withdrawals_history"><PickupsWithdrawalsHistory /></RequirePermission>} />
         </Route>
       </Routes>
     </Router>

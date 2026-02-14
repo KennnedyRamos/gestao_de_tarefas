@@ -9,7 +9,15 @@ from app.routes import tasks, auth, users, routines, deliveries, pickups, pickup
 from app.database.base import Base
 from app.database.session import engine, SessionLocal
 from app.models import task, user, assignment, routine, delivery, pickup, pickup_catalog
-from app.core.config import ADMIN_EMAIL, ADMIN_PASSWORD, ADMIN_NAME, ADMIN_ROLE, CORS_ORIGINS, parse_cors_origins
+from app.core.config import (
+    ADMIN_EMAIL,
+    ADMIN_PASSWORD,
+    ADMIN_NAME,
+    ADMIN_ROLE,
+    CORS_ORIGINS,
+    CORS_ORIGIN_REGEX,
+    parse_cors_origins,
+)
 from app.core.security import get_password_hash
 from app.models.user import User
 app = FastAPI(title="Gestão de Tarefas")
@@ -19,6 +27,7 @@ cors_origins = parse_cors_origins(CORS_ORIGINS)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
+    allow_origin_regex=CORS_ORIGIN_REGEX,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"]
@@ -59,6 +68,26 @@ def ensure_pickup_columns():
             conn.execute(text("ALTER TABLE pickups ADD COLUMN photo_path VARCHAR"))
 
 ensure_pickup_columns()
+
+
+def ensure_user_permissions_column():
+    inspector = inspect(engine)
+    if "users" not in inspector.get_table_names():
+        return
+    columns = [col["name"] for col in inspector.get_columns("users")]
+    with engine.begin() as conn:
+        if "permissions" not in columns:
+            conn.execute(text("ALTER TABLE users ADD COLUMN permissions TEXT"))
+        conn.execute(
+            text(
+                "UPDATE users "
+                "SET permissions = '[]' "
+                "WHERE permissions IS NULL OR TRIM(permissions) = ''"
+            )
+        )
+
+
+ensure_user_permissions_column()
 
 
 def ensure_pickup_catalog_columns():

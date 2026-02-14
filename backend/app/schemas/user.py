@@ -1,10 +1,11 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 class UserCreate(BaseModel):
     name: str
     email: str
     password: str
     role: str = "assistente"
+    permissions: list[str] = Field(default_factory=list)
 
 class UserLogin(BaseModel):
     email: str
@@ -15,6 +16,7 @@ class UserOut(BaseModel):
     name: str
     email: str
     role: str
+    permissions: list[str] = Field(default_factory=list)
 
     class Config:
         from_attributes = True
@@ -22,3 +24,13 @@ class UserOut(BaseModel):
 
 class UserPasswordReset(BaseModel):
     password: str
+
+
+class UserAccessUpdate(BaseModel):
+    role: str
+    permissions: list[str] = Field(default_factory=list)
+
+
+class PermissionOptionOut(BaseModel):
+    code: str
+    label: str

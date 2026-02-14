@@ -1,28 +1,20 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.core.auth import get_current_admin
-from app.core.config import ADMIN_EMAIL, ADMIN_NAME
+from app.core.auth import require_permission
 from app.database.deps import get_db
 from app.models.routine import Routine
 from app.models.user import User
 from app.schemas.routine import RoutineCreate, RoutineUpdate, RoutineOut
 
 router = APIRouter(prefix="/routines", tags=["Routines"])
-
-
-def get_personal_admin(current_user: User = Depends(get_current_admin)):
-    if ADMIN_EMAIL and current_user.email != ADMIN_EMAIL:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
-    if ADMIN_NAME and current_user.name != ADMIN_NAME:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
-    return current_user
+get_routines_manager = require_permission("routines.manage")
 
 
 @router.get("/", response_model=list[RoutineOut])
 def list_routines(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_personal_admin)
+    current_user: User = Depends(get_routines_manager)
 ):
     return (
         db.query(Routine)
@@ -35,7 +27,7 @@ def list_routines(
 def create_routine(
     payload: RoutineCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_personal_admin)
+    current_user: User = Depends(get_routines_manager)
 ):
     routine = Routine(
         title=payload.title,
@@ -54,7 +46,7 @@ def update_routine(
     routine_id: int,
     payload: RoutineUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_personal_admin)
+    current_user: User = Depends(get_routines_manager)
 ):
     routine = db.query(Routine).filter(Routine.id == routine_id).first()
     if not routine:
@@ -74,7 +66,7 @@ def update_routine(
 def delete_routine(
     routine_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_personal_admin)
+    current_user: User = Depends(get_routines_manager)
 ):
     routine = db.query(Routine).filter(Routine.id == routine_id).first()
     if not routine:

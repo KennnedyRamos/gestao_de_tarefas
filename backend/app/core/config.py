@@ -12,6 +12,7 @@ ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD")
 ADMIN_NAME = os.getenv("ADMIN_NAME", "Administrador")
 ADMIN_ROLE = os.getenv("ADMIN_ROLE", "admin")
 CORS_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000")
+CORS_ORIGIN_REGEX = os.getenv("CORS_ORIGIN_REGEX", r"^https://.*\.vercel\.app$")
 
 def parse_cors_origins(value: str):
     if not value:

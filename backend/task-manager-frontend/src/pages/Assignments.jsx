@@ -2,11 +2,11 @@ import React, { useEffect, useState } from 'react';
 import { Box, Typography } from '@mui/material';
 import api from '../services/api';
 import TaskList from '../components/TaskList';
-import { isAdmin } from '../utils/auth';
+import { hasPermission } from '../utils/auth';
 
 const Assignments = () => {
   const [tasks, setTasks] = useState([]);
-  const showAdmin = isAdmin();
+  const canManageTasks = hasPermission('tasks.manage');
 
   const fetchTasks = async () => {
     try {
@@ -73,7 +73,7 @@ const Assignments = () => {
       <TaskList
         tasks={sortedTasks}
         toggleComplete={toggleComplete}
-        onDelete={showAdmin ? deleteTask : undefined}
+        onDelete={canManageTasks ? deleteTask : undefined}
       />
     </Box>
   );

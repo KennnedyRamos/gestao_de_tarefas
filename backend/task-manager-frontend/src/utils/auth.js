@@ -87,16 +87,44 @@ export const isAdmin = () => {
   return payload?.role === 'admin';
 };
 
-const PERSONAL_ADMIN_NAME = 'Kennedy';
-const PERSONAL_ADMIN_EMAIL = 'kennedyrafaelsilvaramos@gmail.com';
-
-export const isPersonalAdmin = () => {
+export const getPermissions = () => {
   const payload = getTokenPayload();
-  if (!payload || payload.role !== 'admin') {
+  if (!payload) {
+    return [];
+  }
+  const rawPermissions = payload.permissions;
+  const source = Array.isArray(rawPermissions) ? rawPermissions : [];
+  const unique = new Set();
+  source.forEach((item) => {
+    const permission = String(item || '').trim();
+    if (!permission) {
+      return;
+    }
+    unique.add(permission);
+  });
+  return Array.from(unique).sort((a, b) => a.localeCompare(b));
+};
+
+export const hasPermission = (permission) => {
+  const expected = String(permission || '').trim();
+  if (!expected) {
     return false;
   }
-  if (payload.email && payload.email === PERSONAL_ADMIN_EMAIL) {
+  if (isAdmin()) {
     return true;
   }
-  return payload.name === PERSONAL_ADMIN_NAME;
+  return getPermissions().includes(expected);
+};
+
+export const hasAnyPermission = (permissions) => {
+  const list = Array.isArray(permissions) ? permissions : [];
+  if (isAdmin()) {
+    return true;
+  }
+  const userPermissions = new Set(getPermissions());
+  return list.some((item) => userPermissions.has(String(item || '').trim()));
+};
+
+export const isPersonalAdmin = () => {
+  return hasPermission('routines.manage');
 };

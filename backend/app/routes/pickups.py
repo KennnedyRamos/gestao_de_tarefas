@@ -9,13 +9,15 @@ from uuid import uuid4
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
 
-from app.core.auth import get_current_admin
+from app.core.auth import require_any_permission, require_permission
 from app.database.deps import get_db
 from app.models.pickup import Pickup
 from app.models.user import User
 from app.schemas.pickup import PickupOut
 
 router = APIRouter(prefix="/pickups", tags=["Pickups"])
+get_pickups_manager = require_permission("pickups.manage")
+get_pickups_viewer = require_any_permission("pickups.manage", "comodatos.view")
 
 ALLOWED_IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp"}
 
@@ -125,7 +127,7 @@ def build_pickup_out(pickup: Pickup) -> PickupOut:
 @router.get("/", response_model=list[PickupOut])
 def list_pickups(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_admin)
+    current_user: User = Depends(get_pickups_viewer)
 ):
     rows = (
         db.query(Pickup)
@@ -143,7 +145,7 @@ def create_pickup(
     quantity: str = Form(...),
     photo: Optional[UploadFile] = File(None),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_admin)
+    current_user: User = Depends(get_pickups_manager)
 ):
     parsed_date = parse_date(pickup_date)
     parsed_quantity = parse_quantity(quantity)
@@ -173,7 +175,7 @@ def create_pickup(
 def delete_pickup(
     pickup_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_admin)
+    current_user: User = Depends(get_pickups_manager)
 ):
     pickup = db.query(Pickup).filter(Pickup.id == pickup_id).first()
     if not pickup:

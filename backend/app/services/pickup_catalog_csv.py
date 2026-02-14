@@ -388,6 +388,11 @@ def load_inventory_csv(raw_bytes: bytes) -> dict[str, list[dict[str, Any]]]:
     if not baixados_col and not saldo_col:
         raise ValueError("Coluna obrigatória não encontrada: baixados ou saldo.")
     rg_col = _pick_column(header_map, INVENTORY_ALIASES["rg"], required=False)
+    rg_fallback_col = _pick_column(
+        header_map,
+        ["controla nr serie", "controla nr. serie", "controla n serie"],
+        required=False,
+    )
     comodato_col = _pick_column(header_map, INVENTORY_ALIASES["comodato_number"], required=False)
     issue_date_col = _pick_column(header_map, INVENTORY_ALIASES["issue_date"], required=False)
     product_col = _pick_column(header_map, INVENTORY_ALIASES["product_code"], required=False)
@@ -420,6 +425,8 @@ def load_inventory_csv(raw_bytes: bytes) -> dict[str, list[dict[str, Any]]]:
             continue
 
         rg = _compact_spaces(row.get(rg_col or "", "")) if rg_col else ""
+        if not rg and rg_fallback_col:
+            rg = _compact_spaces(row.get(rg_fallback_col or "", ""))
         comodato_number = _compact_spaces(row.get(comodato_col or "", "")) if comodato_col else ""
         issue_date = _compact_spaces(row.get(issue_date_col or "", "")) if issue_date_col else ""
         product_code = _compact_spaces(row.get(product_col or "", "")) if product_col else ""

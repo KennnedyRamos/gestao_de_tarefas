@@ -178,7 +178,7 @@ const PickupsHistory = () => {
                         variant="caption"
                         color="text.secondary"
                       >
-                        {materialItem.material} — {materialItem.quantity}
+                        {materialItem.material} - {materialItem.quantity}
                       </Typography>
                     ))}
                   </Box>

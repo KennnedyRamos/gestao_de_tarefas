@@ -179,7 +179,7 @@ const Sidebar = () => {
               selected={isActive('/deliveries/history')}
               sx={navItemSx}
             >
-              <ListItemText primary="Histórico de entregas" />
+              <ListItemText primary={"Hist\u00f3rico de entregas"} />
             </ListItemButton>
             <ListItemButton
               onClick={() => navigate('/pickups/import')}
@@ -193,7 +193,7 @@ const Sidebar = () => {
               selected={isActive('/pickups/history')}
               sx={navItemSx}
             >
-              <ListItemText primary="Hist�rico de retiradas" />
+              <ListItemText primary={"Hist\u00f3rico de retiradas"} />
             </ListItemButton>
             <ListItemButton
               onClick={() => navigate('/pickups/create')}
@@ -210,7 +210,7 @@ const Sidebar = () => {
               selected={isActive('/users')}
               sx={navItemSx}
             >
-              <ListItemText primary="Usuários" />
+              <ListItemText primary={"Usu\u00e1rios"} />
             </ListItemButton>
           </List>
         </>
@@ -245,7 +245,7 @@ const Sidebar = () => {
                 boxShadow: 'var(--shadow-md)'
               }}
             >
-              Usuários
+              {"Usu\u00e1rios"}
             </Button>
             <Menu
               anchorEl={userMenuAnchor}
@@ -270,7 +270,7 @@ const Sidebar = () => {
               }}
             >
               {users.length === 0 ? (
-                <MenuItem disabled>Nenhum usuário encontrado.</MenuItem>
+                <MenuItem disabled>{"Nenhum usu\u00e1rio encontrado."}</MenuItem>
               ) : (
                 users.map((user) => (
                   <MenuItem

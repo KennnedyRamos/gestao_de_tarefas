@@ -335,7 +335,7 @@ def _signature_table(copy_tag: str, styles: dict[str, ParagraphStyle]) -> Table:
         table = Table(
             [
                 [""],
-                [_p("Cliente/Respons\u00e1vel", styles["small_center"])],
+                [_p("Respons\u00e1vel pela Recolha", styles["small_center"])],
                 [_p("____________________________________________", styles["small_center"])],
             ],
             colWidths=[PAGE_WIDTH],

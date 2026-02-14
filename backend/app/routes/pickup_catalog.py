@@ -1,7 +1,10 @@
+import json
 from datetime import datetime
 from io import BytesIO
 import re
 from typing import Any
+from urllib.parse import quote
+from urllib.request import urlopen
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from fastapi.responses import StreamingResponse
@@ -39,6 +42,13 @@ from app.services.pickup_catalog_csv import (
 from app.services.pickup_catalog_pdf import build_withdrawal_pdf
 
 router = APIRouter(prefix="/pickup-catalog", tags=["PickupCatalog"])
+
+RESELLER_LINES = [
+    "Ribeira Beer Distribuidora de Bebidas Ltda",
+    "Rua Arapongal N 40 - Arapongal",
+    "Registro - SP",
+    "11900-000",
+]
 
 
 def _safe_text(value: Any) -> str:
@@ -294,6 +304,62 @@ def _format_brazil_date(value: str | None) -> str:
         return raw
 
 
+def _normalize_cep(value: str) -> str:
+    digits = re.sub(r"\D+", "", _safe_text(value))
+    if len(digits) != 8:
+        return ""
+    return f"{digits[:5]}-{digits[5:]}"
+
+
+def _street_for_lookup(value: str) -> str:
+    street = re.sub(r"\s+", " ", _safe_text(value))
+    if not street:
+        return ""
+    # Remove número e complemento para melhorar a busca no ViaCEP.
+    street = re.sub(r"\s+\d+.*$", "", street).strip()
+    return street[:80]
+
+
+def _lookup_cep_by_address(cidade: str, endereco: str, uf: str = "SP") -> str:
+    city = _safe_text(cidade)
+    street = _street_for_lookup(endereco)
+    if not city or not street:
+        return ""
+
+    url = f"https://viacep.com.br/ws/{quote(uf)}/{quote(city)}/{quote(street)}/json/"
+    try:
+        with urlopen(url, timeout=4) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except Exception:
+        return ""
+
+    if not isinstance(payload, list):
+        return ""
+
+    for item in payload:
+        if not isinstance(item, dict):
+            continue
+        cep = _normalize_cep(item.get("cep"))
+        if cep:
+            return cep
+    return ""
+
+
+def _ensure_client_cep(client_payload: dict[str, str]) -> dict[str, str]:
+    normalized_cep = _normalize_cep(client_payload.get("cep", ""))
+    if normalized_cep:
+        client_payload["cep"] = normalized_cep
+        return client_payload
+
+    auto_cep = _lookup_cep_by_address(
+        cidade=client_payload.get("cidade", ""),
+        endereco=client_payload.get("endereco", ""),
+    )
+    if auto_cep:
+        client_payload["cep"] = auto_cep
+    return client_payload
+
+
 def _safe_filename_chunk(text: str) -> str:
     raw = _safe_text(text)
     if not raw:
@@ -411,6 +477,7 @@ def get_client(
         inventory_items = _load_inventory_items_for_client(db, client_model.id)
 
     client_payload = _client_payload_from_model(client_model, fallback_code=search_code)
+    client_payload = _ensure_client_cep(client_payload)
     out_items = [_inventory_item_out(item) for item in inventory_items]
 
     return PickupCatalogClientOut(
@@ -453,6 +520,7 @@ def create_order_pdf(
     client_data = _merge_client_form_with_db(client_form, client_model)
     if not _safe_text(client_data.get("client_code")) and search_code:
         client_data["client_code"] = search_code
+    client_data = _ensure_client_cep(client_data)
 
     inventory_map = {item.id: item for item in inventory_items}
     selected_lines: list[dict[str, Any]] = []
@@ -503,6 +571,8 @@ def create_order_pdf(
     company_name = _safe_text(payload.company_name) or "Ribeira Beer"
 
     open_equipment_summary = _open_equipment_summary(inventory_items, selected_types)
+    if client_model and not _safe_text(client_model.cep) and _safe_text(client_data.get("cep")):
+        client_model.cep = _safe_text(client_data.get("cep"))
 
     order = PickupCatalogOrder(
         company_name=company_name,
@@ -557,6 +627,7 @@ def create_order_pdf(
         "withdrawal_time": withdrawal_time,
         "generated_at": datetime.now().strftime("%d/%m/%Y %H:%M"),
         "copies": ["Via do Cliente", "Via da Logística"],
+        "reseller_lines": RESELLER_LINES,
         "open_equipment_summary": open_equipment_summary,
         "order_number": order.order_number,
     }

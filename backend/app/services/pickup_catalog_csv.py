@@ -38,7 +38,16 @@ CLIENT_FIELD_ALIASES = {
     "nome_fantasia": ["nome fantasia", "fantasia"],
     "razao_social": ["razao social", "razão social", "razao"],
     "cnpj_cpf": ["cnpj/cpf", "cnpj cpf", "cnpj", "cpf"],
-    "setor": ["setor", "secao", "seção", "canal"],
+    "setor": [
+        "setor",
+        "cod setor",
+        "cod. setor",
+        "codigo setor",
+        "código setor",
+        "secao",
+        "seção",
+        "canal",
+    ],
     "telefone": ["telefone", "fone", "celular"],
     "endereco": ["endereco", "endereço", "logradouro"],
     "bairro": ["bairro"],
@@ -85,7 +94,10 @@ BOTTLES_PER_CRATE = {"300ml": 24, "600ml": 24, "1l": 12}
 
 def canonical_code(value: str) -> str:
     text = (value or "").strip()
-    return re.sub(r"[^A-Za-z0-9]+", "", text).upper()
+    normalized = re.sub(r"[^A-Za-z0-9]+", "", text).upper()
+    if normalized.isdigit():
+        return normalized.lstrip("0") or "0"
+    return normalized
 
 
 def parse_integer(value: Any) -> int:
@@ -166,31 +178,49 @@ def _detect_delimiter(sample_text: str) -> str:
         return ";" if semicolons >= commas else ","
 
 
-def _read_csv_rows(raw_bytes: bytes) -> tuple[list[dict[str, str]], dict[str, str]]:
+def _read_csv_rows(raw_bytes: bytes) -> tuple[list[dict[str, str]], dict[str, list[str]]]:
     text = _decode_csv_bytes(raw_bytes)
     delimiter = _detect_delimiter(text)
-    reader = csv.DictReader(io.StringIO(text), delimiter=delimiter)
-    if not reader.fieldnames:
+    reader = csv.reader(io.StringIO(text), delimiter=delimiter)
+    headers = next(reader, None)
+    if not headers:
         raise ValueError("CSV sem cabeçalho. Verifique o arquivo enviado.")
 
-    # Keep normalized lookup keys, but return stripped column names to match row keys below.
-    header_map = {normalize_header(name): (name or "").strip() for name in reader.fieldnames if name}
+    # Preserve duplicate headers (e.g. "CNPJ") with stable unique keys.
+    seen_headers: dict[str, int] = {}
+    unique_headers: list[str] = []
+    header_map: dict[str, list[str]] = {}
+
+    for raw_name in headers:
+        base_name = (raw_name or "").strip()
+        if not base_name:
+            base_name = "coluna"
+        seen_headers[base_name] = seen_headers.get(base_name, 0) + 1
+        count = seen_headers[base_name]
+        unique_name = base_name if count == 1 else f"{base_name}__{count}"
+        unique_headers.append(unique_name)
+        header_map.setdefault(normalize_header(base_name), []).append(unique_name)
+
     rows: list[dict[str, str]] = []
     for row in reader:
-        rows.append({(key or "").strip(): (value or "").strip() for key, value in row.items()})
+        if len(row) < len(unique_headers):
+            row = row + [""] * (len(unique_headers) - len(row))
+        elif len(row) > len(unique_headers):
+            row = row[: len(unique_headers)]
+        rows.append({header: (row[idx] or "").strip() for idx, header in enumerate(unique_headers)})
     return rows, header_map
 
 
 def _pick_column(
-    normalized_to_raw: dict[str, str],
+    normalized_to_raw: dict[str, list[str]],
     aliases: list[str],
     required: bool = False,
     context_label: str = "",
 ) -> str | None:
     for alias in aliases:
         key = normalize_header(alias)
-        if key in normalized_to_raw:
-            return normalized_to_raw[key]
+        if key in normalized_to_raw and normalized_to_raw[key]:
+            return normalized_to_raw[key][0]
     if required:
         raise ValueError(f"Coluna obrigatória não encontrada: {context_label or aliases[0]}.")
     return None
@@ -202,7 +232,7 @@ def _blank_client() -> dict[str, str]:
 
 def _extract_client_payload_from_row(
     row: dict[str, str],
-    header_map: dict[str, str],
+    header_map: dict[str, list[str]],
 ) -> dict[str, str]:
     payload = _blank_client()
     for field, aliases in CLIENT_FIELD_ALIASES.items():

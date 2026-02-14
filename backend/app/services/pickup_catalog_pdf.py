@@ -115,6 +115,16 @@ def _open_equipment_block(order: dict[str, Any], styles: dict[str, ParagraphStyl
     return story
 
 
+def _reseller_block(order: dict[str, Any], styles: dict[str, ParagraphStyle]) -> list[Any]:
+    lines = order.get("reseller_lines", []) or []
+    if not lines:
+        return []
+    story: list[Any] = [Paragraph("Revenda:", styles["section"])]
+    for line in lines:
+        story.append(Paragraph(str(line), styles["small"]))
+    return story
+
+
 def _withdrawal_table(order: dict[str, Any], styles: dict[str, ParagraphStyle]) -> Table:
     data = [["Descrição", "Tipo", "Quantidade", "RG"]]
     for item in order.get("items", []):
@@ -178,6 +188,10 @@ def _copy_story(order: dict[str, Any], copy_tag: str, styles: dict[str, Paragrap
     story.append(Paragraph("Solicitação de Retirada", styles["title"]))
     story.append(Paragraph(order.get("company_name", "Ribeira Beer"), styles["subtitle"]))
     story.append(Paragraph(copy_tag, styles["copy_tag"]))
+
+    story.extend(_reseller_block(order, styles))
+    if order.get("reseller_lines"):
+        story.append(Spacer(1, 6))
 
     story.append(_client_table(order, styles))
     story.append(Spacer(1, 5))

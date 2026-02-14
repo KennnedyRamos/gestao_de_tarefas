@@ -39,6 +39,13 @@ const CLIENT_FIELDS = [
   'responsavel_conferencia',
 ];
 
+const MANUAL_ONLY_CLIENT_FIELDS = [
+  'telefone',
+  'responsavel_cliente',
+  'responsavel_retirada',
+  'responsavel_conferencia',
+];
+
 const ITEM_TYPE_LABELS = {
   refrigerador: 'Refrigerador',
   garrafeira: 'Garrafeira',
@@ -69,6 +76,14 @@ const createEmptyClient = () => ({
   responsavel_retirada: '',
   responsavel_conferencia: '',
 });
+
+const clearManualClientFields = (clientData) => {
+  const next = { ...(clientData || createEmptyClient()) };
+  MANUAL_ONLY_CLIENT_FIELDS.forEach((field) => {
+    next[field] = '';
+  });
+  return next;
+};
 
 const createManualItem = () => ({
   description: '',
@@ -136,7 +151,7 @@ const PickupsCreate = () => {
 
   const [companyName, setCompanyName] = useState('Ribeira Beer');
   const [withdrawalDate, setWithdrawalDate] = useState(dayjs().format('YYYY-MM-DD'));
-  const [withdrawalTime, setWithdrawalTime] = useState(dayjs().format('HH:mm'));
+  const [withdrawalTime, setWithdrawalTime] = useState('');
   const [extraObservation, setExtraObservation] = useState('');
 
   const [loadingStatus, setLoadingStatus] = useState(true);
@@ -189,7 +204,7 @@ const PickupsCreate = () => {
       const data = response.data || {};
 
       setMatchedCode(data.matched_code || code);
-      setClient(data.client || createEmptyClient());
+      setClient(clearManualClientFields(data.client || createEmptyClient()));
       setItems(Array.isArray(data.items) ? data.items : []);
       setSelectedMap({});
       setManualItems([]);

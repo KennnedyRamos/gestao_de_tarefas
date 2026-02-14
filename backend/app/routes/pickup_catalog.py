@@ -50,6 +50,13 @@ RESELLER_LINES = [
     "11900-000",
 ]
 
+MANUAL_CLIENT_FIELDS = {
+    "telefone",
+    "responsavel_cliente",
+    "responsavel_retirada",
+    "responsavel_conferencia",
+}
+
 
 def _safe_text(value: Any) -> str:
     return str(value or "").strip()
@@ -106,9 +113,18 @@ def _merge_client_form_with_db(form_client: dict[str, str], model: PickupCatalog
 
     db_payload = _client_payload_from_model(model)
     for field in CLIENT_FORM_FIELDS:
+        if field in MANUAL_CLIENT_FIELDS:
+            continue
         if not _safe_text(merged.get(field)):
             merged[field] = _safe_text(db_payload.get(field))
     return merged
+
+
+def _clear_manual_client_fields(payload: dict[str, str]) -> dict[str, str]:
+    cleaned = dict(payload)
+    for field in MANUAL_CLIENT_FIELDS:
+        cleaned[field] = ""
+    return cleaned
 
 
 def _inventory_item_out(item: PickupCatalogInventoryItem) -> PickupCatalogInventoryItemOut:
@@ -482,6 +498,7 @@ def get_client(
 
     client_payload = _client_payload_from_model(client_model, fallback_code=search_code)
     client_payload = _ensure_client_cep(client_payload)
+    client_payload = _clear_manual_client_fields(client_payload)
     out_items = [_inventory_item_out(item) for item in inventory_items]
 
     return PickupCatalogClientOut(
@@ -571,7 +588,7 @@ def create_order_pdf(
     observation = f"{auto_summary} | {extra_obs}" if extra_obs else auto_summary
 
     withdrawal_date = _format_brazil_date(payload.data_retirada)
-    withdrawal_time = _safe_text(payload.hora_retirada) or datetime.now().strftime("%H:%M")
+    withdrawal_time = _safe_text(payload.hora_retirada)
     company_name = _safe_text(payload.company_name) or "Ribeira Beer"
 
     open_equipment_summary = _open_equipment_summary(inventory_items, selected_types)

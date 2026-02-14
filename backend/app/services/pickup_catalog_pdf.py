@@ -48,12 +48,20 @@ def _styles() -> dict[str, ParagraphStyle]:
             fontSize=9.5,
             leading=11,
         ),
+        "section_center": ParagraphStyle(
+            "section_center",
+            parent=base["Normal"],
+            fontName="Helvetica-Bold",
+            fontSize=9.5,
+            leading=11,
+            alignment=1,
+        ),
         "field_label": ParagraphStyle(
             "field_label",
             parent=base["Normal"],
             fontName="Helvetica-Bold",
             fontSize=8,
-            leading=9.5,
+            leading=10.5,
             wordWrap="CJK",
         ),
         "field_value": ParagraphStyle(
@@ -61,7 +69,7 @@ def _styles() -> dict[str, ParagraphStyle]:
             parent=base["Normal"],
             fontName="Helvetica",
             fontSize=8.5,
-            leading=10,
+            leading=11,
             wordWrap="CJK",
         ),
         "small": ParagraphStyle(
@@ -69,7 +77,7 @@ def _styles() -> dict[str, ParagraphStyle]:
             parent=base["Normal"],
             fontName="Helvetica",
             fontSize=8,
-            leading=9.5,
+            leading=10.5,
             wordWrap="CJK",
         ),
         "small_center": ParagraphStyle(
@@ -77,7 +85,7 @@ def _styles() -> dict[str, ParagraphStyle]:
             parent=base["Normal"],
             fontName="Helvetica",
             fontSize=8,
-            leading=9.5,
+            leading=10.5,
             alignment=1,
             wordWrap="CJK",
         ),
@@ -155,8 +163,8 @@ def _reseller_header_table(order: dict[str, Any], styles: dict[str, ParagraphSty
                 ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
                 ("LEFTPADDING", (0, 0), (-1, -1), 3),
                 ("RIGHTPADDING", (0, 0), (-1, -1), 3),
-                ("TOPPADDING", (0, 0), (-1, -1), 2),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+                ("TOPPADDING", (0, 0), (-1, -1), 3),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
             ]
         )
     )
@@ -220,8 +228,8 @@ def _client_table(order: dict[str, Any], styles: dict[str, ParagraphStyle]) -> T
                 ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
                 ("LEFTPADDING", (0, 0), (-1, -1), 3),
                 ("RIGHTPADDING", (0, 0), (-1, -1), 3),
-                ("TOPPADDING", (0, 0), (-1, -1), 2),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+                ("TOPPADDING", (0, 0), (-1, -1), 3),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
             ]
         )
     )
@@ -251,8 +259,8 @@ def _section_lines_table(
                 ("VALIGN", (0, 0), (-1, -1), "TOP"),
                 ("LEFTPADDING", (0, 0), (-1, -1), 3),
                 ("RIGHTPADDING", (0, 0), (-1, -1), 3),
-                ("TOPPADDING", (0, 0), (-1, -1), 2),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+                ("TOPPADDING", (0, 0), (-1, -1), 3),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
             ]
         )
     )
@@ -286,7 +294,7 @@ def _reseller_cadastro_box(order: dict[str, Any], styles: dict[str, ParagraphSty
             "11900-000",
         ]
 
-    inner_rows = [[_p("DADOS CADASTRAIS DA REVENDA", styles["section"])]]
+    inner_rows = [[_p("DADOS CADASTRAIS DA REVENDA", styles["section_center"])]]
     inner_rows.extend([[_p(line, styles["small_center"])] for line in lines])
     inner = Table(inner_rows, colWidths=[145 * mm])
     inner.setStyle(
@@ -297,8 +305,8 @@ def _reseller_cadastro_box(order: dict[str, Any], styles: dict[str, ParagraphSty
                 ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
                 ("LEFTPADDING", (0, 0), (-1, -1), 4),
                 ("RIGHTPADDING", (0, 0), (-1, -1), 4),
-                ("TOPPADDING", (0, 0), (-1, -1), 2),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+                ("TOPPADDING", (0, 0), (-1, -1), 3),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
             ]
         )
     )
@@ -312,8 +320,8 @@ def _reseller_cadastro_box(order: dict[str, Any], styles: dict[str, ParagraphSty
                 ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
                 ("LEFTPADDING", (0, 0), (-1, -1), 8),
                 ("RIGHTPADDING", (0, 0), (-1, -1), 8),
-                ("TOPPADDING", (0, 0), (-1, -1), 8),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+                ("TOPPADDING", (0, 0), (-1, -1), 10),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
             ]
         )
     )
@@ -328,20 +336,20 @@ def _signature_table(copy_tag: str, styles: dict[str, ParagraphStyle]) -> Table:
             [
                 [""],
                 [_p("Cliente/Respons\u00e1vel", styles["small_center"])],
-                [_p("RG: ____________________________________________", styles["small"])],
+                [_p("____________________________________________", styles["small_center"])],
             ],
             colWidths=[PAGE_WIDTH],
-            rowHeights=[10 * mm, 6 * mm, 8 * mm],
+            rowHeights=[12 * mm, 8 * mm, 10 * mm],
         )
         table.setStyle(
             TableStyle(
                 [
                     ("LINEABOVE", (0, 0), (0, 0), 0.8, colors.black),
-                    ("ALIGN", (0, 1), (0, 1), "CENTER"),
+                    ("ALIGN", (0, 1), (0, 2), "CENTER"),
                     ("LEFTPADDING", (0, 0), (-1, -1), 3),
                     ("RIGHTPADDING", (0, 0), (-1, -1), 3),
-                    ("TOPPADDING", (0, 0), (-1, -1), 2),
-                    ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+                    ("TOPPADDING", (0, 0), (-1, -1), 3),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
                 ]
             )
         )
@@ -351,21 +359,21 @@ def _signature_table(copy_tag: str, styles: dict[str, ParagraphStyle]) -> Table:
         [
             ["", ""],
             [_p("Cliente/Respons\u00e1vel", styles["small_center"]), _p("Conferente", styles["small_center"])],
-            [_p("RG: ____________________________________________", styles["small"]), ""],
+            [_p("____________________________________________", styles["small_center"]), _p("____________________________________________", styles["small_center"])],
         ],
         colWidths=[95 * mm, 95 * mm],
-        rowHeights=[10 * mm, 6 * mm, 8 * mm],
+        rowHeights=[12 * mm, 8 * mm, 10 * mm],
     )
     table.setStyle(
         TableStyle(
             [
                 ("LINEABOVE", (0, 0), (0, 0), 0.8, colors.black),
                 ("LINEABOVE", (1, 0), (1, 0), 0.8, colors.black),
-                ("ALIGN", (0, 1), (-1, 1), "CENTER"),
+                ("ALIGN", (0, 1), (-1, 2), "CENTER"),
                 ("LEFTPADDING", (0, 0), (-1, -1), 3),
                 ("RIGHTPADDING", (0, 0), (-1, -1), 3),
-                ("TOPPADDING", (0, 0), (-1, -1), 2),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+                ("TOPPADDING", (0, 0), (-1, -1), 3),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
             ]
         )
     )
@@ -375,21 +383,21 @@ def _signature_table(copy_tag: str, styles: dict[str, ParagraphStyle]) -> Table:
 def _copy_story(order: dict[str, Any], copy_tag: str, styles: dict[str, ParagraphStyle]) -> list[Any]:
     story: list[Any] = []
     story.append(_header_table(order, copy_tag, styles))
-    story.append(Spacer(1, 2 * mm))
+    story.append(Spacer(1, 4 * mm))
     story.append(_reseller_header_table(order, styles))
-    story.append(Spacer(1, 2 * mm))
+    story.append(Spacer(1, 4 * mm))
     story.append(_client_table(order, styles))
-    story.append(Spacer(1, 2 * mm))
-    story.append(_section_lines_table("MOTIVO DA RETIRADA:", _withdrawal_reason_lines(order), styles, min_rows=3))
-    story.append(Spacer(1, 2 * mm))
+    story.append(Spacer(1, 4 * mm))
+    story.append(_section_lines_table("MOTIVO DA RETIRADA:", _withdrawal_reason_lines(order), styles, min_rows=4))
+    story.append(Spacer(1, 3 * mm))
     story.append(_p("VOLTAGEM DO EQUIPAMENTO: ( ) 110 volts    ( ) 220 volts", styles["small"]))
-    story.append(Spacer(1, 1.5 * mm))
-    story.append(_section_lines_table("OBSERVA\u00c7\u00c3O:", [], styles, min_rows=3))
-    story.append(Spacer(1, 2 * mm))
+    story.append(Spacer(1, 3 * mm))
+    story.append(_section_lines_table("OBSERVA\u00c7\u00c3O:", [], styles, min_rows=4))
+    story.append(Spacer(1, 4 * mm))
     story.append(_reseller_cadastro_box(order, styles))
-    story.append(Spacer(1, 2 * mm))
+    story.append(Spacer(1, 4 * mm))
     story.append(_signature_table(copy_tag, styles))
-    story.append(Spacer(1, 1.5 * mm))
+    story.append(Spacer(1, 3 * mm))
 
     footer = Table(
         [

@@ -33,6 +33,7 @@ CLIENT_FIELD_ALIASES = {
         "cod_cliente",
         "código",
         "código cliente",
+        "cliente",
     ],
     "nome_fantasia": ["nome fantasia", "fantasia"],
     "razao_social": ["razao social", "razão social", "razao"],
@@ -65,7 +66,8 @@ INVENTORY_ALIASES = {
         "nome produto",
         "equipamento",
     ],
-    "baixados": ["baixados", "qtd baixados", "qtde baixados", "saldo baixados", "saldo"],
+    "baixados": ["baixados", "baixado", "qtd baixados", "qtde baixados", "saldo baixados"],
+    "saldo": ["saldo"],
     "rg": ["rg", "numero rg", "n rg", "serial", "serie", "identificador"],
     "product_code": ["codigo produto", "cod produto", "material codigo", "codigo material"],
 }
@@ -171,7 +173,8 @@ def _read_csv_rows(raw_bytes: bytes) -> tuple[list[dict[str, str]], dict[str, st
     if not reader.fieldnames:
         raise ValueError("CSV sem cabeçalho. Verifique o arquivo enviado.")
 
-    header_map = {normalize_header(name): name for name in reader.fieldnames if name}
+    # Keep normalized lookup keys, but return stripped column names to match row keys below.
+    header_map = {normalize_header(name): (name or "").strip() for name in reader.fieldnames if name}
     rows: list[dict[str, str]] = []
     for row in reader:
         rows.append({(key or "").strip(): (value or "").strip() for key, value in row.items()})
@@ -305,12 +308,10 @@ def load_inventory_csv(raw_bytes: bytes) -> dict[str, list[dict[str, Any]]]:
         required=True,
         context_label="descrição do item",
     )
-    baixados_col = _pick_column(
-        header_map,
-        INVENTORY_ALIASES["baixados"],
-        required=True,
-        context_label="baixados",
-    )
+    baixados_col = _pick_column(header_map, INVENTORY_ALIASES["baixados"], required=False)
+    saldo_col = _pick_column(header_map, INVENTORY_ALIASES["saldo"], required=False)
+    if not baixados_col and not saldo_col:
+        raise ValueError("Coluna obrigatória não encontrada: baixados ou saldo.")
     rg_col = _pick_column(header_map, INVENTORY_ALIASES["rg"], required=False)
     product_col = _pick_column(header_map, INVENTORY_ALIASES["product_code"], required=False)
 
@@ -323,11 +324,19 @@ def load_inventory_csv(raw_bytes: bytes) -> dict[str, list[dict[str, Any]]]:
         if not code:
             continue
 
-        baixados_value = parse_integer(row.get(baixados_col or "", "0"))
-        if baixados_value >= 0:
+        baixados_value = parse_integer(row.get(baixados_col or "", "0")) if baixados_col else 0
+        saldo_value = parse_integer(row.get(saldo_col or "", "0")) if saldo_col else 0
+
+        open_balance = None
+        if baixados_col and baixados_value < 0:
+            open_balance = baixados_value
+        elif saldo_col and saldo_value < 0:
+            open_balance = saldo_value
+
+        if open_balance is None:
             continue
 
-        open_quantity = abs(baixados_value)
+        open_quantity = abs(open_balance)
         description = (row.get(desc_col or "", "") or "").strip()
         if not description:
             continue
@@ -344,7 +353,7 @@ def load_inventory_csv(raw_bytes: bytes) -> dict[str, list[dict[str, Any]]]:
             "item_type": item_type,
             "rg": rg,
             "volume_key": volume_key,
-            "source_baixados": baixados_value,
+            "source_baixados": open_balance,
             "product_code": product_code,
             "client_snapshot": _extract_client_payload_from_row(row, header_map),
         }

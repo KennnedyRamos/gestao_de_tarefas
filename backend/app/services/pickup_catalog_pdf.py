@@ -207,11 +207,11 @@ def _client_table(order: dict[str, Any], styles: dict[str, ParagraphStyle]) -> T
         [
             _p("Respons\u00e1vel:", styles["field_label"]),
             _p(client.get("responsavel_cliente", ""), styles["field_value"]),
-            _p("Respons\u00e1vel confer\u00eancia:", styles["field_label"]),
+            _p("Respons\u00e1vel pela confer\u00eancia:", styles["field_label"]),
             _p(client.get("responsavel_conferencia", ""), styles["field_value"]),
         ],
         [
-            _p("Data para retirada:", styles["field_label"]),
+            _p("Data da retirada:", styles["field_label"]),
             _p(order.get("withdrawal_date", ""), styles["field_value"]),
             _p("", styles["field_label"]),
             _p("", styles["field_value"]),
@@ -335,7 +335,7 @@ def _signature_table(copy_tag: str, styles: dict[str, ParagraphStyle]) -> Table:
         table = Table(
             [
                 [""],
-                [_p("Respons\u00e1vel pela Recolha", styles["small_center"])],
+                [_p("Respons\u00e1vel pela recolha", styles["small_center"])],
                 [_p("____________________________________________", styles["small_center"])],
             ],
             colWidths=[PAGE_WIDTH],

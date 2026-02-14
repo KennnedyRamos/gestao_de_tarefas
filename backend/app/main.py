@@ -89,11 +89,31 @@ def ensure_pickup_catalog_order_columns():
                     "ADD COLUMN status VARCHAR DEFAULT 'pendente'"
                 )
             )
+        if "status_note" not in columns:
+            conn.execute(text("ALTER TABLE pickup_catalog_orders ADD COLUMN status_note TEXT"))
+        if "status_updated_at" not in columns:
+            conn.execute(text("ALTER TABLE pickup_catalog_orders ADD COLUMN status_updated_at TIMESTAMP"))
+        if "status_updated_by" not in columns:
+            conn.execute(text("ALTER TABLE pickup_catalog_orders ADD COLUMN status_updated_by VARCHAR"))
         conn.execute(
             text(
                 "UPDATE pickup_catalog_orders "
                 "SET status = 'pendente' "
                 "WHERE status IS NULL OR TRIM(status) = ''"
+            )
+        )
+        conn.execute(
+            text(
+                "UPDATE pickup_catalog_orders "
+                "SET status_note = '' "
+                "WHERE status_note IS NULL"
+            )
+        )
+        conn.execute(
+            text(
+                "UPDATE pickup_catalog_orders "
+                "SET status_updated_by = '' "
+                "WHERE status_updated_by IS NULL"
             )
         )
 

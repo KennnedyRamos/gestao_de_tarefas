@@ -5,6 +5,7 @@ import re
 from typing import Any
 from urllib.parse import quote
 from urllib.request import urlopen
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from fastapi.responses import StreamingResponse
@@ -24,6 +25,9 @@ from app.models.user import User
 from app.schemas.pickup_catalog import (
     PickupCatalogClientData,
     PickupCatalogClientOut,
+    PickupCatalogDailyFollowupOut,
+    PickupCatalogOrderBulkStatusUpdateIn,
+    PickupCatalogOrderBulkStatusUpdateOut,
     PickupCatalogInventoryItemOut,
     PickupCatalogOrderOut,
     PickupCatalogOrderStatusUpdateIn,
@@ -59,6 +63,9 @@ MANUAL_CLIENT_FIELDS = {
 }
 
 ORDER_STATUS_VALUES = {"pendente", "concluida", "cancelada"}
+BRAZIL_TZ = ZoneInfo("America/Sao_Paulo")
+FOLLOWUP_HOUR = 17
+FOLLOWUP_MINUTE = 30
 
 
 def _safe_text(value: Any) -> str:
@@ -68,6 +75,47 @@ def _safe_text(value: Any) -> str:
 def _normalized_order_status(value: Any) -> str:
     status_value = _safe_text(value).lower()
     return status_value if status_value in ORDER_STATUS_VALUES else "pendente"
+
+
+def _now_brazil() -> datetime:
+    return datetime.now(BRAZIL_TZ)
+
+
+def _today_brazil_date() -> str:
+    return _now_brazil().strftime("%d/%m/%Y")
+
+
+def _is_after_followup_time(now_brazil: datetime) -> bool:
+    return (now_brazil.hour, now_brazil.minute) >= (FOLLOWUP_HOUR, FOLLOWUP_MINUTE)
+
+
+def _normalize_order_statuses_in_memory(orders: list[PickupCatalogOrder]) -> bool:
+    status_fixed = False
+    for order in orders:
+        normalized_status = _normalized_order_status(order.status)
+        if order.status != normalized_status:
+            order.status = normalized_status
+            status_fixed = True
+    return status_fixed
+
+
+def _pending_orders_for_date(db: Session, date_reference: str) -> list[PickupCatalogOrder]:
+    target_date = _safe_text(date_reference)
+    if not target_date:
+        return []
+
+    orders = (
+        db.query(PickupCatalogOrder)
+        .filter(PickupCatalogOrder.withdrawal_date == target_date)
+        .order_by(PickupCatalogOrder.id.desc())
+        .all()
+    )
+
+    status_fixed = _normalize_order_statuses_in_memory(orders)
+    pending_orders = [order for order in orders if _normalized_order_status(order.status) == "pendente"]
+    if status_fixed:
+        db.commit()
+    return pending_orders
 
 
 def _empty_client(code: str = "") -> dict[str, str]:
@@ -528,12 +576,7 @@ def list_orders(
         .limit(300)
         .all()
     )
-    status_fixed = False
-    for order in orders:
-        normalized_status = _normalized_order_status(order.status)
-        if order.status != normalized_status:
-            order.status = normalized_status
-            status_fixed = True
+    status_fixed = _normalize_order_statuses_in_memory(orders)
     if status_fixed:
         db.commit()
     return orders
@@ -551,9 +594,79 @@ def update_order_status(
         raise HTTPException(status_code=404, detail="Ordem de retirada não encontrada.")
 
     order.status = _normalized_order_status(payload.status)
+    order.status_note = _safe_text(payload.status_note)
+    order.status_updated_at = _now_brazil()
+    order.status_updated_by = _safe_text(getattr(current_user, "name", "")) or _safe_text(getattr(current_user, "email", ""))
     db.commit()
     db.refresh(order)
     return order
+
+
+@router.patch("/orders/status/bulk", response_model=PickupCatalogOrderBulkStatusUpdateOut)
+def bulk_update_order_status(
+    payload: PickupCatalogOrderBulkStatusUpdateIn,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin),
+):
+    order_ids = sorted({int(order_id) for order_id in payload.order_ids if int(order_id) > 0})
+    if not order_ids:
+        raise HTTPException(status_code=422, detail="Selecione pelo menos uma ordem para atualizar.")
+
+    orders = (
+        db.query(PickupCatalogOrder)
+        .filter(PickupCatalogOrder.id.in_(order_ids))
+        .all()
+    )
+    if not orders:
+        raise HTTPException(status_code=404, detail="Nenhuma ordem encontrada para atualização.")
+
+    status_value = _normalized_order_status(payload.status)
+    status_note = _safe_text(payload.status_note)
+    status_updated_at = _now_brazil()
+    status_updated_by = _safe_text(getattr(current_user, "name", "")) or _safe_text(getattr(current_user, "email", ""))
+
+    for order in orders:
+        order.status = status_value
+        order.status_note = status_note
+        order.status_updated_at = status_updated_at
+        order.status_updated_by = status_updated_by
+
+    db.commit()
+
+    output_orders = (
+        db.query(PickupCatalogOrder)
+        .filter(PickupCatalogOrder.id.in_(order_ids))
+        .order_by(PickupCatalogOrder.id.desc())
+        .all()
+    )
+    return PickupCatalogOrderBulkStatusUpdateOut(updated_count=len(output_orders), orders=output_orders)
+
+
+@router.get("/daily-followup/pending", response_model=PickupCatalogDailyFollowupOut)
+def get_daily_followup_pending(
+    date_reference: str | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin),
+):
+    now_brazil = _now_brazil()
+    today_reference = _today_brazil_date()
+    target_reference = _safe_text(date_reference) or today_reference
+
+    pending_orders = _pending_orders_for_date(db, target_reference)
+    can_prompt = (
+        target_reference == today_reference
+        and _is_after_followup_time(now_brazil)
+        and len(pending_orders) > 0
+    )
+
+    return PickupCatalogDailyFollowupOut(
+        date_reference=target_reference,
+        reminder_time=f"{FOLLOWUP_HOUR:02d}:{FOLLOWUP_MINUTE:02d}",
+        now_brazil=now_brazil.strftime("%d/%m/%Y %H:%M"),
+        can_prompt=can_prompt,
+        total_pending=len(pending_orders),
+        orders=pending_orders,
+    )
 
 
 @router.post("/orders/pdf")
@@ -649,6 +762,9 @@ def create_order_pdf(
         withdrawal_date=withdrawal_date,
         withdrawal_time=withdrawal_time,
         status="pendente",
+        status_note="",
+        status_updated_at=None,
+        status_updated_by="",
         summary_line=auto_summary,
         observation=observation,
         selected_types=",".join(sorted(selected_types)),

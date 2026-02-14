@@ -82,7 +82,11 @@ class PickupCatalogOrderOut(BaseModel):
     order_number: str = ""
     client_code: str = ""
     nome_fantasia: str = ""
+    withdrawal_date: str = ""
     status: str = "pendente"
+    status_note: str = ""
+    status_updated_by: str = ""
+    status_updated_at: Optional[datetime] = None
     summary_line: str = ""
     created_at: Optional[datetime] = None
 
@@ -92,3 +96,24 @@ class PickupCatalogOrderOut(BaseModel):
 
 class PickupCatalogOrderStatusUpdateIn(BaseModel):
     status: Literal["pendente", "concluida", "cancelada"]
+    status_note: Optional[str] = ""
+
+
+class PickupCatalogOrderBulkStatusUpdateIn(BaseModel):
+    order_ids: List[int] = Field(default_factory=list)
+    status: Literal["pendente", "concluida", "cancelada"]
+    status_note: Optional[str] = ""
+
+
+class PickupCatalogOrderBulkStatusUpdateOut(BaseModel):
+    updated_count: int = 0
+    orders: List[PickupCatalogOrderOut] = Field(default_factory=list)
+
+
+class PickupCatalogDailyFollowupOut(BaseModel):
+    date_reference: str = ""
+    reminder_time: str = "17:30"
+    now_brazil: str = ""
+    can_prompt: bool = False
+    total_pending: int = 0
+    orders: List[PickupCatalogOrderOut] = Field(default_factory=list)

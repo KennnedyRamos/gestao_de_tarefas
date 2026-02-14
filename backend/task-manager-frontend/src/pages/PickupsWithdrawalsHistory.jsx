@@ -5,6 +5,7 @@ import {
   Button,
   Card,
   CardContent,
+  Checkbox,
   Chip,
   MenuItem,
   TextField,
@@ -47,6 +48,11 @@ const PickupsWithdrawalsHistory = () => {
   const [success, setSuccess] = useState('');
   const [updatingOrderId, setUpdatingOrderId] = useState(null);
 
+  const [selectedOrderIds, setSelectedOrderIds] = useState([]);
+  const [bulkStatus, setBulkStatus] = useState('concluida');
+  const [bulkStatusNote, setBulkStatusNote] = useState('');
+  const [bulkUpdating, setBulkUpdating] = useState(false);
+
   const loadOrders = async () => {
     try {
       setLoading(true);
@@ -69,14 +75,21 @@ const PickupsWithdrawalsHistory = () => {
   const formattedOrders = useMemo(
     () => orders.map((item) => {
       const createdAt = item?.created_at ? dayjs(item.created_at) : null;
+      const statusUpdatedAt = item?.status_updated_at ? dayjs(item.status_updated_at) : null;
+
       return {
         id: item?.id,
         orderNumber: safeText(item?.order_number),
         clientCode: safeText(item?.client_code),
         fantasyName: safeText(item?.nome_fantasia),
         summaryLine: safeText(item?.summary_line),
+        withdrawalDate: safeText(item?.withdrawal_date),
         status: normalizeStatus(item?.status),
-        createdAtLabel: createdAt && createdAt.isValid() ? createdAt.format('DD/MM/YYYY HH:mm') : '-'
+        statusNote: safeText(item?.status_note),
+        statusUpdatedBy: safeText(item?.status_updated_by),
+        createdAtLabel: createdAt && createdAt.isValid() ? createdAt.format('DD/MM/YYYY HH:mm') : '-',
+        statusUpdatedAtLabel:
+          statusUpdatedAt && statusUpdatedAt.isValid() ? statusUpdatedAt.format('DD/MM/YYYY HH:mm') : ''
       };
     }),
     [orders]
@@ -97,6 +110,7 @@ const PickupsWithdrawalsHistory = () => {
         item.clientCode,
         item.fantasyName,
         item.summaryLine,
+        item.statusNote,
         statusLabel(item.status)
       ]
         .join(' ')
@@ -107,6 +121,36 @@ const PickupsWithdrawalsHistory = () => {
     [formattedOrders, normalizedSearch, statusFilter]
   );
 
+  useEffect(() => {
+    const filteredIdSet = new Set(filteredOrders.map((item) => item.id));
+    setSelectedOrderIds((prev) => prev.filter((id) => filteredIdSet.has(id)));
+  }, [filteredOrders]);
+
+  const selectedIdSet = useMemo(() => new Set(selectedOrderIds), [selectedOrderIds]);
+  const allFilteredSelected = filteredOrders.length > 0 && filteredOrders.every((item) => selectedIdSet.has(item.id));
+  const partiallySelected = selectedOrderIds.length > 0 && !allFilteredSelected;
+
+  const handleToggleOrder = (orderId) => {
+    setSelectedOrderIds((prev) => (
+      prev.includes(orderId)
+        ? prev.filter((id) => id !== orderId)
+        : [...prev, orderId]
+    ));
+  };
+
+  const handleToggleAllFiltered = (checked) => {
+    if (checked) {
+      setSelectedOrderIds(filteredOrders.map((item) => item.id));
+      return;
+    }
+    setSelectedOrderIds([]);
+  };
+
+  const mergeUpdatedOrders = (updatedOrders) => {
+    const byId = new Map((updatedOrders || []).map((item) => [item.id, item]));
+    setOrders((prev) => prev.map((item) => (byId.has(item.id) ? { ...item, ...byId.get(item.id) } : item)));
+  };
+
   const handleUpdateStatus = async (orderId, nextStatus) => {
     const normalizedStatus = normalizeStatus(nextStatus);
     setUpdatingOrderId(orderId);
@@ -115,20 +159,13 @@ const PickupsWithdrawalsHistory = () => {
 
     try {
       const response = await api.patch(`/pickup-catalog/orders/${orderId}/status`, {
-        status: normalizedStatus
+        status: normalizedStatus,
+        status_note: ''
       });
       const updatedOrder = response?.data || {};
+      mergeUpdatedOrders([updatedOrder]);
+
       const persistedStatus = normalizeStatus(updatedOrder.status || normalizedStatus);
-
-      setOrders((prev) => prev.map((item) => (
-        item.id === orderId
-          ? {
-            ...item,
-            status: persistedStatus
-          }
-          : item
-      )));
-
       const displayNumber = safeText(updatedOrder.order_number) || `RET-${orderId}`;
       setSuccess(`Status da ordem ${displayNumber} atualizado para ${statusLabel(persistedStatus)}.`);
     } catch (err) {
@@ -136,6 +173,37 @@ const PickupsWithdrawalsHistory = () => {
       setError(typeof detail === 'string' ? detail : 'Erro ao atualizar o status da retirada.');
     } finally {
       setUpdatingOrderId(null);
+    }
+  };
+
+  const handleBulkUpdateStatus = async () => {
+    if (selectedOrderIds.length === 0) {
+      setError('Selecione pelo menos uma ordem para atualizar em lote.');
+      return;
+    }
+
+    setBulkUpdating(true);
+    setError('');
+    setSuccess('');
+
+    try {
+      const response = await api.patch('/pickup-catalog/orders/status/bulk', {
+        order_ids: selectedOrderIds,
+        status: normalizeStatus(bulkStatus),
+        status_note: safeText(bulkStatusNote)
+      });
+
+      const updatedCount = Number(response?.data?.updated_count || 0);
+      const updatedOrders = Array.isArray(response?.data?.orders) ? response.data.orders : [];
+      mergeUpdatedOrders(updatedOrders);
+      setSelectedOrderIds([]);
+
+      setSuccess(`${updatedCount} ordem(ns) atualizada(s) para ${statusLabel(bulkStatus)}.`);
+    } catch (err) {
+      const detail = err?.response?.data?.detail;
+      setError(typeof detail === 'string' ? detail : 'Erro ao atualizar status em lote.');
+    } finally {
+      setBulkUpdating(false);
     }
   };
 
@@ -182,6 +250,60 @@ const PickupsWithdrawalsHistory = () => {
         </TextField>
       </Box>
 
+      <Box
+        sx={{
+          display: 'grid',
+          gridTemplateColumns: { xs: '1fr', lg: 'auto minmax(180px, 220px) minmax(220px, 1fr) auto' },
+          gap: 1,
+          alignItems: 'center'
+        }}
+      >
+        <Box sx={{ display: 'flex', alignItems: 'center' }}>
+          <Checkbox
+            checked={allFilteredSelected}
+            indeterminate={partiallySelected}
+            onChange={(event) => handleToggleAllFiltered(event.target.checked)}
+            disabled={filteredOrders.length === 0 || bulkUpdating}
+          />
+          <Typography variant="body2" color="text.secondary">
+            {selectedOrderIds.length} selecionada(s)
+          </Typography>
+        </Box>
+
+        <TextField
+          select
+          label="Status em lote"
+          value={bulkStatus}
+          onChange={(event) => setBulkStatus(event.target.value)}
+          size="small"
+          fullWidth
+          disabled={bulkUpdating}
+        >
+          {STATUS_OPTIONS.map((option) => (
+            <MenuItem key={option.value} value={option.value}>
+              {option.label}
+            </MenuItem>
+          ))}
+        </TextField>
+
+        <TextField
+          label="Observação do status (opcional)"
+          value={bulkStatusNote}
+          onChange={(event) => setBulkStatusNote(event.target.value)}
+          size="small"
+          fullWidth
+          disabled={bulkUpdating}
+        />
+
+        <Button
+          variant="contained"
+          onClick={handleBulkUpdateStatus}
+          disabled={bulkUpdating || selectedOrderIds.length === 0}
+        >
+          {bulkUpdating ? 'Atualizando...' : 'Aplicar em lote'}
+        </Button>
+      </Box>
+
       {loading ? (
         <Typography color="text.secondary">Carregando retiradas...</Typography>
       ) : filteredOrders.length === 0 ? (
@@ -200,9 +322,17 @@ const PickupsWithdrawalsHistory = () => {
           >
             <CardContent sx={{ display: 'grid', gap: 0.75 }}>
               <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, flexWrap: 'wrap' }}>
-                <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
-                  Ordem: {item.orderNumber || `RET-${item.id}`}
-                </Typography>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                  <Checkbox
+                    size="small"
+                    checked={selectedIdSet.has(item.id)}
+                    onChange={() => handleToggleOrder(item.id)}
+                    disabled={bulkUpdating}
+                  />
+                  <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+                    Ordem: {item.orderNumber || `RET-${item.id}`}
+                  </Typography>
+                </Box>
                 <Chip size="small" color={statusColor(item.status)} label={statusLabel(item.status)} />
               </Box>
 
@@ -213,11 +343,27 @@ const PickupsWithdrawalsHistory = () => {
                 Nome fantasia: {item.fantasyName || '-'}
               </Typography>
               <Typography variant="body2" color="text.secondary">
+                Data da retirada: {item.withdrawalDate || '-'}
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
                 Resumo: {item.summaryLine || 'Sem itens informados.'}
               </Typography>
               <Typography variant="caption" color="text.secondary">
                 Gerado em: {item.createdAtLabel}
               </Typography>
+
+              {(item.statusUpdatedAtLabel || item.statusUpdatedBy) && (
+                <Typography variant="caption" color="text.secondary">
+                  Última atualização: {item.statusUpdatedAtLabel || '-'}
+                  {item.statusUpdatedBy ? ` por ${item.statusUpdatedBy}` : ''}
+                </Typography>
+              )}
+
+              {item.statusNote && (
+                <Typography variant="caption" color="text.secondary">
+                  Observação do status: {item.statusNote}
+                </Typography>
+              )}
 
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', mt: 0.25 }}>
                 <TextField
@@ -227,7 +373,7 @@ const PickupsWithdrawalsHistory = () => {
                   onChange={(event) => handleUpdateStatus(item.id, event.target.value)}
                   size="small"
                   sx={{ minWidth: 220 }}
-                  disabled={updatingOrderId === item.id}
+                  disabled={updatingOrderId === item.id || bulkUpdating}
                 >
                   {STATUS_OPTIONS.map((option) => (
                     <MenuItem key={option.value} value={option.value}>

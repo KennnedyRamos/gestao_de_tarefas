@@ -398,30 +398,18 @@ def _copy_story(order: dict[str, Any], copy_tag: str, styles: dict[str, Paragrap
     story.append(Spacer(1, 4 * mm))
     story.append(_signature_table(copy_tag, styles))
     story.append(Spacer(1, 3 * mm))
-
-    footer = Table(
-        [
-            [
-                _p(f"N\u00famero da ordem: {_text(order.get('order_number'))}", styles["footer"]),
-                _p(f"Gerado em: {_text(order.get('generated_at'))}", styles["footer"]),
-            ]
-        ],
-        colWidths=[95 * mm, 95 * mm],
-    )
-    footer.setStyle(
-        TableStyle(
-            [
-                ("ALIGN", (1, 0), (1, 0), "RIGHT"),
-                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                ("LEFTPADDING", (0, 0), (-1, -1), 0),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-                ("TOPPADDING", (0, 0), (-1, -1), 0),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
-            ]
-        )
-    )
-    story.append(footer)
     return story
+
+
+def _draw_footer_on_page(canvas, document, order: dict[str, Any]) -> None:
+    canvas.saveState()
+    canvas.setFont("Helvetica", 7.5)
+    y = 5 * mm
+    left_x = document.leftMargin
+    right_x = document.pagesize[0] - document.rightMargin
+    canvas.drawString(left_x, y, f"N\u00famero da ordem: {_text(order.get('order_number'))}")
+    canvas.drawRightString(right_x, y, f"Gerado em: {_text(order.get('generated_at'))}")
+    canvas.restoreState()
 
 
 def build_withdrawal_pdf(order: dict[str, Any]) -> bytes:
@@ -444,5 +432,6 @@ def build_withdrawal_pdf(order: dict[str, Any]) -> bytes:
         if index < len(copies) - 1:
             story.append(PageBreak())
 
-    document.build(story)
+    on_page = lambda canvas, doc: _draw_footer_on_page(canvas, doc, order)
+    document.build(story, onFirstPage=on_page, onLaterPages=on_page)
     return output.getvalue()

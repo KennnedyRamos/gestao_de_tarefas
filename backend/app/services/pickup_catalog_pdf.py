@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 from html import escape
 from io import BytesIO
 from typing import Any
@@ -131,54 +130,6 @@ def _header_table(order: dict[str, Any], copy_tag: str, styles: dict[str, Paragr
     return table
 
 
-def _equipment_checklist_table(styles: dict[str, ParagraphStyle]) -> Table:
-    column_a = [
-        "Skol Led Per\u00edmetra (Vidro)",
-        "Skol Led Per\u00edmetra (Pirata)",
-        "Skol Carenagem",
-        "Skol Cubo M\u00e1gico",
-        "Skol Outros",
-    ]
-    column_b = [
-        "Brahma Led Per\u00edmetra (Vidro)",
-        "Brahma Led Per\u00edmetra (Pirata)",
-        "Brahma Outros",
-        "Jgs Mesas - Madeira",
-        "Jgs Mesas - Pl\u00e1stico",
-    ]
-    column_c = [
-        "Visa Pepsi",
-        "Visa Guaran\u00e1",
-        "Slim Guaran\u00e1",
-        "Vasilhames",
-        "Outros Materiais",
-    ]
-
-    rows = []
-    for index in range(5):
-        rows.append(
-            [
-                _p(f"( ) {column_a[index]}", styles["small"]),
-                _p(f"( ) {column_b[index]}", styles["small"]),
-                _p(f"( ) {column_c[index]}", styles["small"]),
-            ]
-        )
-
-    table = Table(rows, colWidths=[63.3 * mm, 63.3 * mm, 63.4 * mm])
-    table.setStyle(
-        TableStyle(
-            [
-                ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                ("LEFTPADDING", (0, 0), (-1, -1), 0),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 6),
-                ("TOPPADDING", (0, 0), (-1, -1), 0),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
-            ]
-        )
-    )
-    return table
-
-
 def _reseller_header_table(order: dict[str, Any], styles: dict[str, ParagraphStyle]) -> Table:
     client = order.get("client", {}) or {}
     reseller_lines = order.get("reseller_lines", []) or []
@@ -242,20 +193,20 @@ def _client_table(order: dict[str, Any], styles: dict[str, ParagraphStyle]) -> T
         [
             _p("Bairro:", styles["field_label"]),
             _p(client.get("bairro", ""), styles["field_value"]),
-            _p("Respons\u00e1vel pela retirada:", styles["field_label"]),
-            _p(client.get("responsavel_retirada", ""), styles["field_value"]),
-        ],
-        [
-            _p("Respons\u00e1vel:", styles["field_label"]),
-            _p(client.get("responsavel_cliente", ""), styles["field_value"]),
             _p("Hor\u00e1rio da retirada:", styles["field_label"]),
             _p(order.get("withdrawal_time", ""), styles["field_value"]),
         ],
         [
-            _p("Data para retirada:", styles["field_label"]),
-            _p(order.get("withdrawal_date", ""), styles["field_value"]),
+            _p("Respons\u00e1vel:", styles["field_label"]),
+            _p(client.get("responsavel_cliente", ""), styles["field_value"]),
             _p("Respons\u00e1vel confer\u00eancia:", styles["field_label"]),
             _p(client.get("responsavel_conferencia", ""), styles["field_value"]),
+        ],
+        [
+            _p("Data para retirada:", styles["field_label"]),
+            _p(order.get("withdrawal_date", ""), styles["field_value"]),
+            _p("", styles["field_label"]),
+            _p("", styles["field_value"]),
         ],
     ]
 
@@ -308,14 +259,6 @@ def _section_lines_table(
     return table
 
 
-def _open_equipment_table(order: dict[str, Any], styles: dict[str, ParagraphStyle]) -> Table:
-    lines = order.get("open_equipment_summary", []) or []
-    if not lines:
-        lines = ["Sem itens em aberto do mesmo tipo selecionado."]
-    rendered = [f"- {_text(line)}" for line in lines]
-    return _section_lines_table("EQUIPAMENTOS (EM ABERTO):", rendered, styles, min_rows=2)
-
-
 def _withdrawal_reason_lines(order: dict[str, Any]) -> list[str]:
     lines: list[str] = []
     for item in order.get("items", []) or []:
@@ -331,12 +274,6 @@ def _withdrawal_reason_lines(order: dict[str, Any]) -> list[str]:
             lines.append(base)
 
     return lines or ["Nenhum item selecionado."]
-
-
-def _observation_lines(order: dict[str, Any]) -> list[str]:
-    observation = _text(order.get("observation")) or "Sem observa\u00e7\u00f5es."
-    chunks = [piece.strip() for piece in re.split(r"\s+\|\s+|;\s*", observation) if piece.strip()]
-    return chunks or [observation]
 
 
 def _reseller_cadastro_box(order: dict[str, Any], styles: dict[str, ParagraphStyle]) -> Table:
@@ -383,11 +320,37 @@ def _reseller_cadastro_box(order: dict[str, Any], styles: dict[str, ParagraphSty
     return box
 
 
-def _signature_table(styles: dict[str, ParagraphStyle]) -> Table:
+def _signature_table(copy_tag: str, styles: dict[str, ParagraphStyle]) -> Table:
+    is_logistics = "log" in _text(copy_tag).lower()
+
+    if not is_logistics:
+        table = Table(
+            [
+                [""],
+                [_p("Cliente/Respons\u00e1vel", styles["small_center"])],
+                [_p("RG: ____________________________________________", styles["small"])],
+            ],
+            colWidths=[PAGE_WIDTH],
+            rowHeights=[10 * mm, 6 * mm, 8 * mm],
+        )
+        table.setStyle(
+            TableStyle(
+                [
+                    ("LINEABOVE", (0, 0), (0, 0), 0.8, colors.black),
+                    ("ALIGN", (0, 1), (0, 1), "CENTER"),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 3),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 3),
+                    ("TOPPADDING", (0, 0), (-1, -1), 2),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+                ]
+            )
+        )
+        return table
+
     table = Table(
         [
             ["", ""],
-            [_p("Revenda/Respons\u00e1vel", styles["small_center"]), _p("Gerente de Opera\u00e7\u00f5es", styles["small_center"])],
+            [_p("Cliente/Respons\u00e1vel", styles["small_center"]), _p("Conferente", styles["small_center"])],
             [_p("RG: ____________________________________________", styles["small"]), ""],
         ],
         colWidths=[95 * mm, 95 * mm],
@@ -413,37 +376,19 @@ def _copy_story(order: dict[str, Any], copy_tag: str, styles: dict[str, Paragrap
     story: list[Any] = []
     story.append(_header_table(order, copy_tag, styles))
     story.append(Spacer(1, 2 * mm))
-    story.append(_equipment_checklist_table(styles))
-    story.append(Spacer(1, 2 * mm))
     story.append(_reseller_header_table(order, styles))
     story.append(Spacer(1, 2 * mm))
     story.append(_client_table(order, styles))
-    story.append(Spacer(1, 2 * mm))
-    story.append(_open_equipment_table(order, styles))
     story.append(Spacer(1, 2 * mm))
     story.append(_section_lines_table("MOTIVO DA RETIRADA:", _withdrawal_reason_lines(order), styles, min_rows=3))
     story.append(Spacer(1, 2 * mm))
     story.append(_p("VOLTAGEM DO EQUIPAMENTO: ( ) 110 volts    ( ) 220 volts", styles["small"]))
     story.append(Spacer(1, 1.5 * mm))
-    story.append(_section_lines_table("OBSERVA\u00c7\u00c3O:", _observation_lines(order), styles, min_rows=2))
-    story.append(Spacer(1, 1.5 * mm))
-    story.append(
-        _p(
-            "NOME DO RESPONS\u00c1VEL PELO PDV QUE J\u00c1 EST\u00c1 CIENTE DA RETIRADA ________  Fone: ________________",
-            styles["small"],
-        )
-    )
-    story.append(Spacer(1, 0.5 * mm))
-    story.append(
-        _p(
-            "NECESS\u00c1RIA A PRESEN\u00c7A DO SUPERVISOR PARA EFETUAR RETIRADA ( ) SIM   ( ) N\u00c3O",
-            styles["small"],
-        )
-    )
+    story.append(_section_lines_table("OBSERVA\u00c7\u00c3O:", [], styles, min_rows=3))
     story.append(Spacer(1, 2 * mm))
     story.append(_reseller_cadastro_box(order, styles))
     story.append(Spacer(1, 2 * mm))
-    story.append(_signature_table(styles))
+    story.append(_signature_table(copy_tag, styles))
     story.append(Spacer(1, 1.5 * mm))
 
     footer = Table(

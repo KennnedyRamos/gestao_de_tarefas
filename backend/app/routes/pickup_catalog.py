@@ -7,10 +7,10 @@ from urllib.parse import quote
 from urllib.request import urlopen
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from fastapi.responses import StreamingResponse
-from sqlalchemy import func
-from sqlalchemy.orm import Session
+from sqlalchemy import func, or_
+from sqlalchemy.orm import Session, load_only
 
 from app.core.auth import get_current_admin
 from app.database.deps import get_db
@@ -66,6 +66,9 @@ ORDER_STATUS_VALUES = {"pendente", "concluida", "cancelada"}
 BRAZIL_TZ = ZoneInfo("America/Sao_Paulo")
 FOLLOWUP_HOUR = 17
 FOLLOWUP_MINUTE = 30
+MAX_ORDERS_PAGE_SIZE = 200
+DEFAULT_ORDERS_PAGE_SIZE = 60
+CEP_LOOKUP_CACHE: dict[str, str] = {}
 
 
 def _safe_text(value: Any) -> str:
@@ -89,33 +92,54 @@ def _is_after_followup_time(now_brazil: datetime) -> bool:
     return (now_brazil.hour, now_brazil.minute) >= (FOLLOWUP_HOUR, FOLLOWUP_MINUTE)
 
 
-def _normalize_order_statuses_in_memory(orders: list[PickupCatalogOrder]) -> bool:
-    status_fixed = False
-    for order in orders:
-        normalized_status = _normalized_order_status(order.status)
-        if order.status != normalized_status:
-            order.status = normalized_status
-            status_fixed = True
-    return status_fixed
+def _pending_orders_count_for_date(db: Session, date_reference: str) -> int:
+    target_date = _safe_text(date_reference)
+    if not target_date:
+        return 0
+
+    count_value = (
+        db.query(func.count(PickupCatalogOrder.id))
+        .filter(
+            PickupCatalogOrder.withdrawal_date == target_date,
+            PickupCatalogOrder.status == "pendente",
+        )
+        .scalar()
+    )
+    return int(count_value or 0)
 
 
-def _pending_orders_for_date(db: Session, date_reference: str) -> list[PickupCatalogOrder]:
+def _pending_orders_for_date(
+    db: Session,
+    date_reference: str,
+    limit: int = 30,
+) -> list[PickupCatalogOrder]:
     target_date = _safe_text(date_reference)
     if not target_date:
         return []
 
-    orders = (
+    safe_limit = max(1, min(int(limit or 30), 200))
+    return (
         db.query(PickupCatalogOrder)
-        .filter(PickupCatalogOrder.withdrawal_date == target_date)
+        .options(
+            load_only(
+                PickupCatalogOrder.id,
+                PickupCatalogOrder.order_number,
+                PickupCatalogOrder.client_code,
+                PickupCatalogOrder.nome_fantasia,
+                PickupCatalogOrder.withdrawal_date,
+                PickupCatalogOrder.status,
+                PickupCatalogOrder.summary_line,
+                PickupCatalogOrder.created_at,
+            )
+        )
+        .filter(
+            PickupCatalogOrder.withdrawal_date == target_date,
+            PickupCatalogOrder.status == "pendente",
+        )
         .order_by(PickupCatalogOrder.id.desc())
+        .limit(safe_limit)
         .all()
     )
-
-    status_fixed = _normalize_order_statuses_in_memory(orders)
-    pending_orders = [order for order in orders if _normalized_order_status(order.status) == "pendente"]
-    if status_fixed:
-        db.commit()
-    return pending_orders
 
 
 def _empty_client(code: str = "") -> dict[str, str]:
@@ -394,20 +418,30 @@ def _street_for_lookup(value: str) -> str:
     return street[:80]
 
 
+def _cep_lookup_cache_key(uf: str, cidade: str, street: str) -> str:
+    return f"{_safe_text(uf).upper()}|{_safe_text(cidade).lower()}|{_safe_text(street).lower()}"
+
+
 def _lookup_cep_by_address(cidade: str, endereco: str, uf: str = "SP") -> str:
     city = _safe_text(cidade)
     street = _street_for_lookup(endereco)
     if not city or not street:
         return ""
 
+    cache_key = _cep_lookup_cache_key(uf, city, street)
+    if cache_key in CEP_LOOKUP_CACHE:
+        return CEP_LOOKUP_CACHE[cache_key]
+
     url = f"https://viacep.com.br/ws/{quote(uf)}/{quote(city)}/{quote(street)}/json/"
     try:
-        with urlopen(url, timeout=4) as response:
+        with urlopen(url, timeout=1.5) as response:
             payload = json.loads(response.read().decode("utf-8"))
     except Exception:
+        CEP_LOOKUP_CACHE[cache_key] = ""
         return ""
 
     if not isinstance(payload, list):
+        CEP_LOOKUP_CACHE[cache_key] = ""
         return ""
 
     for item in payload:
@@ -415,7 +449,9 @@ def _lookup_cep_by_address(cidade: str, endereco: str, uf: str = "SP") -> str:
             continue
         cep = _normalize_cep(item.get("cep"))
         if cep:
+            CEP_LOOKUP_CACHE[cache_key] = cep
             return cep
+    CEP_LOOKUP_CACHE[cache_key] = ""
     return ""
 
 
@@ -554,6 +590,11 @@ def get_client(
 
     client_payload = _client_payload_from_model(client_model, fallback_code=search_code)
     client_payload = _ensure_client_cep(client_payload)
+    if client_model:
+        resolved_cep = _safe_text(client_payload.get("cep"))
+        if resolved_cep and resolved_cep != _safe_text(client_model.cep):
+            client_model.cep = resolved_cep
+            db.commit()
     client_payload = _clear_manual_client_fields(client_payload)
     out_items = [_inventory_item_out(item) for item in inventory_items]
 
@@ -567,19 +608,70 @@ def get_client(
 
 @router.get("/orders", response_model=list[PickupCatalogOrderOut])
 def list_orders(
+    limit: int = Query(default=DEFAULT_ORDERS_PAGE_SIZE, ge=1, le=MAX_ORDERS_PAGE_SIZE),
+    offset: int = Query(default=0, ge=0),
+    status_filter: str | None = Query(default=None, alias="status"),
+    q: str | None = Query(default=None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_admin),
 ):
+    normalized_status_filter = _normalized_order_status(status_filter) if _safe_text(status_filter) else ""
+    search_text = _safe_text(q)
+
+    query = db.query(PickupCatalogOrder).options(
+        load_only(
+            PickupCatalogOrder.id,
+            PickupCatalogOrder.order_number,
+            PickupCatalogOrder.client_code,
+            PickupCatalogOrder.nome_fantasia,
+            PickupCatalogOrder.withdrawal_date,
+            PickupCatalogOrder.status,
+            PickupCatalogOrder.status_note,
+            PickupCatalogOrder.status_updated_by,
+            PickupCatalogOrder.status_updated_at,
+            PickupCatalogOrder.summary_line,
+            PickupCatalogOrder.created_at,
+        )
+    )
+
+    if normalized_status_filter:
+        query = query.filter(PickupCatalogOrder.status == normalized_status_filter)
+
+    if search_text:
+        pattern = f"%{search_text}%"
+        query = query.filter(
+            or_(
+                PickupCatalogOrder.order_number.ilike(pattern),
+                PickupCatalogOrder.client_code.ilike(pattern),
+                PickupCatalogOrder.nome_fantasia.ilike(pattern),
+                PickupCatalogOrder.summary_line.ilike(pattern),
+            )
+        )
+
     orders = (
-        db.query(PickupCatalogOrder)
-        .order_by(PickupCatalogOrder.id.desc())
-        .limit(300)
+        query
+        .order_by(PickupCatalogOrder.created_at.desc(), PickupCatalogOrder.id.desc())
+        .offset(offset)
+        .limit(limit)
         .all()
     )
-    status_fixed = _normalize_order_statuses_in_memory(orders)
-    if status_fixed:
-        db.commit()
-    return orders
+
+    return [
+        PickupCatalogOrderOut(
+            id=order.id,
+            order_number=_safe_text(order.order_number),
+            client_code=_safe_text(order.client_code),
+            nome_fantasia=_safe_text(order.nome_fantasia),
+            withdrawal_date=_safe_text(order.withdrawal_date),
+            status=_normalized_order_status(order.status),
+            status_note=_safe_text(order.status_note),
+            status_updated_by=_safe_text(order.status_updated_by),
+            status_updated_at=order.status_updated_at,
+            summary_line=_safe_text(order.summary_line),
+            created_at=order.created_at,
+        )
+        for order in orders
+    ]
 
 
 @router.patch("/orders/{order_id}/status", response_model=PickupCatalogOrderOut)
@@ -645,6 +737,8 @@ def bulk_update_order_status(
 @router.get("/daily-followup/pending", response_model=PickupCatalogDailyFollowupOut)
 def get_daily_followup_pending(
     date_reference: str | None = None,
+    include_orders: bool = Query(default=False),
+    orders_limit: int = Query(default=30, ge=1, le=200),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_admin),
 ):
@@ -652,19 +746,22 @@ def get_daily_followup_pending(
     today_reference = _today_brazil_date()
     target_reference = _safe_text(date_reference) or today_reference
 
-    pending_orders = _pending_orders_for_date(db, target_reference)
+    pending_count = _pending_orders_count_for_date(db, target_reference)
     can_prompt = (
         target_reference == today_reference
         and _is_after_followup_time(now_brazil)
-        and len(pending_orders) > 0
+        and pending_count > 0
     )
+    pending_orders: list[PickupCatalogOrder] = []
+    if include_orders and pending_count > 0:
+        pending_orders = _pending_orders_for_date(db, target_reference, orders_limit)
 
     return PickupCatalogDailyFollowupOut(
         date_reference=target_reference,
         reminder_time=f"{FOLLOWUP_HOUR:02d}:{FOLLOWUP_MINUTE:02d}",
         now_brazil=now_brazil.strftime("%d/%m/%Y %H:%M"),
         can_prompt=can_prompt,
-        total_pending=len(pending_orders),
+        total_pending=pending_count,
         orders=pending_orders,
     )
 

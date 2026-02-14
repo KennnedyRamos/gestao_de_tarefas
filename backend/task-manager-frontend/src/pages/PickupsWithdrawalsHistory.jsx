@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Box,
@@ -16,6 +16,7 @@ import { useNavigate } from 'react-router-dom';
 
 import api from '../services/api';
 
+const PAGE_SIZE = 30;
 const safeText = (value) => String(value || '').trim();
 
 const STATUS_OPTIONS = [
@@ -42,8 +43,12 @@ const PickupsWithdrawalsHistory = () => {
 
   const [orders, setOrders] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
+  const [searchDebounced, setSearchDebounced] = useState('');
   const [statusFilter, setStatusFilter] = useState('todos');
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [offset, setOffset] = useState(0);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [updatingOrderId, setUpdatingOrderId] = useState(null);
@@ -53,22 +58,69 @@ const PickupsWithdrawalsHistory = () => {
   const [bulkStatusNote, setBulkStatusNote] = useState('');
   const [bulkUpdating, setBulkUpdating] = useState(false);
 
-  const loadOrders = async () => {
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setSearchDebounced(searchQuery.trim());
+    }, 350);
+
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  const loadOrders = useCallback(async ({ reset = false, currentOffset = 0, query = '', status = 'todos' }) => {
     try {
-      setLoading(true);
-      const response = await api.get('/pickup-catalog/orders');
-      setOrders(Array.isArray(response.data) ? response.data : []);
+      if (reset) {
+        setLoading(true);
+      } else {
+        setLoadingMore(true);
+      }
+
+      const params = {
+        limit: PAGE_SIZE,
+        offset: currentOffset,
+      };
+
+      if (query) {
+        params.q = query;
+      }
+      if (status !== 'todos') {
+        params.status = status;
+      }
+
+      const response = await api.get('/pickup-catalog/orders', { params });
+      const loadedOrders = Array.isArray(response.data) ? response.data : [];
+
+      setOrders((prev) => (reset ? loadedOrders : [...prev, ...loadedOrders]));
+      setOffset(currentOffset + loadedOrders.length);
+      setHasMore(loadedOrders.length === PAGE_SIZE);
+      if (reset) {
+        setSelectedOrderIds([]);
+      }
       setError('');
     } catch (err) {
       setError('Erro ao carregar o histórico de retiradas.');
+      if (reset) {
+        setOrders([]);
+        setOffset(0);
+        setHasMore(false);
+        setSelectedOrderIds([]);
+      }
     } finally {
-      setLoading(false);
+      if (reset) {
+        setLoading(false);
+      } else {
+        setLoadingMore(false);
+      }
     }
-  };
+  }, []);
 
   useEffect(() => {
-    loadOrders();
-  }, []);
+    loadOrders({
+      reset: true,
+      currentOffset: 0,
+      query: searchDebounced,
+      status: statusFilter,
+    });
+  }, [loadOrders, searchDebounced, statusFilter]);
 
   const normalizedSearch = searchQuery.trim().toLowerCase();
 
@@ -313,83 +365,102 @@ const PickupsWithdrawalsHistory = () => {
             : 'Nenhuma retirada encontrada para os filtros selecionados.'}
         </Typography>
       ) : (
-        filteredOrders.map((item, index) => (
-          <Card
-            key={item.id}
-            className="stagger-item"
-            style={{ '--stagger-delay': `${index * 40}ms` }}
-            sx={{ border: '1px solid var(--stroke)', boxShadow: 'var(--shadow-md)' }}
-          >
-            <CardContent sx={{ display: 'grid', gap: 0.75 }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, flexWrap: 'wrap' }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                  <Checkbox
-                    size="small"
-                    checked={selectedIdSet.has(item.id)}
-                    onChange={() => handleToggleOrder(item.id)}
-                    disabled={bulkUpdating}
-                  />
-                  <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
-                    Ordem: {item.orderNumber || `RET-${item.id}`}
-                  </Typography>
+        <>
+          {filteredOrders.map((item, index) => (
+            <Card
+              key={item.id}
+              className="stagger-item"
+              style={{ '--stagger-delay': `${index * 40}ms` }}
+              sx={{ border: '1px solid var(--stroke)', boxShadow: 'var(--shadow-md)' }}
+            >
+              <CardContent sx={{ display: 'grid', gap: 0.75 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, flexWrap: 'wrap' }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                    <Checkbox
+                      size="small"
+                      checked={selectedIdSet.has(item.id)}
+                      onChange={() => handleToggleOrder(item.id)}
+                      disabled={bulkUpdating}
+                    />
+                    <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+                      Ordem: {item.orderNumber || `RET-${item.id}`}
+                    </Typography>
+                  </Box>
+                  <Chip size="small" color={statusColor(item.status)} label={statusLabel(item.status)} />
                 </Box>
-                <Chip size="small" color={statusColor(item.status)} label={statusLabel(item.status)} />
-              </Box>
 
-              <Typography variant="body2" color="text.secondary">
-                Código do cliente: {item.clientCode || '-'}
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                Nome fantasia: {item.fantasyName || '-'}
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                Data da retirada: {item.withdrawalDate || '-'}
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                Resumo: {item.summaryLine || 'Sem itens informados.'}
-              </Typography>
-              <Typography variant="caption" color="text.secondary">
-                Gerado em: {item.createdAtLabel}
-              </Typography>
-
-              {(item.statusUpdatedAtLabel || item.statusUpdatedBy) && (
-                <Typography variant="caption" color="text.secondary">
-                  Última atualização: {item.statusUpdatedAtLabel || '-'}
-                  {item.statusUpdatedBy ? ` por ${item.statusUpdatedBy}` : ''}
+                <Typography variant="body2" color="text.secondary">
+                  Código do cliente: {item.clientCode || '-'}
                 </Typography>
-              )}
-
-              {item.statusNote && (
-                <Typography variant="caption" color="text.secondary">
-                  Observação do status: {item.statusNote}
+                <Typography variant="body2" color="text.secondary">
+                  Nome fantasia: {item.fantasyName || '-'}
                 </Typography>
-              )}
+                <Typography variant="body2" color="text.secondary">
+                  Data da retirada: {item.withdrawalDate || '-'}
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Resumo: {item.summaryLine || 'Sem itens informados.'}
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  Gerado em: {item.createdAtLabel}
+                </Typography>
 
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', mt: 0.25 }}>
-                <TextField
-                  select
-                  label="Status da retirada"
-                  value={item.status}
-                  onChange={(event) => handleUpdateStatus(item.id, event.target.value)}
-                  size="small"
-                  sx={{ minWidth: 220 }}
-                  disabled={updatingOrderId === item.id || bulkUpdating}
-                >
-                  {STATUS_OPTIONS.map((option) => (
-                    <MenuItem key={option.value} value={option.value}>
-                      {option.label}
-                    </MenuItem>
-                  ))}
-                </TextField>
-                {updatingOrderId === item.id && (
+                {(item.statusUpdatedAtLabel || item.statusUpdatedBy) && (
                   <Typography variant="caption" color="text.secondary">
-                    Atualizando status...
+                    Última atualização: {item.statusUpdatedAtLabel || '-'}
+                    {item.statusUpdatedBy ? ` por ${item.statusUpdatedBy}` : ''}
                   </Typography>
                 )}
-              </Box>
-            </CardContent>
-          </Card>
-        ))
+
+                {item.statusNote && (
+                  <Typography variant="caption" color="text.secondary">
+                    Observação do status: {item.statusNote}
+                  </Typography>
+                )}
+
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', mt: 0.25 }}>
+                  <TextField
+                    select
+                    label="Status da retirada"
+                    value={item.status}
+                    onChange={(event) => handleUpdateStatus(item.id, event.target.value)}
+                    size="small"
+                    sx={{ minWidth: 220 }}
+                    disabled={updatingOrderId === item.id || bulkUpdating}
+                  >
+                    {STATUS_OPTIONS.map((option) => (
+                      <MenuItem key={option.value} value={option.value}>
+                        {option.label}
+                      </MenuItem>
+                    ))}
+                  </TextField>
+                  {updatingOrderId === item.id && (
+                    <Typography variant="caption" color="text.secondary">
+                      Atualizando status...
+                    </Typography>
+                  )}
+                </Box>
+              </CardContent>
+            </Card>
+          ))}
+
+          {hasMore && (
+            <Box sx={{ display: 'flex', justifyContent: 'center', pt: 0.5 }}>
+              <Button
+                variant="outlined"
+                onClick={() => loadOrders({
+                  reset: false,
+                  currentOffset: offset,
+                  query: searchDebounced,
+                  status: statusFilter,
+                })}
+                disabled={loadingMore || bulkUpdating}
+              >
+                {loadingMore ? 'Carregando...' : 'Carregar mais'}
+              </Button>
+            </Box>
+          )}
+        </>
       )}
     </Box>
   );

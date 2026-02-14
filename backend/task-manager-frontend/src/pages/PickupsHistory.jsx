@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Box,
@@ -14,6 +14,7 @@ import { useNavigate } from 'react-router-dom';
 
 import api from '../services/api';
 
+const PAGE_SIZE = 30;
 const safeText = (value) => String(value || '').trim();
 
 const STATUS_LABELS = {
@@ -40,27 +41,64 @@ const PickupsHistory = () => {
   const navigate = useNavigate();
   const [orders, setOrders] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
+  const [searchDebounced, setSearchDebounced] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [offset, setOffset] = useState(0);
 
   useEffect(() => {
-    const loadOrders = async () => {
-      try {
-        setLoading(true);
-        const response = await api.get('/pickup-catalog/orders');
-        setOrders(Array.isArray(response.data) ? response.data : []);
-        setError('');
-      } catch (err) {
-        setError('Erro ao carregar o histórico de ordens de retirada.');
-      } finally {
-        setLoading(false);
-      }
-    };
+    const timer = setTimeout(() => {
+      setSearchDebounced(searchQuery.trim());
+    }, 350);
 
-    loadOrders();
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  const loadOrders = useCallback(async ({ reset = false, currentOffset = 0, query = '' }) => {
+    try {
+      if (reset) {
+        setLoading(true);
+      } else {
+        setLoadingMore(true);
+      }
+
+      const params = {
+        limit: PAGE_SIZE,
+        offset: currentOffset,
+      };
+
+      if (query) {
+        params.q = query;
+      }
+
+      const response = await api.get('/pickup-catalog/orders', { params });
+      const loadedOrders = Array.isArray(response.data) ? response.data : [];
+
+      setOrders((prev) => (reset ? loadedOrders : [...prev, ...loadedOrders]));
+      setOffset(currentOffset + loadedOrders.length);
+      setHasMore(loadedOrders.length === PAGE_SIZE);
+      setError('');
+    } catch (err) {
+      setError('Erro ao carregar o histórico de ordens de retirada.');
+      if (reset) {
+        setOrders([]);
+        setOffset(0);
+        setHasMore(false);
+      }
+    } finally {
+      if (reset) {
+        setLoading(false);
+      } else {
+        setLoadingMore(false);
+      }
+    }
   }, []);
 
-  const normalizedSearch = searchQuery.trim().toLowerCase();
+  useEffect(() => {
+    loadOrders({ reset: true, currentOffset: 0, query: searchDebounced });
+  }, [loadOrders, searchDebounced]);
 
   const formattedOrders = useMemo(
     () => orders.map((item) => {
@@ -76,29 +114,6 @@ const PickupsHistory = () => {
       };
     }),
     [orders]
-  );
-
-  const filteredOrders = useMemo(
-    () => formattedOrders.filter((item) => {
-      if (!normalizedSearch) {
-        return true;
-      }
-
-      const idValue = String(item.id || '');
-      const searchBase = [
-        idValue,
-        item.orderNumber,
-        item.clientCode,
-        item.fantasyName,
-        STATUS_LABELS[item.status] || STATUS_LABELS.pendente,
-        item.summaryLine
-      ]
-        .join(' ')
-        .toLowerCase();
-
-      return searchBase.includes(normalizedSearch);
-    }),
-    [formattedOrders, normalizedSearch]
   );
 
   return (
@@ -128,49 +143,63 @@ const PickupsHistory = () => {
 
       {loading ? (
         <Typography color="text.secondary">Carregando ordens de retirada...</Typography>
-      ) : filteredOrders.length === 0 ? (
+      ) : formattedOrders.length === 0 ? (
         <Typography color="text.secondary">
-          {formattedOrders.length === 0
-            ? 'Nenhuma ordem de retirada registrada.'
-            : 'Nenhuma ordem de retirada encontrada para essa pesquisa.'}
+          {searchDebounced
+            ? 'Nenhuma ordem de retirada encontrada para essa pesquisa.'
+            : 'Nenhuma ordem de retirada registrada.'}
         </Typography>
       ) : (
-        filteredOrders.map((item, index) => (
-          <Card
-            key={item.id}
-            className="stagger-item"
-            style={{ '--stagger-delay': `${index * 40}ms` }}
-            sx={{
-              border: '1px solid var(--stroke)',
-              boxShadow: 'var(--shadow-md)'
-            }}
-          >
-            <CardContent sx={{ display: 'grid', gap: 0.5 }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, flexWrap: 'wrap' }}>
-                <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
-                  Ordem: {item.orderNumber || `RET-${item.id}`}
+        <>
+          {formattedOrders.map((item, index) => (
+            <Card
+              key={item.id}
+              className="stagger-item"
+              style={{ '--stagger-delay': `${index * 40}ms` }}
+              sx={{
+                border: '1px solid var(--stroke)',
+                boxShadow: 'var(--shadow-md)'
+              }}
+            >
+              <CardContent sx={{ display: 'grid', gap: 0.5 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, flexWrap: 'wrap' }}>
+                  <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+                    Ordem: {item.orderNumber || `RET-${item.id}`}
+                  </Typography>
+                  <Chip
+                    size="small"
+                    color={STATUS_COLORS[item.status] || STATUS_COLORS.pendente}
+                    label={STATUS_LABELS[item.status] || STATUS_LABELS.pendente}
+                  />
+                </Box>
+                <Typography variant="body2" color="text.secondary">
+                  Código do cliente: {item.clientCode || '-'}
                 </Typography>
-                <Chip
-                  size="small"
-                  color={STATUS_COLORS[item.status] || STATUS_COLORS.pendente}
-                  label={STATUS_LABELS[item.status] || STATUS_LABELS.pendente}
-                />
-              </Box>
-              <Typography variant="body2" color="text.secondary">
-                Código do cliente: {item.clientCode || '-'}
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                Nome fantasia: {item.fantasyName || '-'}
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                Resumo: {item.summaryLine || 'Sem itens informados.'}
-              </Typography>
-              <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5 }}>
-                Gerado em: {item.createdAtLabel}
-              </Typography>
-            </CardContent>
-          </Card>
-        ))
+                <Typography variant="body2" color="text.secondary">
+                  Nome fantasia: {item.fantasyName || '-'}
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Resumo: {item.summaryLine || 'Sem itens informados.'}
+                </Typography>
+                <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5 }}>
+                  Gerado em: {item.createdAtLabel}
+                </Typography>
+              </CardContent>
+            </Card>
+          ))}
+
+          {hasMore && (
+            <Box sx={{ display: 'flex', justifyContent: 'center', pt: 0.5 }}>
+              <Button
+                variant="outlined"
+                onClick={() => loadOrders({ reset: false, currentOffset: offset, query: searchDebounced })}
+                disabled={loadingMore}
+              >
+                {loadingMore ? 'Carregando...' : 'Carregar mais'}
+              </Button>
+            </Box>
+          )}
+        </>
       )}
     </Box>
   );

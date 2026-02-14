@@ -98,8 +98,19 @@ def ensure_pickup_catalog_order_columns():
         conn.execute(
             text(
                 "UPDATE pickup_catalog_orders "
+                "SET status = LOWER(TRIM(status)) "
+                "WHERE status IS NOT NULL "
+                "AND TRIM(status) <> '' "
+                "AND status <> LOWER(TRIM(status))"
+            )
+        )
+        conn.execute(
+            text(
+                "UPDATE pickup_catalog_orders "
                 "SET status = 'pendente' "
-                "WHERE status IS NULL OR TRIM(status) = ''"
+                "WHERE status IS NULL "
+                "OR TRIM(status) = '' "
+                "OR status NOT IN ('pendente', 'concluida', 'cancelada')"
             )
         )
         conn.execute(
@@ -119,6 +130,87 @@ def ensure_pickup_catalog_order_columns():
 
 
 ensure_pickup_catalog_order_columns()
+
+
+def _has_index_with_columns(indexes: list[dict], columns: list[str]) -> bool:
+    target = tuple(columns)
+    for index in indexes:
+        if tuple(index.get("column_names") or []) == target:
+            return True
+    return False
+
+
+def ensure_pickup_catalog_indexes():
+    inspector = inspect(engine)
+    table_names = inspector.get_table_names()
+
+    with engine.begin() as conn:
+        if "pickup_catalog_orders" in table_names:
+            order_indexes = inspector.get_indexes("pickup_catalog_orders")
+
+            if not _has_index_with_columns(order_indexes, ["created_at"]):
+                conn.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS "
+                        "idx_pickup_catalog_orders_created_at "
+                        "ON pickup_catalog_orders (created_at)"
+                    )
+                )
+            if not _has_index_with_columns(order_indexes, ["client_code"]):
+                conn.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS "
+                        "idx_pickup_catalog_orders_client_code "
+                        "ON pickup_catalog_orders (client_code)"
+                    )
+                )
+            if not _has_index_with_columns(order_indexes, ["withdrawal_date", "status"]):
+                conn.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS "
+                        "idx_pickup_catalog_orders_withdrawal_status "
+                        "ON pickup_catalog_orders (withdrawal_date, status)"
+                    )
+                )
+            if not _has_index_with_columns(order_indexes, ["status", "created_at"]):
+                conn.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS "
+                        "idx_pickup_catalog_orders_status_created_at "
+                        "ON pickup_catalog_orders (status, created_at)"
+                    )
+                )
+
+        if "pickup_catalog_inventory_items" in table_names:
+            inventory_indexes = inspector.get_indexes("pickup_catalog_inventory_items")
+
+            if not _has_index_with_columns(inventory_indexes, ["client_id"]):
+                conn.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS "
+                        "idx_pickup_catalog_inventory_items_client_id "
+                        "ON pickup_catalog_inventory_items (client_id)"
+                    )
+                )
+            if not _has_index_with_columns(inventory_indexes, ["batch_id"]):
+                conn.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS "
+                        "idx_pickup_catalog_inventory_items_batch_id "
+                        "ON pickup_catalog_inventory_items (batch_id)"
+                    )
+                )
+            if not _has_index_with_columns(inventory_indexes, ["client_id", "batch_id"]):
+                conn.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS "
+                        "idx_pickup_catalog_inventory_items_client_batch "
+                        "ON pickup_catalog_inventory_items (client_id, batch_id)"
+                    )
+                )
+
+
+ensure_pickup_catalog_indexes()
 
 def ensure_admin_user():
     if not ADMIN_EMAIL or not ADMIN_PASSWORD:

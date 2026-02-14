@@ -541,6 +541,8 @@ const PickupsCreate = () => {
                   <TableCell>Descrição</TableCell>
                   <TableCell>Tipo</TableCell>
                   <TableCell>RG</TableCell>
+                  <TableCell>Nº comodato</TableCell>
+                  <TableCell>Data emissão</TableCell>
                   <TableCell>Em aberto</TableCell>
                   <TableCell>Retirar</TableCell>
                 </TableRow>
@@ -559,6 +561,8 @@ const PickupsCreate = () => {
                       <TableCell>{item.description}</TableCell>
                       <TableCell>{item.type_label || ITEM_TYPE_LABELS[item.item_type] || item.item_type}</TableCell>
                       <TableCell>{item.rg || '-'}</TableCell>
+                      <TableCell>{item.comodato_number || '-'}</TableCell>
+                      <TableCell>{item.data_emissao || '-'}</TableCell>
                       <TableCell>{item.open_quantity}</TableCell>
                       <TableCell>
                         <TextField

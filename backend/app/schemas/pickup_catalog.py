@@ -40,6 +40,8 @@ class PickupCatalogInventoryItemOut(BaseModel):
     type_label: str
     open_quantity: int
     rg: str = ""
+    comodato_number: str = ""
+    data_emissao: str = ""
     volume_key: str = ""
 
 

@@ -60,6 +60,21 @@ def ensure_pickup_columns():
 
 ensure_pickup_columns()
 
+
+def ensure_pickup_catalog_columns():
+    inspector = inspect(engine)
+    if "pickup_catalog_inventory_items" not in inspector.get_table_names():
+        return
+    columns = [col["name"] for col in inspector.get_columns("pickup_catalog_inventory_items")]
+    with engine.begin() as conn:
+        if "comodato_number" not in columns:
+            conn.execute(text("ALTER TABLE pickup_catalog_inventory_items ADD COLUMN comodato_number VARCHAR"))
+        if "invoice_issue_date" not in columns:
+            conn.execute(text("ALTER TABLE pickup_catalog_inventory_items ADD COLUMN invoice_issue_date VARCHAR"))
+
+
+ensure_pickup_catalog_columns()
+
 def ensure_admin_user():
     if not ADMIN_EMAIL or not ADMIN_PASSWORD:
         return

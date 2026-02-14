@@ -119,6 +119,8 @@ def _inventory_item_out(item: PickupCatalogInventoryItem) -> PickupCatalogInvent
         type_label=item_type_label(_safe_text(item.item_type) or "outro"),
         open_quantity=int(item.open_quantity or 0),
         rg=_safe_text(item.rg),
+        comodato_number=_safe_text(item.comodato_number),
+        data_emissao=_safe_text(item.invoice_issue_date),
         volume_key=_safe_text(item.volume_key),
     )
 
@@ -438,6 +440,8 @@ async def upload_csv(
                     item_type=_safe_text(item.get("item_type")) or "outro",
                     open_quantity=int(item.get("open_quantity", 0) or 0),
                     rg=_safe_text(item.get("rg")),
+                    comodato_number=_safe_text(item.get("comodato_number")),
+                    invoice_issue_date=_safe_text(item.get("issue_date")),
                     volume_key=_safe_text(item.get("volume_key")),
                     source_baixados=int(item.get("source_baixados", 0) or 0),
                     product_code=_safe_text(item.get("product_code")),

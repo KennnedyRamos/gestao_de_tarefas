@@ -77,7 +77,18 @@ INVENTORY_ALIASES = {
     ],
     "baixados": ["baixados", "baixado", "qtd baixados", "qtde baixados", "saldo baixados"],
     "saldo": ["saldo"],
-    "rg": ["rg", "numero rg", "n rg", "serial", "serie", "identificador"],
+    "rg": [
+        "rg",
+        "numero rg",
+        "n rg",
+        "serial",
+        "serie",
+        "identificador",
+        "nro serie mercadoria",
+        "numero serie mercadoria",
+    ],
+    "comodato_number": ["nro comodato", "numero comodato", "n comodat", "nr comodato"],
+    "issue_date": ["data emissao", "data emissão", "emissao", "emissão"],
     "product_code": ["codigo produto", "cod produto", "material codigo", "codigo material"],
 }
 
@@ -343,6 +354,8 @@ def load_inventory_csv(raw_bytes: bytes) -> dict[str, list[dict[str, Any]]]:
     if not baixados_col and not saldo_col:
         raise ValueError("Coluna obrigatória não encontrada: baixados ou saldo.")
     rg_col = _pick_column(header_map, INVENTORY_ALIASES["rg"], required=False)
+    comodato_col = _pick_column(header_map, INVENTORY_ALIASES["comodato_number"], required=False)
+    issue_date_col = _pick_column(header_map, INVENTORY_ALIASES["issue_date"], required=False)
     product_col = _pick_column(header_map, INVENTORY_ALIASES["product_code"], required=False)
 
     result: dict[str, list[dict[str, Any]]] = {}
@@ -372,6 +385,8 @@ def load_inventory_csv(raw_bytes: bytes) -> dict[str, list[dict[str, Any]]]:
             continue
 
         rg = (row.get(rg_col or "", "") or "").strip() if rg_col else ""
+        comodato_number = (row.get(comodato_col or "", "") or "").strip() if comodato_col else ""
+        issue_date = (row.get(issue_date_col or "", "") or "").strip() if issue_date_col else ""
         product_code = (row.get(product_col or "", "") or "").strip() if product_col else ""
         item_type = classify_item_type(description)
         volume_key = detect_volume_key(description)
@@ -382,6 +397,8 @@ def load_inventory_csv(raw_bytes: bytes) -> dict[str, list[dict[str, Any]]]:
             "open_quantity": open_quantity,
             "item_type": item_type,
             "rg": rg,
+            "comodato_number": comodato_number,
+            "issue_date": issue_date,
             "volume_key": volume_key,
             "source_baixados": open_balance,
             "product_code": product_code,

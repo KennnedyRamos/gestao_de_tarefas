@@ -49,6 +49,8 @@ class PickupCatalogInventoryItem(Base):
     item_type = Column(String(40), default="outro", index=True)
     open_quantity = Column(Integer, default=0)
     rg = Column(String(120), default="")
+    comodato_number = Column(String(120), default="")
+    invoice_issue_date = Column(String(40), default="")
     volume_key = Column(String(20), default="")
     source_baixados = Column(Integer, default=0)
     product_code = Column(String(120), default="")

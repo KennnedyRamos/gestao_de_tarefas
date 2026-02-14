@@ -30,7 +30,7 @@ const PickupsHistory = () => {
         setOrders(Array.isArray(response.data) ? response.data : []);
         setError('');
       } catch (err) {
-        setError('Erro ao carregar o hist\u00F3rico de ordens de retirada.');
+        setError('Erro ao carregar o histórico de ordens de retirada.');
       } finally {
         setLoading(false);
       }
@@ -81,7 +81,7 @@ const PickupsHistory = () => {
   return (
     <Box sx={{ p: 3, display: 'grid', gap: 2 }}>
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, flexWrap: 'wrap' }}>
-        <Typography variant="h5">Hist\u00F3rico de retiradas</Typography>
+        <Typography variant="h5">Histórico de retiradas</Typography>
         <Button variant="contained" onClick={() => navigate('/pickups/create')}>
           Nova ordem de retirada
         </Button>
@@ -90,7 +90,7 @@ const PickupsHistory = () => {
       {error && <Alert severity="error">{error}</Alert>}
 
       <TextField
-        label="Pesquisar por n\u00FAmero da ordem, c\u00F3digo ou nome fantasia"
+        label="Pesquisar por número da ordem, código ou nome fantasia"
         placeholder="Ex.: RET-20260214-000010, 10099 ou Nome Fantasia"
         value={searchQuery}
         onChange={(event) => setSearchQuery(event.target.value)}
@@ -122,7 +122,7 @@ const PickupsHistory = () => {
                 Ordem: {item.orderNumber || `RET-${item.id}`}
               </Typography>
               <Typography variant="body2" color="text.secondary">
-                C\u00F3digo do cliente: {item.clientCode || '-'}
+                Código do cliente: {item.clientCode || '-'}
               </Typography>
               <Typography variant="body2" color="text.secondary">
                 Nome fantasia: {item.fantasyName || '-'}

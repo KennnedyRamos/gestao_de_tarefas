@@ -136,6 +136,40 @@ def parse_integer(value: Any) -> int:
         return int(only_digits.group(0)) if only_digits else 0
 
 
+def _compact_spaces(value: str) -> str:
+    return re.sub(r"\s+", " ", str(value or "")).strip()
+
+
+def _digits_only(value: str) -> str:
+    return re.sub(r"\D+", "", str(value or ""))
+
+
+def _normalize_document(value: str) -> str:
+    digits = _digits_only(value)
+    if not digits:
+        return ""
+    if len(digits) >= 14:
+        return digits[-14:]
+    if len(digits) >= 9:
+        return digits[-9:]
+    return digits
+
+
+def _normalize_setor(value: str) -> str:
+    digits = _digits_only(value)
+    if not digits:
+        return ""
+    return digits[-3:]
+
+
+def _normalize_client_field(field: str, value: str) -> str:
+    if field == "cnpj_cpf":
+        return _normalize_document(value)
+    if field == "setor":
+        return _normalize_setor(value)
+    return _compact_spaces(value)
+
+
 def item_type_label(item_type: str) -> str:
     return ITEM_TYPE_LABELS.get(item_type, ITEM_TYPE_LABELS["outro"])
 
@@ -249,7 +283,7 @@ def _extract_client_payload_from_row(
     for field, aliases in CLIENT_FIELD_ALIASES.items():
         column = _pick_column(header_map, aliases, required=False)
         if column:
-            payload[field] = (row.get(column, "") or "").strip()
+            payload[field] = _normalize_client_field(field, row.get(column, ""))
     if payload.get("client_code"):
         payload["client_code"] = payload["client_code"].strip()
     return payload
@@ -381,13 +415,14 @@ def load_inventory_csv(raw_bytes: bytes) -> dict[str, list[dict[str, Any]]]:
 
         open_quantity = abs(open_balance)
         description = (row.get(desc_col or "", "") or "").strip()
+        description = _compact_spaces(description)
         if not description:
             continue
 
-        rg = (row.get(rg_col or "", "") or "").strip() if rg_col else ""
-        comodato_number = (row.get(comodato_col or "", "") or "").strip() if comodato_col else ""
-        issue_date = (row.get(issue_date_col or "", "") or "").strip() if issue_date_col else ""
-        product_code = (row.get(product_col or "", "") or "").strip() if product_col else ""
+        rg = _compact_spaces(row.get(rg_col or "", "")) if rg_col else ""
+        comodato_number = _compact_spaces(row.get(comodato_col or "", "")) if comodato_col else ""
+        issue_date = _compact_spaces(row.get(issue_date_col or "", "")) if issue_date_col else ""
+        product_code = _compact_spaces(row.get(product_col or "", "")) if product_col else ""
         item_type = classify_item_type(description)
         volume_key = detect_volume_key(description)
 

@@ -1,5 +1,5 @@
-﻿from datetime import datetime
-from typing import List, Optional
+from datetime import datetime
+from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -82,8 +82,13 @@ class PickupCatalogOrderOut(BaseModel):
     order_number: str = ""
     client_code: str = ""
     nome_fantasia: str = ""
+    status: str = "pendente"
     summary_line: str = ""
     created_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
+
+
+class PickupCatalogOrderStatusUpdateIn(BaseModel):
+    status: Literal["pendente", "concluida", "cancelada"]

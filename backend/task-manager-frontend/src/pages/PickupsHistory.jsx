@@ -5,6 +5,7 @@ import {
   Button,
   Card,
   CardContent,
+  Chip,
   TextField,
   Typography
 } from '@mui/material';
@@ -14,6 +15,26 @@ import { useNavigate } from 'react-router-dom';
 import api from '../services/api';
 
 const safeText = (value) => String(value || '').trim();
+
+const STATUS_LABELS = {
+  pendente: 'Pendente',
+  concluida: 'Concluída',
+  cancelada: 'Cancelada'
+};
+
+const STATUS_COLORS = {
+  pendente: 'warning',
+  concluida: 'success',
+  cancelada: 'error'
+};
+
+const normalizeStatus = (value) => {
+  const normalized = safeText(value).toLowerCase();
+  if (normalized === 'concluida' || normalized === 'cancelada' || normalized === 'pendente') {
+    return normalized;
+  }
+  return 'pendente';
+};
 
 const PickupsHistory = () => {
   const navigate = useNavigate();
@@ -49,6 +70,7 @@ const PickupsHistory = () => {
         orderNumber: safeText(item?.order_number),
         clientCode: safeText(item?.client_code),
         fantasyName: safeText(item?.nome_fantasia),
+        status: normalizeStatus(item?.status),
         summaryLine: safeText(item?.summary_line),
         createdAtLabel: createdAt && createdAt.isValid() ? createdAt.format('DD/MM/YYYY HH:mm') : '-'
       };
@@ -68,6 +90,7 @@ const PickupsHistory = () => {
         item.orderNumber,
         item.clientCode,
         item.fantasyName,
+        STATUS_LABELS[item.status] || STATUS_LABELS.pendente,
         item.summaryLine
       ]
         .join(' ')
@@ -81,10 +104,15 @@ const PickupsHistory = () => {
   return (
     <Box sx={{ p: 3, display: 'grid', gap: 2 }}>
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, flexWrap: 'wrap' }}>
-        <Typography variant="h5">Histórico de retiradas</Typography>
-        <Button variant="contained" onClick={() => navigate('/pickups/create')}>
-          Nova ordem de retirada
-        </Button>
+        <Typography variant="h5">Histórico de ordens</Typography>
+        <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+          <Button variant="outlined" onClick={() => navigate('/pickups/withdrawals-history')}>
+            Histórico de retiradas
+          </Button>
+          <Button variant="contained" onClick={() => navigate('/pickups/create')}>
+            Nova ordem de retirada
+          </Button>
+        </Box>
       </Box>
 
       {error && <Alert severity="error">{error}</Alert>}
@@ -118,9 +146,16 @@ const PickupsHistory = () => {
             }}
           >
             <CardContent sx={{ display: 'grid', gap: 0.5 }}>
-              <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
-                Ordem: {item.orderNumber || `RET-${item.id}`}
-              </Typography>
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, flexWrap: 'wrap' }}>
+                <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+                  Ordem: {item.orderNumber || `RET-${item.id}`}
+                </Typography>
+                <Chip
+                  size="small"
+                  color={STATUS_COLORS[item.status] || STATUS_COLORS.pendente}
+                  label={STATUS_LABELS[item.status] || STATUS_LABELS.pendente}
+                />
+              </Box>
               <Typography variant="body2" color="text.secondary">
                 Código do cliente: {item.clientCode || '-'}
               </Typography>

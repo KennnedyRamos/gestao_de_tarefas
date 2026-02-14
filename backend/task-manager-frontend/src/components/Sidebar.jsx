@@ -179,21 +179,21 @@ const Sidebar = () => {
               selected={isActive('/deliveries/history')}
               sx={navItemSx}
             >
-              <ListItemText primary={"Hist\u00f3rico de entregas"} />
-            </ListItemButton>
-            <ListItemButton
-              onClick={() => navigate('/pickups/import')}
-              selected={isActive('/pickups/import')}
-              sx={navItemSx}
-            >
-              <ListItemText primary="Atualizar base de retiradas" />
+              <ListItemText primary={"Histórico de entregas"} />
             </ListItemButton>
             <ListItemButton
               onClick={() => navigate('/pickups/history')}
               selected={isActive('/pickups/history')}
               sx={navItemSx}
             >
-              <ListItemText primary={"Hist\u00f3rico de retiradas"} />
+              <ListItemText primary={"Histórico de ordens"} />
+            </ListItemButton>
+            <ListItemButton
+              onClick={() => navigate('/pickups/withdrawals-history')}
+              selected={isActive('/pickups/withdrawals-history')}
+              sx={navItemSx}
+            >
+              <ListItemText primary={"Histórico de retiradas"} />
             </ListItemButton>
             <ListItemButton
               onClick={() => navigate('/pickups/create')}
@@ -210,7 +210,7 @@ const Sidebar = () => {
               selected={isActive('/users')}
               sx={navItemSx}
             >
-              <ListItemText primary={"Usu\u00e1rios"} />
+              <ListItemText primary={"Usuários"} />
             </ListItemButton>
           </List>
         </>
@@ -218,6 +218,14 @@ const Sidebar = () => {
 
       {showAdmin && (
         <Box sx={{ mt: 'auto', px: 1, pb: 1, display: 'grid', gap: 1 }}>
+          <ListItemButton
+            onClick={() => navigate('/pickups/import')}
+            selected={isActive('/pickups/import')}
+            sx={navItemSx}
+          >
+            <ListItemText primary="Atualizar base" />
+          </ListItemButton>
+
           <ListItemButton
             onClick={() => navigate('/comodatos')}
             selected={isActive('/comodatos')}
@@ -245,7 +253,7 @@ const Sidebar = () => {
                 boxShadow: 'var(--shadow-md)'
               }}
             >
-              {"Usu\u00e1rios"}
+              {"Usuários"}
             </Button>
             <Menu
               anchorEl={userMenuAnchor}
@@ -270,7 +278,7 @@ const Sidebar = () => {
               }}
             >
               {users.length === 0 ? (
-                <MenuItem disabled>{"Nenhum usu\u00e1rio encontrado."}</MenuItem>
+                <MenuItem disabled>{"Nenhum usuário encontrado."}</MenuItem>
               ) : (
                 users.map((user) => (
                   <MenuItem

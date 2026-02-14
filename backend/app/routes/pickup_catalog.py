@@ -26,6 +26,7 @@ from app.schemas.pickup_catalog import (
     PickupCatalogClientOut,
     PickupCatalogInventoryItemOut,
     PickupCatalogOrderOut,
+    PickupCatalogOrderStatusUpdateIn,
     PickupCatalogPdfRequest,
     PickupCatalogStats,
     PickupCatalogStatusOut,
@@ -57,9 +58,16 @@ MANUAL_CLIENT_FIELDS = {
     "responsavel_conferencia",
 }
 
+ORDER_STATUS_VALUES = {"pendente", "concluida", "cancelada"}
+
 
 def _safe_text(value: Any) -> str:
     return str(value or "").strip()
+
+
+def _normalized_order_status(value: Any) -> str:
+    status_value = _safe_text(value).lower()
+    return status_value if status_value in ORDER_STATUS_VALUES else "pendente"
 
 
 def _empty_client(code: str = "") -> dict[str, str]:
@@ -514,12 +522,38 @@ def list_orders(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_admin),
 ):
-    return (
+    orders = (
         db.query(PickupCatalogOrder)
         .order_by(PickupCatalogOrder.id.desc())
         .limit(300)
         .all()
     )
+    status_fixed = False
+    for order in orders:
+        normalized_status = _normalized_order_status(order.status)
+        if order.status != normalized_status:
+            order.status = normalized_status
+            status_fixed = True
+    if status_fixed:
+        db.commit()
+    return orders
+
+
+@router.patch("/orders/{order_id}/status", response_model=PickupCatalogOrderOut)
+def update_order_status(
+    order_id: int,
+    payload: PickupCatalogOrderStatusUpdateIn,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin),
+):
+    order = db.query(PickupCatalogOrder).filter(PickupCatalogOrder.id == order_id).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Ordem de retirada não encontrada.")
+
+    order.status = _normalized_order_status(payload.status)
+    db.commit()
+    db.refresh(order)
+    return order
 
 
 @router.post("/orders/pdf")
@@ -614,6 +648,7 @@ def create_order_pdf(
         responsavel_conferencia=_safe_text(client_data.get("responsavel_conferencia")),
         withdrawal_date=withdrawal_date,
         withdrawal_time=withdrawal_time,
+        status="pendente",
         summary_line=auto_summary,
         observation=observation,
         selected_types=",".join(sorted(selected_types)),

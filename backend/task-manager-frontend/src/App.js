@@ -13,6 +13,7 @@ import DeliveriesHistory from './pages/DeliveriesHistory';
 import PickupsCreate from './pages/PickupsCreate';
 import PickupsDataUpload from './pages/PickupsDataUpload';
 import PickupsHistory from './pages/PickupsHistory';
+import PickupsWithdrawalsHistory from './pages/PickupsWithdrawalsHistory';
 import Layout from './components/Layout';
 import { getToken, isAdmin, isPersonalAdmin } from './utils/auth';
 import './App.css';
@@ -57,6 +58,7 @@ function App() {
           <Route path="pickups/create" element={<RequireAdmin><PickupsCreate /></RequireAdmin>} />
           <Route path="pickups/import" element={<RequireAdmin><PickupsDataUpload /></RequireAdmin>} />
           <Route path="pickups/history" element={<RequireAdmin><PickupsHistory /></RequireAdmin>} />
+          <Route path="pickups/withdrawals-history" element={<RequireAdmin><PickupsWithdrawalsHistory /></RequireAdmin>} />
         </Route>
       </Routes>
     </Router>

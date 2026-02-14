@@ -75,6 +75,31 @@ def ensure_pickup_catalog_columns():
 
 ensure_pickup_catalog_columns()
 
+
+def ensure_pickup_catalog_order_columns():
+    inspector = inspect(engine)
+    if "pickup_catalog_orders" not in inspector.get_table_names():
+        return
+    columns = [col["name"] for col in inspector.get_columns("pickup_catalog_orders")]
+    with engine.begin() as conn:
+        if "status" not in columns:
+            conn.execute(
+                text(
+                    "ALTER TABLE pickup_catalog_orders "
+                    "ADD COLUMN status VARCHAR DEFAULT 'pendente'"
+                )
+            )
+        conn.execute(
+            text(
+                "UPDATE pickup_catalog_orders "
+                "SET status = 'pendente' "
+                "WHERE status IS NULL OR TRIM(status) = ''"
+            )
+        )
+
+
+ensure_pickup_catalog_order_columns()
+
 def ensure_admin_user():
     if not ADMIN_EMAIL or not ADMIN_PASSWORD:
         return

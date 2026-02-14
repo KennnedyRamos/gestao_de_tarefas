@@ -1,4 +1,4 @@
-﻿from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Text, func
 
 from app.database.base import Base
 
@@ -84,6 +84,7 @@ class PickupCatalogOrder(Base):
 
     withdrawal_date = Column(String(20), default="")
     withdrawal_time = Column(String(20), default="")
+    status = Column(String(20), default="pendente", nullable=False, index=True)
     summary_line = Column(Text, default="")
     observation = Column(Text, default="")
     selected_types = Column(String(255), default="")

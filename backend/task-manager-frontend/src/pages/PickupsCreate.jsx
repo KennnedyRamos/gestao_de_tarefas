@@ -448,12 +448,15 @@ const PickupsCreate = () => {
     <Box sx={{ p: 3, display: 'grid', gap: 2 }}>
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, flexWrap: 'wrap' }}>
         <Typography variant="h5">Retiradas de comodato (ordem automática)</Typography>
-        <Box sx={{ display: 'flex', gap: 1 }}>
+        <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
           <Button variant="outlined" onClick={() => navigate('/pickups/import')}>
             Atualizar base
           </Button>
           <Button variant="outlined" onClick={() => navigate('/pickups/history')}>
-            Histórico antigo
+            Histórico de ordens
+          </Button>
+          <Button variant="outlined" onClick={() => navigate('/pickups/withdrawals-history')}>
+            Histórico de retiradas
           </Button>
         </Box>
       </Box>

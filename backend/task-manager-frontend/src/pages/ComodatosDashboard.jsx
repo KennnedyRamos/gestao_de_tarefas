@@ -474,7 +474,7 @@ const ComodatosDashboard = () => {
           <Button variant="outlined" onClick={() => navigate('/deliveries/history')}>
             Entregas
           </Button>
-          <Button variant="outlined" onClick={() => navigate('/pickups/history')}>
+          <Button variant="outlined" onClick={() => navigate('/pickups/withdrawals-history')}>
             Retiradas
           </Button>
         </Box>
@@ -1066,5 +1066,4 @@ const ComodatosDashboard = () => {
 };
 
 export default ComodatosDashboard;
-
 

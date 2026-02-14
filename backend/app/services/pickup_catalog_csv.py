@@ -152,7 +152,7 @@ def _normalize_document(value: str) -> str:
         return digits[-14:]
     if len(digits) >= 9:
         return digits[-9:]
-    return digits
+    return ""
 
 
 def _normalize_setor(value: str) -> str:

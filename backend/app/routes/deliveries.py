@@ -181,6 +181,42 @@ def safe_text(value: object) -> str:
     return str(value or "").strip()
 
 
+def unique_paths(paths: list[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for path in paths:
+        clean_path = safe_text(path).lstrip("/")
+        if not clean_path or clean_path in seen:
+            continue
+        seen.add(clean_path)
+        result.append(clean_path)
+    return result
+
+
+def build_supabase_path_candidates(object_path: str, prefix: str = "") -> list[str]:
+    clean_path = safe_text(object_path).lstrip("/")
+    clean_prefix = safe_text(prefix).strip("/")
+    file_name = Path(clean_path).name if clean_path else ""
+
+    candidates = [clean_path]
+    if file_name:
+        candidates.append(file_name)
+
+    if clean_prefix and clean_path:
+        if not clean_path.startswith(f"{clean_prefix}/"):
+            candidates.append(f"{clean_prefix}/{clean_path}")
+    if clean_prefix and file_name:
+        candidates.append(f"{clean_prefix}/{file_name}")
+
+    # Fallback adicional para bases antigas que gravaram tudo na pasta deliveries/.
+    if clean_path and not clean_path.startswith("deliveries/"):
+        candidates.append(f"deliveries/{clean_path}")
+    if file_name:
+        candidates.append(f"deliveries/{file_name}")
+
+    return unique_paths(candidates)
+
+
 def supabase_object_exists(config: dict, bucket: str, object_path: str) -> bool:
     endpoint = (
         f"{config['url']}/storage/v1/object/info/"
@@ -197,62 +233,115 @@ def supabase_object_exists(config: dict, bucket: str, object_path: str) -> bool:
     return response_status == 200
 
 
+def find_supabase_object_by_file_name(config: dict, bucket: str, file_name: str) -> str:
+    clean_file_name = safe_text(file_name)
+    if not clean_file_name:
+        return ""
+
+    endpoint = f"{config['url']}/storage/v1/object/list/{quote(bucket, safe='')}"
+    prefixes = unique_paths([
+        safe_text(config.get("prefix", "")).strip("/"),
+        "deliveries",
+        "",
+    ])
+
+    for prefix in prefixes:
+        payload = json.dumps(
+            {
+                "prefix": prefix,
+                "limit": 100,
+                "offset": 0,
+                "search": clean_file_name,
+                "sortBy": {"column": "name", "order": "asc"},
+            }
+        ).encode("utf-8")
+
+        try:
+            response_status, response_payload = supabase_storage_request(
+                method="POST",
+                endpoint=endpoint,
+                service_role_key=config["service_role_key"],
+                body=payload,
+                content_type="application/json",
+            )
+        except HTTPException:
+            continue
+
+        if response_status not in {200, 201}:
+            continue
+        try:
+            parsed_items = json.loads(response_payload or "[]")
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(parsed_items, list):
+            continue
+
+        for item in parsed_items:
+            if not isinstance(item, dict):
+                continue
+            name = safe_text(item.get("name"))
+            if not name:
+                continue
+            if Path(name).name.lower() != clean_file_name.lower():
+                continue
+            if prefix and not name.startswith(f"{prefix}/"):
+                return f"{prefix}/{name}".lstrip("/")
+            return name.lstrip("/")
+    return ""
+
+
 def build_upload_url(relative_path: str, request: Optional[FastAPIRequest] = None) -> str:
+    raw_path = safe_text(relative_path)
+    if not raw_path:
+        return ""
+    if raw_path.startswith("http://") or raw_path.startswith("https://"):
+        return raw_path
+
     supabase_ref = parse_supabase_reference(relative_path)
     if supabase_ref:
         bucket, object_path = supabase_ref
         config = get_supabase_storage_config()
         if config:
-            candidates = [object_path]
-            prefix = safe_text(config.get("prefix")).strip("/")
-            object_name = Path(object_path).name
-            if prefix:
-                prefixed_path = f"{prefix}/{object_path}".lstrip("/")
-                if prefixed_path not in candidates:
-                    candidates.append(prefixed_path)
-            if object_name and object_name not in candidates:
-                candidates.append(object_name)
-            if prefix and object_name:
-                prefixed_name = f"{prefix}/{object_name}".lstrip("/")
-                if prefixed_name not in candidates:
-                    candidates.append(prefixed_name)
-
+            prefix = safe_text(config.get("prefix", "")).strip("/")
+            candidates = build_supabase_path_candidates(object_path, prefix)
             for candidate in candidates:
-                clean_candidate = safe_text(candidate).lstrip("/")
-                if not clean_candidate:
+                if not supabase_object_exists(config, bucket, candidate):
                     continue
-                if not supabase_object_exists(config, bucket, clean_candidate):
-                    continue
-                object_url = build_supabase_object_url(config, bucket, clean_candidate)
+                object_url = build_supabase_object_url(config, bucket, candidate)
+                if object_url:
+                    return object_url
+            discovered = find_supabase_object_by_file_name(config, bucket, Path(object_path).name)
+            if discovered and supabase_object_exists(config, bucket, discovered):
+                object_url = build_supabase_object_url(config, bucket, discovered)
                 if object_url:
                     return object_url
         return ""
 
-    normalized = str(relative_path or "").strip().lstrip("/")
+    normalized = raw_path.lstrip("/")
     if normalized.startswith("uploads/"):
         normalized = normalized[len("uploads/"):]
 
     config = get_supabase_storage_config()
     if config and config.get("legacy_paths_enabled") and normalized:
-        prefix = config.get("prefix", "").strip("/")
-        candidates = [normalized]
-        if prefix:
-            if not normalized.startswith(f"{prefix}/"):
-                candidates.append(f"{prefix}/{normalized}")
-            candidates.append(f"{prefix}/{Path(normalized).name}")
+        prefix = safe_text(config.get("prefix", "")).strip("/")
+        candidates = build_supabase_path_candidates(normalized, prefix)
 
-        seen: set[str] = set()
         for candidate in candidates:
-            clean_candidate = str(candidate or "").strip().lstrip("/")
-            if not clean_candidate or clean_candidate in seen:
+            if not supabase_object_exists(config, config["bucket"], candidate):
                 continue
-            seen.add(clean_candidate)
-            if not supabase_object_exists(config, config["bucket"], clean_candidate):
-                continue
-            object_url = build_supabase_object_url(config, config["bucket"], clean_candidate)
+            object_url = build_supabase_object_url(config, config["bucket"], candidate)
             if object_url:
                 return object_url
 
+        file_name = Path(normalized).name
+        discovered = find_supabase_object_by_file_name(config, config["bucket"], file_name)
+        if discovered and supabase_object_exists(config, config["bucket"], discovered):
+            object_url = build_supabase_object_url(config, config["bucket"], discovered)
+            if object_url:
+                return object_url
+
+    if not normalized:
+        return ""
     if request is not None:
         try:
             return str(request.url_for("uploads", path=normalized))

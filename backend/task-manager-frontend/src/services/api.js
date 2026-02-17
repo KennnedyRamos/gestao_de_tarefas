@@ -11,8 +11,14 @@ const inferBaseUrl = () => {
   }
   if (typeof window !== 'undefined') {
     const host = String(window.location.hostname || '').toLowerCase();
+    const port = String(window.location.port || '').trim();
+    const protocol = window.location.protocol || 'http:';
     if (host.includes('localhost') || host.includes('127.0.0.1')) {
       return DEFAULT_LOCAL_API_URL;
+    }
+    // Em ambiente de desenvolvimento na rede local (ex.: celular), usa o mesmo host na porta 8000.
+    if (port === '3000') {
+      return `${protocol}//${host}:8000`;
     }
   }
   return DEFAULT_PRODUCTION_API_URL;

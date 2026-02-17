@@ -8,7 +8,7 @@ const WEEK_DAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab'];
 const MONTHS = [
   'Janeiro',
   'Fevereiro',
-  'Marco',
+  'Março',
   'Abril',
   'Maio',
   'Junho',
@@ -70,7 +70,7 @@ const Calendar = ({ selectedDate, onSelectDate, onClearDate }) => {
       }}
     >
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
-        <Typography variant="subtitle1" sx={{ fontFamily: 'var(--font-display)' }}>Calendario</Typography>
+        <Typography variant="subtitle1" sx={{ fontFamily: 'var(--font-display)' }}>Calendário</Typography>
         <Box sx={{ display: 'flex', gap: 1 }}>
           <Button
             size="small"
@@ -92,7 +92,7 @@ const Calendar = ({ selectedDate, onSelectDate, onClearDate }) => {
       </Box>
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
         <IconButton
-          aria-label="Mes anterior"
+          aria-label="Mês anterior"
           onClick={handlePrevMonth}
           size="small"
           sx={{ border: '1px solid var(--stroke)', backgroundColor: 'var(--surface)' }}
@@ -103,7 +103,7 @@ const Calendar = ({ selectedDate, onSelectDate, onClearDate }) => {
           {monthLabel}
         </Typography>
         <IconButton
-          aria-label="Proximo mes"
+          aria-label="Próximo mês"
           onClick={handleNextMonth}
           size="small"
           sx={{ border: '1px solid var(--stroke)', backgroundColor: 'var(--surface)' }}

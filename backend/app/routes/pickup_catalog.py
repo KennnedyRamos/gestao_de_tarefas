@@ -758,6 +758,31 @@ def bulk_update_order_status(
     return PickupCatalogOrderBulkStatusUpdateOut(updated_count=len(output_orders), orders=output_orders)
 
 
+@router.delete("/orders/{order_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_order(
+    order_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_pickup_catalog_withdrawals_access),
+):
+    order = db.query(PickupCatalogOrder).filter(PickupCatalogOrder.id == order_id).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Ordem de retirada nao encontrada.")
+
+    if _normalized_order_status(order.status) != "cancelada":
+        raise HTTPException(
+            status_code=422,
+            detail="A exclusao e permitida apenas para ordens canceladas.",
+        )
+
+    (
+        db.query(PickupCatalogOrderItem)
+        .filter(PickupCatalogOrderItem.order_id == order_id)
+        .delete(synchronize_session=False)
+    )
+    db.delete(order)
+    db.commit()
+
+
 @router.get("/daily-followup/pending", response_model=PickupCatalogDailyFollowupOut)
 def get_daily_followup_pending(
     date_reference: str | None = None,

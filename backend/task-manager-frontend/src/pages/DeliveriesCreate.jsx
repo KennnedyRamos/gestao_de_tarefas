@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert,
   Box,
@@ -23,6 +23,9 @@ const DeliveriesCreate = () => {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [lookupInfo, setLookupInfo] = useState('');
+  const [lookupLoading, setLookupLoading] = useState(false);
+  const lookupRequestRef = useRef(0);
 
   const panelSx = {
     backgroundColor: 'var(--surface)',
@@ -30,6 +33,74 @@ const DeliveriesCreate = () => {
     borderRadius: 'var(--radius-lg)',
     p: 3,
     boxShadow: 'var(--shadow-md)'
+  };
+
+  const inputStyle = {
+    width: '100%',
+    marginTop: 6,
+    padding: 10,
+    borderRadius: 12,
+    border: '1px solid var(--stroke)',
+    fontFamily: 'var(--font-sans)',
+    background: 'var(--surface)'
+  };
+
+  const lookupClientByCode = useCallback(async (code, requestId) => {
+    setLookupLoading(true);
+    try {
+      const response = await api.get(`/deliveries/client/${encodeURIComponent(code)}`);
+      if (requestId !== lookupRequestRef.current) {
+        return;
+      }
+
+      const fantasyNameFromBase = String(response?.data?.nome_fantasia || '').trim();
+      if (fantasyNameFromBase) {
+        setFantasyName(fantasyNameFromBase);
+        setLookupInfo('Nome fantasia preenchido automaticamente.');
+      } else {
+        setLookupInfo('Código não encontrado na base. Preencha a fantasia manualmente.');
+      }
+    } catch (err) {
+      if (requestId !== lookupRequestRef.current) {
+        return;
+      }
+      setLookupInfo('Não foi possível consultar o código neste momento.');
+    } finally {
+      if (requestId === lookupRequestRef.current) {
+        setLookupLoading(false);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    const normalizedCode = clientCode.trim();
+    if (!normalizedCode) {
+      setLookupInfo('');
+      setLookupLoading(false);
+      return undefined;
+    }
+
+    const requestId = lookupRequestRef.current + 1;
+    lookupRequestRef.current = requestId;
+    const timerId = window.setTimeout(() => {
+      lookupClientByCode(normalizedCode, requestId);
+    }, 450);
+
+    return () => {
+      window.clearTimeout(timerId);
+    };
+  }, [clientCode, lookupClientByCode]);
+
+  const clearForm = () => {
+    setClientCode('');
+    setFantasyName('');
+    setDescription('');
+    setDeliveryDate(dayjs().format('YYYY-MM-DD'));
+    setDeliveryTime('');
+    setPdfOne(null);
+    setPdfTwo(null);
+    setFileInputKey((prev) => prev + 1);
+    setLookupInfo('');
   };
 
   const handleSubmit = async (event) => {
@@ -74,14 +145,7 @@ const DeliveriesCreate = () => {
       await api.post('/deliveries', formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
-      setClientCode('');
-      setFantasyName('');
-      setDescription('');
-      setDeliveryDate(dayjs().format('YYYY-MM-DD'));
-      setDeliveryTime('');
-      setPdfOne(null);
-      setPdfTwo(null);
-      setFileInputKey((prev) => prev + 1);
+      clearForm();
       setSuccess('Entrega registrada com sucesso.');
     } catch (err) {
       const detail = err?.response?.data?.detail;
@@ -105,7 +169,7 @@ const DeliveriesCreate = () => {
 
       <Box component="form" onSubmit={handleSubmit} sx={panelSx}>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          Informe o código do cliente, a fantasia e, por fim, a descrição.
+          Informe o código do cliente. O nome fantasia será preenchido automaticamente quando existir na base.
         </Typography>
 
         <Box sx={{ display: 'grid', gap: 2 }}>
@@ -118,16 +182,27 @@ const DeliveriesCreate = () => {
                 type="text"
                 value={clientCode}
                 onChange={(e) => setClientCode(e.target.value)}
-                style={{
-                  width: '100%',
-                  marginTop: 6,
-                  padding: 10,
-                  borderRadius: 12,
-                  border: '1px solid var(--stroke)',
-                  fontFamily: 'var(--font-sans)'
-                }}
+                style={inputStyle}
                 required
               />
+              {(lookupLoading || lookupInfo) && (
+                <Typography
+                  variant="caption"
+                  sx={{
+                    display: 'block',
+                    mt: 0.75,
+                    color: lookupLoading
+                      ? 'text.secondary'
+                      : lookupInfo.includes('automaticamente')
+                        ? 'success.main'
+                        : lookupInfo.includes('não encontrado')
+                          ? 'warning.main'
+                          : 'error.main'
+                  }}
+                >
+                  {lookupLoading ? 'Consultando código do cliente...' : lookupInfo}
+                </Typography>
+              )}
             </Box>
             <Box>
               <Typography variant="caption" color="text.secondary">
@@ -137,14 +212,7 @@ const DeliveriesCreate = () => {
                 type="text"
                 value={fantasyName}
                 onChange={(e) => setFantasyName(e.target.value)}
-                style={{
-                  width: '100%',
-                  marginTop: 6,
-                  padding: 10,
-                  borderRadius: 12,
-                  border: '1px solid var(--stroke)',
-                  fontFamily: 'var(--font-sans)'
-                }}
+                style={inputStyle}
                 required
               />
             </Box>
@@ -159,15 +227,10 @@ const DeliveriesCreate = () => {
               onChange={(e) => setDescription(e.target.value)}
               rows={4}
               style={{
-                width: '100%',
-                marginTop: 6,
+                ...inputStyle,
                 padding: 12,
-                borderRadius: 12,
-                border: '1px solid var(--stroke)',
-                fontFamily: 'var(--font-sans)',
                 fontSize: 14,
-                resize: 'vertical',
-                background: 'var(--surface)'
+                resize: 'vertical'
               }}
               required
             />
@@ -182,14 +245,7 @@ const DeliveriesCreate = () => {
                 type="date"
                 value={deliveryDate}
                 onChange={(e) => setDeliveryDate(e.target.value)}
-                style={{
-                  width: '100%',
-                  marginTop: 6,
-                  padding: 10,
-                  borderRadius: 12,
-                  border: '1px solid var(--stroke)',
-                  fontFamily: 'var(--font-sans)'
-                }}
+                style={inputStyle}
                 required
               />
             </Box>
@@ -201,14 +257,7 @@ const DeliveriesCreate = () => {
                 type="time"
                 value={deliveryTime}
                 onChange={(e) => setDeliveryTime(e.target.value)}
-                style={{
-                  width: '100%',
-                  marginTop: 6,
-                  padding: 10,
-                  borderRadius: 12,
-                  border: '1px solid var(--stroke)',
-                  fontFamily: 'var(--font-sans)'
-                }}
+                style={inputStyle}
               />
             </Box>
           </Box>
@@ -223,15 +272,7 @@ const DeliveriesCreate = () => {
                 type="file"
                 accept="application/pdf,.pdf"
                 onChange={(e) => setPdfOne(e.target.files?.[0] || null)}
-                style={{
-                  width: '100%',
-                  marginTop: 6,
-                  padding: 10,
-                  borderRadius: 12,
-                  border: '1px solid var(--stroke)',
-                  background: 'var(--surface)',
-                  fontFamily: 'var(--font-sans)'
-                }}
+                style={inputStyle}
                 required
               />
             </Box>
@@ -244,15 +285,7 @@ const DeliveriesCreate = () => {
                 type="file"
                 accept="application/pdf,.pdf"
                 onChange={(e) => setPdfTwo(e.target.files?.[0] || null)}
-                style={{
-                  width: '100%',
-                  marginTop: 6,
-                  padding: 10,
-                  borderRadius: 12,
-                  border: '1px solid var(--stroke)',
-                  background: 'var(--surface)',
-                  fontFamily: 'var(--font-sans)'
-                }}
+                style={inputStyle}
                 required
               />
             </Box>
@@ -267,14 +300,7 @@ const DeliveriesCreate = () => {
               variant="outlined"
               disabled={submitting}
               onClick={() => {
-                setClientCode('');
-                setFantasyName('');
-                setDescription('');
-                setDeliveryDate(dayjs().format('YYYY-MM-DD'));
-                setDeliveryTime('');
-                setPdfOne(null);
-                setPdfTwo(null);
-                setFileInputKey((prev) => prev + 1);
+                clearForm();
                 setError('');
                 setSuccess('');
               }}

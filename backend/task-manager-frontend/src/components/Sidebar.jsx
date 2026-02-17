@@ -25,9 +25,9 @@ const Sidebar = () => {
   const canManageDeliveries = hasPermission('deliveries.manage');
   const canCreatePickupOrder = hasPermission('pickups.create_order');
   const canImportPickupBase = hasPermission('pickups.import_base');
-  const canPickupOrdersHistory = hasPermission('pickups.orders_history');
-  const canPickupWithdrawalsHistory = hasPermission('pickups.withdrawals_history');
+  const canPickupCenter = hasAnyPermission(['pickups.orders_history', 'pickups.withdrawals_history']);
   const canViewComodatos = hasPermission('comodatos.view');
+  const canAccessEquipments = hasAnyPermission(['equipments.view', 'equipments.manage']);
   const hasPickupAreaAccess = hasAnyPermission([
     'pickups.create_order',
     'pickups.import_base',
@@ -60,6 +60,7 @@ const Sidebar = () => {
     ? new URLSearchParams(location.search).get('user')
     : null;
   const isActive = (path) => location.pathname === path;
+  const isPickupCenterActive = ['/pickups/center', '/pickups/history', '/pickups/withdrawals-history'].includes(location.pathname);
   const userMenuOpen = Boolean(userMenuAnchor);
 
   const navItemSx = {
@@ -197,28 +198,18 @@ const Sidebar = () => {
                   selected={isActive('/deliveries/history')}
                   sx={navItemSx}
                 >
-                  <ListItemText primary='Historico de entregas' />
+                  <ListItemText primary='Histórico de entregas' />
                 </ListItemButton>
               </>
             )}
 
-            {canPickupOrdersHistory && (
+            {canPickupCenter && (
               <ListItemButton
-                onClick={() => navigate('/pickups/history')}
-                selected={isActive('/pickups/history')}
+                onClick={() => navigate('/pickups/center')}
+                selected={isPickupCenterActive}
                 sx={navItemSx}
               >
-                <ListItemText primary='Historico de ordens' />
-              </ListItemButton>
-            )}
-
-            {canPickupWithdrawalsHistory && (
-              <ListItemButton
-                onClick={() => navigate('/pickups/withdrawals-history')}
-                selected={isActive('/pickups/withdrawals-history')}
-                sx={navItemSx}
-              >
-                <ListItemText primary='Historico de retiradas' />
+                <ListItemText primary='Central de retiradas' />
               </ListItemButton>
             )}
 
@@ -228,7 +219,7 @@ const Sidebar = () => {
                 selected={isActive('/pickups/create')}
                 sx={navItemSx}
               >
-                <ListItemText primary='Ordem de Retirada' />
+                  <ListItemText primary='Ordem de retirada' />
               </ListItemButton>
             )}
 
@@ -240,7 +231,7 @@ const Sidebar = () => {
                   selected={isActive('/users')}
                   sx={navItemSx}
                 >
-                  <ListItemText primary='Usuarios' />
+                  <ListItemText primary='Usuários' />
                 </ListItemButton>
               </>
             )}
@@ -248,7 +239,7 @@ const Sidebar = () => {
         </>
       )}
 
-      {(canImportPickupBase || canViewComodatos || showAdmin) && (
+      {(canImportPickupBase || canViewComodatos || canAccessEquipments || showAdmin) && (
         <Box sx={{ mt: 'auto', px: 1, pb: 1, display: 'grid', gap: 1 }}>
           {canImportPickupBase && (
             <ListItemButton
@@ -267,6 +258,16 @@ const Sidebar = () => {
               sx={navItemSx}
             >
               <ListItemText primary='Dashboard de comodatos' />
+            </ListItemButton>
+          )}
+
+          {canAccessEquipments && (
+            <ListItemButton
+              onClick={() => navigate('/equipments')}
+              selected={isActive('/equipments')}
+              sx={navItemSx}
+            >
+              <ListItemText primary='Equipamento' />
             </ListItemButton>
           )}
 
@@ -290,7 +291,7 @@ const Sidebar = () => {
                   boxShadow: 'var(--shadow-md)'
                 }}
               >
-                {'Usuarios'}
+                {'Usuários'}
               </Button>
               <Menu
                 anchorEl={userMenuAnchor}
@@ -315,7 +316,7 @@ const Sidebar = () => {
                 }}
               >
                 {users.length === 0 ? (
-                  <MenuItem disabled>{'Nenhum usuario encontrado.'}</MenuItem>
+                  <MenuItem disabled>{'Nenhum usuário encontrado.'}</MenuItem>
                 ) : (
                   users.map((user) => (
                     <MenuItem

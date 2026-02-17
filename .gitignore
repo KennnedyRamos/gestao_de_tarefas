@@ -21,3 +21,6 @@ backend/task-manager-frontend/build/
 
 # Logs
 *.log
+
+# Runtime uploads (local and production mirrors)
+backend/uploads/

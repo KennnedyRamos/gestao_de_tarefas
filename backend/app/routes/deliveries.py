@@ -6,14 +6,16 @@ from pathlib import Path
 from typing import Optional
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
 from sqlalchemy.orm import Session
 
 from app.core.auth import require_any_permission, require_permission
 from app.database.deps import get_db
 from app.models.delivery import Delivery
+from app.models.pickup_catalog import PickupCatalogClient
 from app.models.user import User
-from app.schemas.delivery import DeliveryOut
+from app.schemas.delivery import DeliveryClientLookupOut, DeliveryOut
+from app.services.pickup_catalog_csv import canonical_code
 
 router = APIRouter(prefix="/deliveries", tags=["Deliveries"])
 get_deliveries_manager = require_permission("deliveries.manage")
@@ -42,8 +44,20 @@ def sanitize_stem(value: str) -> str:
     return cleaned[:60] or "arquivo"
 
 
-def build_upload_url(relative_path: str) -> str:
-    return f"/uploads/{relative_path}"
+def safe_text(value: object) -> str:
+    return str(value or "").strip()
+
+
+def build_upload_url(relative_path: str, request: Optional[Request] = None) -> str:
+    normalized = str(relative_path or "").strip().lstrip("/")
+    if normalized.startswith("uploads/"):
+        normalized = normalized[len("uploads/"):]
+    if request is not None:
+        try:
+            return str(request.url_for("uploads", path=normalized))
+        except Exception:
+            pass
+    return f"/uploads/{normalized}"
 
 
 def parse_date(value: str) -> date:
@@ -99,7 +113,7 @@ def remove_upload(relative_path: Optional[str]) -> None:
         target_path.unlink(missing_ok=True)
 
 
-def build_delivery_out(delivery: Delivery) -> DeliveryOut:
+def build_delivery_out(delivery: Delivery, request: Optional[Request] = None) -> DeliveryOut:
     return DeliveryOut(
         id=delivery.id,
         description=delivery.description,
@@ -107,14 +121,15 @@ def build_delivery_out(delivery: Delivery) -> DeliveryOut:
         delivery_time=delivery.delivery_time,
         pdf_one_path=delivery.pdf_one_path,
         pdf_two_path=delivery.pdf_two_path,
-        pdf_one_url=build_upload_url(delivery.pdf_one_path),
-        pdf_two_url=build_upload_url(delivery.pdf_two_path),
+        pdf_one_url=build_upload_url(delivery.pdf_one_path, request=request),
+        pdf_two_url=build_upload_url(delivery.pdf_two_path, request=request),
         created_at=delivery.created_at
     )
 
 
 @router.get("/", response_model=list[DeliveryOut])
 def list_deliveries(
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_deliveries_viewer)
 ):
@@ -123,11 +138,38 @@ def list_deliveries(
         .order_by(Delivery.delivery_date.desc(), Delivery.delivery_time.desc(), Delivery.id.desc())
         .all()
     )
-    return [build_delivery_out(row) for row in rows]
+    return [build_delivery_out(row, request=request) for row in rows]
+
+
+@router.get("/client/{client_code}", response_model=DeliveryClientLookupOut)
+def lookup_delivery_client(
+    client_code: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_deliveries_manager)
+):
+    search_code = canonical_code(client_code)
+    if not search_code:
+        return DeliveryClientLookupOut()
+
+    row = (
+        db.query(PickupCatalogClient.client_code, PickupCatalogClient.nome_fantasia)
+        .filter(PickupCatalogClient.client_code == search_code)
+        .first()
+    )
+    if not row:
+        return DeliveryClientLookupOut(client_code=search_code, nome_fantasia="", found=False)
+
+    fantasy_name = safe_text(row.nome_fantasia)
+    return DeliveryClientLookupOut(
+        client_code=safe_text(row.client_code) or search_code,
+        nome_fantasia=fantasy_name,
+        found=bool(fantasy_name),
+    )
 
 
 @router.post("/", response_model=DeliveryOut, status_code=status.HTTP_201_CREATED)
 def create_delivery(
+    request: Request,
     description: str = Form(...),
     delivery_date: str = Form(...),
     delivery_time: Optional[str] = Form(None),
@@ -154,7 +196,7 @@ def create_delivery(
         db.add(delivery)
         db.commit()
         db.refresh(delivery)
-        return build_delivery_out(delivery)
+        return build_delivery_out(delivery, request=request)
     except Exception:
         remove_upload(pdf_one_path)
         remove_upload(pdf_two_path)

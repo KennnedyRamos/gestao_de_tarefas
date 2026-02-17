@@ -70,7 +70,7 @@ const Users = () => {
       setUsers(Array.isArray(response.data) ? response.data : []);
       setError('');
     } catch (err) {
-      setError('Acesso negado ou erro ao carregar usuarios.');
+      setError('Acesso negado ou erro ao carregar usuários.');
     }
   };
 
@@ -93,28 +93,28 @@ const Users = () => {
       setPassword('');
       setRole('assistente');
       setPermissions([]);
-      setSuccess('Usuario criado com sucesso.');
+      setSuccess('Usuário criado com sucesso.');
       setError('');
       loadUsers();
     } catch (err) {
       const detail = err?.response?.data?.detail;
       setSuccess('');
-      setError(typeof detail === 'string' ? detail : 'Erro ao criar usuario.');
+      setError(typeof detail === 'string' ? detail : 'Erro ao criar usuário.');
     }
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm('Deseja excluir este usuario?')) {
+    if (!window.confirm('Deseja excluir este usuário?')) {
       return;
     }
     try {
       await api.delete(`/users/${id}`);
-      setSuccess('Usuario excluido com sucesso.');
+      setSuccess('Usuário excluído com sucesso.');
       setError('');
       loadUsers();
     } catch (err) {
       const detail = err?.response?.data?.detail;
-      setError(typeof detail === 'string' ? detail : 'Erro ao excluir usuario.');
+      setError(typeof detail === 'string' ? detail : 'Erro ao excluir usuário.');
     }
   };
 
@@ -198,7 +198,7 @@ const Users = () => {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Typography variant='h5' sx={{ mb: 2 }}>Usuarios</Typography>
+      <Typography variant='h5' sx={{ mb: 2 }}>Usuários</Typography>
       {error && <Alert severity='error' sx={{ mb: 2 }}>{error}</Alert>}
       {success && <Alert severity='success' sx={{ mb: 2 }}>{success}</Alert>}
 
@@ -256,7 +256,7 @@ const Users = () => {
 
         {role !== 'admin' && (
           <Box sx={{ border: '1px solid var(--stroke)', borderRadius: 1.5, p: 1.5 }}>
-            <Typography variant='subtitle2' sx={{ mb: 1 }}>Acessos deste usuario</Typography>
+            <Typography variant='subtitle2' sx={{ mb: 1 }}>Acessos deste usuário</Typography>
             <FormGroup>
               {PERMISSION_OPTIONS.map((item) => (
                 <FormControlLabel
@@ -274,7 +274,7 @@ const Users = () => {
           </Box>
         )}
 
-        <Button type='submit' variant='contained'>Criar usuario</Button>
+        <Button type='submit' variant='contained'>Criar usuário</Button>
       </Box>
 
       <Box
@@ -293,7 +293,7 @@ const Users = () => {
               <TableCell>Email</TableCell>
               <TableCell>Tipo</TableCell>
               <TableCell>Acessos</TableCell>
-              <TableCell align='right'>Acoes</TableCell>
+              <TableCell align='right'>Ações</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
@@ -310,7 +310,7 @@ const Users = () => {
                   <Button size='small' onClick={() => handleOpenReset(user)}>
                     Redefinir senha
                   </Button>
-                  <IconButton aria-label='Excluir usuario' onClick={() => handleDelete(user.id)}>
+                  <IconButton aria-label='Excluir usuário' onClick={() => handleDelete(user.id)}>
                     <DeleteIcon fontSize='small' />
                   </IconButton>
                 </TableCell>
@@ -318,7 +318,7 @@ const Users = () => {
             ))}
             {users.length === 0 && (
               <TableRow>
-                <TableCell colSpan={5}>Nenhum usuario encontrado.</TableCell>
+                <TableCell colSpan={5}>Nenhum usuário encontrado.</TableCell>
               </TableRow>
             )}
           </TableBody>
@@ -329,7 +329,7 @@ const Users = () => {
         <DialogTitle>Editar acessos</DialogTitle>
         <DialogContent sx={{ pt: 1 }}>
           <Typography variant='body2' sx={{ mb: 2 }}>
-            Usuario: {accessUser?.name || '-'}
+            Usuário: {accessUser?.name || '-'}
           </Typography>
 
           <Select
@@ -369,7 +369,7 @@ const Users = () => {
         <DialogTitle>Redefinir senha</DialogTitle>
         <DialogContent sx={{ pt: 1 }}>
           <Typography variant='body2' sx={{ mb: 2 }}>
-            Usuario: {resetUser?.name || '-'}
+            Usuário: {resetUser?.name || '-'}
           </Typography>
           <TextField
             autoFocus

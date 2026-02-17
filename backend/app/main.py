@@ -5,10 +5,10 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import inspect, text
-from app.routes import tasks, auth, users, routines, deliveries, pickups, pickup_catalog as pickup_catalog_routes
+from app.routes import tasks, auth, users, routines, deliveries, pickups, pickup_catalog as pickup_catalog_routes, equipments
 from app.database.base import Base
 from app.database.session import engine, SessionLocal
-from app.models import task, user, assignment, routine, delivery, pickup, pickup_catalog
+from app.models import task, user, assignment, routine, delivery, pickup, pickup_catalog, equipment
 from app.core.config import (
     ADMIN_EMAIL,
     ADMIN_PASSWORD,
@@ -105,6 +105,45 @@ def ensure_pickup_catalog_columns():
 ensure_pickup_catalog_columns()
 
 
+def ensure_pickup_catalog_item_type_overrides():
+    inspector = inspect(engine)
+    if "pickup_catalog_inventory_items" not in inspector.get_table_names():
+        return
+
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "UPDATE pickup_catalog_inventory_items "
+                "SET item_type = 'jogo_mesa' "
+                "WHERE (LOWER(COALESCE(description, '')) LIKE '%cj de mesa plastica%' "
+                "OR LOWER(COALESCE(description, '')) LIKE '%mesa jogos%' "
+                "OR LOWER(COALESCE(description, '')) LIKE '%jogos mesa%' "
+                "OR LOWER(COALESCE(description, '')) LIKE '%jogo de mesa%' "
+                "OR LOWER(COALESCE(description, '')) LIKE '%jogos de mesa%') "
+                "AND LOWER(TRIM(COALESCE(item_type, ''))) <> 'jogo_mesa'"
+            )
+        )
+        conn.execute(
+            text(
+                "UPDATE pickup_catalog_inventory_items "
+                "SET item_type = 'caixa_termica' "
+                "WHERE LOWER(COALESCE(description, '')) LIKE '%caixa termica%' "
+                "AND LOWER(TRIM(COALESCE(item_type, ''))) <> 'caixa_termica'"
+            )
+        )
+        conn.execute(
+            text(
+                "UPDATE pickup_catalog_inventory_items "
+                "SET item_type = 'refrigerador' "
+                "WHERE LOWER(COALESCE(description, '')) LIKE '%visa cooler%' "
+                "AND LOWER(TRIM(COALESCE(item_type, ''))) <> 'refrigerador'"
+            )
+        )
+
+
+ensure_pickup_catalog_item_type_overrides()
+
+
 def ensure_pickup_catalog_order_columns():
     inspector = inspect(engine)
     if "pickup_catalog_orders" not in inspector.get_table_names():
@@ -159,6 +198,26 @@ def ensure_pickup_catalog_order_columns():
 
 
 ensure_pickup_catalog_order_columns()
+
+
+def ensure_equipment_columns():
+    inspector = inspect(engine)
+    if "equipments" not in inspector.get_table_names():
+        return
+    columns = [col["name"] for col in inspector.get_columns("equipments")]
+    with engine.begin() as conn:
+        if "voltage" not in columns:
+            conn.execute(text("ALTER TABLE equipments ADD COLUMN voltage VARCHAR DEFAULT ''"))
+        conn.execute(
+            text(
+                "UPDATE equipments "
+                "SET voltage = '' "
+                "WHERE voltage IS NULL"
+            )
+        )
+
+
+ensure_equipment_columns()
 
 
 def _has_index_with_columns(indexes: list[dict], columns: list[str]) -> bool:
@@ -278,10 +337,17 @@ app.include_router(routines.router)
 app.include_router(deliveries.router)
 app.include_router(pickups.router)
 app.include_router(pickup_catalog_routes.router)
+app.include_router(equipments.router)
 
 @app.get("/")
 def root():
     return {"message": "API rodando corretamente!"}
+
+
+@app.get("/health")
+def healthcheck():
+    return {"status": "ok"}
+
 
 
 

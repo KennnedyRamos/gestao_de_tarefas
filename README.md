@@ -1,73 +1,85 @@
 # Gestao de Tarefas
 
-Plataforma completa de produtividade com tarefas, rotinas e agenda unificada. Pensado para equipes pequenas e uso pessoal, com foco em clareza visual e fluxo rapido.
-
-## Destaques
-- Agenda unica com tarefas + rotinas filtradas por dia
-- Prioridades (alta/media/baixa) e etiquetas com filtros rapidos
-- Resumo "Hoje" com contadores e progresso diario
-- Lembretes in-app e atalhos para Email/WhatsApp
-- Controle de acesso (admin x assistente)
+Plataforma full stack para tarefas, rotinas, entregas, retiradas e controle de equipamentos.
 
 ## Stack
 - Frontend: React + MUI + Dayjs
 - Backend: FastAPI + SQLAlchemy
-- Banco: Postgres
+- Banco: PostgreSQL
 
-## Funcionalidades
-- CRUD de tarefas e rotinas
-- Dashboard com filtros, calendario e resumo
-- Atribuicao de tarefas por usuario (admin)
-- Login com JWT
+## Funcionalidades principais
+- Tarefas e rotinas com controle por usuario
+- Entregas com anexos PDF
+- Base 02.02.20 com filtros e historicos
+- Gestao de equipamentos com OCR de etiqueta (RG + etiqueta)
+- Permissoes por perfil (admin/assistente)
 
-## Como rodar localmente
+## Estrutura
+- `backend/`: API FastAPI
+- `backend/task-manager-frontend/`: app React
 
-### 1) Backend
-Requisitos: Python 3.11+, Postgres
+## Rodando local
 
-Crie um `.env` em `backend/.env`:
-```
-DATABASE_URL=postgresql://USER:SENHA@localhost:5432/gestao_tarefas
-SECRET_KEY=seu_segredo
-ALGORITHM=HS256
-ACCESS_TOKEN_EXPIRE_MINUTES=60
-ADMIN_EMAIL=seu@email.com
-ADMIN_PASSWORD=sua_senha
-ADMIN_NAME=Seu Nome
-ADMIN_ROLE=admin
-CORS_ORIGINS=http://localhost:3000
-```
+### Backend
+1. Copie `backend/.env.example` para `backend/.env` e ajuste os valores.
+2. Instale dependencias e inicie:
 
-Suba o backend:
-```
+```bash
 cd backend
-venv\\Scripts\\activate
+venv\Scripts\activate
 pip install -r requirements.txt
 uvicorn app.main:app --reload
 ```
 
-### 2) Frontend
-```
+### Frontend
+1. Copie `backend/task-manager-frontend/.env.example` para `backend/task-manager-frontend/.env`.
+2. Ajuste `REACT_APP_API_URL` para sua API local/remota.
+3. Rode:
+
+```bash
 cd backend/task-manager-frontend
 npm install
 npm start
 ```
 
-## Variaveis de ambiente (frontend)
-Defina no Vercel (ou localmente):
-```
-REACT_APP_API_URL=https://seu-backend.onrender.com
-```
+## Pronto para deploy web
 
-## Deploy gratuito (recomendado)
-- Backend: Render Web Service (free)
-- Banco: Supabase ou Neon (free)
-- Frontend: Vercel (free)
+### Backend (Render)
+Este repositorio ja inclui `render.yaml` com:
+- Build command: `pip install -r requirements.txt`
+- Start command: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+- Healthcheck: `GET /health`
 
-## Roadmap
-- Notificacoes reais (email/whatsapp com provider)
-- Drag and drop na agenda
-- Exportacao CSV/ICS
+Variaveis obrigatorias no Render:
+- `DATABASE_URL`
+- `SECRET_KEY`
+- `ADMIN_EMAIL`
+- `ADMIN_PASSWORD`
+- `CORS_ORIGINS` (inclua sua URL do Vercel)
+
+Opcional:
+- `UPLOADS_DIR` (padrao no `render.yaml`: `/var/data/uploads`)
+
+Importante:
+- sem armazenamento persistente no backend, arquivos em `uploads/` podem ser perdidos em reinicio/deploy.
+- para persistencia real no Render, o `render.yaml` ja inclui disco persistente montado em `/var/data`.
+
+### Frontend (Vercel)
+No projeto `backend/task-manager-frontend`:
+- `vercel.json` ja configurado para SPA rewrite
+- Defina `REACT_APP_API_URL` com a URL publica do backend
+
+Build/Output na Vercel:
+- Build command: `npm run build`
+- Output directory: `build`
+
+## Checklist de publicacao
+- `npm run build` no frontend sem erros
+- API responde `GET /health` com `{"status":"ok"}`
+- Login funcionando em producao
+- CORS com dominio do frontend publicado
+- Upload/download de PDFs validado em producao
 
 ## Licenca
+MIT
 

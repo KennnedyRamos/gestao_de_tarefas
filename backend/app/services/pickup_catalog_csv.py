@@ -94,7 +94,22 @@ INVENTORY_ALIASES = {
 
 ITEM_TYPE_LABELS = {
     "refrigerador": "Refrigerador",
+    "jogo_mesa": "Jogos de Mesa",
+    "caixa_termica": "Caixa Térmica",
     "garrafeira": "Garrafeira",
+    "chopeira": "Chopeira",
+    "balde": "Balde",
+    "testeira": "Testeira",
+    "compressor": "Compressor",
+    "totem": "Totem",
+    "cooler_carrinho": "Cooler Carrinho",
+    "inflavel": "Inflavel",
+    "empilhadeira": "Empilhadeira",
+    "calca": "Calca",
+    "cartucho": "Cartucho",
+    "ombrelone": "Ombrelone",
+    "camera_fria": "Camera Fria",
+    "dispensador": "Dispensador",
     "vasilhame_caixa": "Vasilhame (Caixa)",
     "vasilhame_garrafa": "Vasilhame (Garrafa)",
     "outro": "Outro",
@@ -310,8 +325,65 @@ def detect_volume_key(description: str) -> str:
 def classify_item_type(description: str) -> str:
     text = _normalized_description(description)
 
-    if "garrafeira" in text:
+    if (
+        "cj de mesa" in text
+        or "cj. mesa" in text
+        or "cj mesas" in text
+        or "mesa jogos" in text
+        or "jogos mesa" in text
+        or "jogo de mesa" in text
+        or "jogos de mesa" in text
+        or "jg mesa" in text
+        or "mesa bistro" in text
+        or "mesa madeira" in text
+    ):
+        return "jogo_mesa"
+
+    if "caixa termica" in text or "cx termica" in text:
+        return "caixa_termica"
+
+    if "chopeira" in text or "choppeira" in text:
+        return "chopeira"
+    if (
+        "barril chopp" in text
+        or "torre de chopp" in text
+        or "torre chopp" in text
+        or "cilindro co2" in text
+        or "choperia" in text
+        or "chopp" in text
+    ):
+        return "chopeira"
+
+    if "balde" in text or "baldes" in text:
+        return "balde"
+    if "testeira" in text:
+        return "testeira"
+    if "compressor" in text:
+        return "compressor"
+    if "totem" in text:
+        return "totem"
+    if "cooler carrinho" in text or "coller carrinho" in text:
+        return "cooler_carrinho"
+    if "inflavel" in text or "pit stop" in text or "portal trave" in text:
+        return "inflavel"
+    if "empilhadeira" in text:
+        return "empilhadeira"
+    if "calca" in text:
+        return "calca"
+    if "cartucho" in text or "toner" in text:
+        return "cartucho"
+    if "ombrelone" in text or "ombrellone" in text:
+        return "ombrelone"
+    if "camera fria" in text or "camara frig" in text:
+        return "camera_fria"
+    if "dispensador" in text:
+        return "dispensador"
+
+    if "garrafeira" in text or "gfa vidro" in text:
         return "garrafeira"
+
+    if "visa cooler" in text or ("visa" in text and "cooler" in text):
+        return "refrigerador"
 
     refrigerador_words = (
         "refrigerador",
@@ -323,6 +395,8 @@ def classify_item_type(description: str) -> str:
         "mini",
     )
     if any(word in text for word in refrigerador_words):
+        return "refrigerador"
+    if "equipamento refrigeracao" in text or "pre resfriador" in text or "cervegela" in text or "cervejela" in text:
         return "refrigerador"
 
     caixa_words = ("caixa", "cx ", "cx.", "engrad", "fardo")

@@ -22,7 +22,9 @@ const DeliveriesHistory = () => {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
 
-  const apiBaseUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+  const apiBaseUrl = api?.defaults?.baseURL
+    || process.env.REACT_APP_API_URL
+    || (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:8000');
 
   const toAbsoluteUrl = (url) => {
     if (!url) {
@@ -31,7 +33,11 @@ const DeliveriesHistory = () => {
     if (url.startsWith('http://') || url.startsWith('https://')) {
       return url;
     }
-    return `${apiBaseUrl}${url}`;
+    try {
+      return new URL(url, apiBaseUrl).toString();
+    } catch (err) {
+      return String(url);
+    }
   };
 
   const loadDeliveries = async () => {

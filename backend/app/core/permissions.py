@@ -13,6 +13,8 @@ PERMISSION_DEFINITIONS = [
     {"code": "pickups.orders_history", "label": "Historico de ordens"},
     {"code": "pickups.withdrawals_history", "label": "Historico de retiradas"},
     {"code": "comodatos.view", "label": "Dashboard de comodatos"},
+    {"code": "equipments.view", "label": "Visualizar equipamentos"},
+    {"code": "equipments.manage", "label": "Gerenciar equipamentos"},
 ]
 ALLOWED_PERMISSIONS = {item["code"] for item in PERMISSION_DEFINITIONS}
 

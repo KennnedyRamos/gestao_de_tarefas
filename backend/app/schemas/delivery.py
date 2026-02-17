@@ -18,3 +18,8 @@ class DeliveryOut(BaseModel):
     class Config:
         from_attributes = True
 
+
+class DeliveryClientLookupOut(BaseModel):
+    client_code: str = ""
+    nome_fantasia: str = ""
+    found: bool = False

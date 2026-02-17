@@ -34,7 +34,7 @@ const Layout = () => {
     let active = true;
     const checkDailyFollowup = async () => {
       try {
-        if (location.pathname === '/pickups/withdrawals-history') {
+        if (location.pathname === '/pickups/withdrawals-history' || location.pathname === '/pickups/center') {
           return;
         }
 
@@ -75,7 +75,7 @@ const Layout = () => {
 
   const handleGoToFollowup = () => {
     setFollowupOpen(false);
-    navigate('/pickups/withdrawals-history');
+    navigate('/pickups/center?view=withdrawals');
   };
 
   const pendingCount = Number(followupInfo?.total_pending || 0);
@@ -99,7 +99,7 @@ const Layout = () => {
             {`Existem ${pendingCount} retirada(s) pendente(s) para ${followupDate}.`}
           </Typography>
           <Typography variant="body2" color="text.secondary">
-            Atualize os status para concluída ou cancelada no histórico de retiradas.
+            Atualize os status para concluída ou cancelada na central de retiradas.
           </Typography>
         </DialogContent>
         <DialogActions>
@@ -114,3 +114,4 @@ const Layout = () => {
 };
 
 export default Layout;
+

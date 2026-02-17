@@ -14,6 +14,8 @@ import PickupsCreate from './pages/PickupsCreate';
 import PickupsDataUpload from './pages/PickupsDataUpload';
 import PickupsHistory from './pages/PickupsHistory';
 import PickupsWithdrawalsHistory from './pages/PickupsWithdrawalsHistory';
+import PickupsCenter from './pages/PickupsCenter';
+import Equipments from './pages/Equipments';
 import Layout from './components/Layout';
 import { getToken, hasAnyPermission, hasPermission, isAdmin } from './utils/auth';
 import './App.css';
@@ -39,11 +41,8 @@ const defaultPickupsRoute = () => {
   if (hasPermission('pickups.create_order')) {
     return '/pickups/create';
   }
-  if (hasPermission('pickups.orders_history')) {
-    return '/pickups/history';
-  }
-  if (hasPermission('pickups.withdrawals_history')) {
-    return '/pickups/withdrawals-history';
+  if (hasAnyPermission(['pickups.orders_history', 'pickups.withdrawals_history'])) {
+    return '/pickups/center';
   }
   if (hasPermission('pickups.import_base')) {
     return '/pickups/import';
@@ -88,8 +87,24 @@ function App() {
           />
           <Route path="pickups/create" element={<RequirePermission permission="pickups.create_order"><PickupsCreate /></RequirePermission>} />
           <Route path="pickups/import" element={<RequirePermission permission="pickups.import_base"><PickupsDataUpload /></RequirePermission>} />
+          <Route
+            path="pickups/center"
+            element={(
+              <RequireAnyPermission permissions={['pickups.orders_history', 'pickups.withdrawals_history']}>
+                <PickupsCenter />
+              </RequireAnyPermission>
+            )}
+          />
           <Route path="pickups/history" element={<RequirePermission permission="pickups.orders_history"><PickupsHistory /></RequirePermission>} />
           <Route path="pickups/withdrawals-history" element={<RequirePermission permission="pickups.withdrawals_history"><PickupsWithdrawalsHistory /></RequirePermission>} />
+          <Route
+            path="equipments"
+            element={(
+              <RequireAnyPermission permissions={['equipments.view', 'equipments.manage']}>
+                <Equipments />
+              </RequireAnyPermission>
+            )}
+          />
         </Route>
       </Routes>
     </Router>

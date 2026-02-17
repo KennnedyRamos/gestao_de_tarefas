@@ -452,11 +452,8 @@ const PickupsCreate = () => {
           <Button variant="outlined" onClick={() => navigate('/pickups/import')}>
             Atualizar base
           </Button>
-          <Button variant="outlined" onClick={() => navigate('/pickups/history')}>
-            Histórico de ordens
-          </Button>
-          <Button variant="outlined" onClick={() => navigate('/pickups/withdrawals-history')}>
-            Histórico de retiradas
+          <Button variant="outlined" onClick={() => navigate('/pickups/center')}>
+            Central de retiradas
           </Button>
         </Box>
       </Box>
@@ -731,3 +728,4 @@ const PickupsCreate = () => {
 };
 
 export default PickupsCreate;
+

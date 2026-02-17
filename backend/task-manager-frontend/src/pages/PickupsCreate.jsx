@@ -449,10 +449,10 @@ const PickupsCreate = () => {
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, flexWrap: 'wrap' }}>
         <Typography variant="h5">Retiradas de comodato (ordem automática)</Typography>
         <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-          <Button variant="outlined" onClick={() => navigate('/pickups/import')}>
+          <Button variant="outlined" onClick={() => navigate('/operacoes/ordens/base')}>
             Atualizar base
           </Button>
-          <Button variant="outlined" onClick={() => navigate('/pickups/center')}>
+          <Button variant="outlined" onClick={() => navigate('/operacoes/ordens/central')}>
             Central de retiradas
           </Button>
         </Box>
@@ -482,7 +482,7 @@ const PickupsCreate = () => {
           <Typography variant="body1" sx={{ mb: 1 }}>
             A base de retiradas ainda não foi carregada.
           </Typography>
-          <Button variant="contained" onClick={() => navigate('/pickups/import')}>
+          <Button variant="contained" onClick={() => navigate('/operacoes/ordens/base')}>
             Ir para tela de carga dos CSVs
           </Button>
         </Box>

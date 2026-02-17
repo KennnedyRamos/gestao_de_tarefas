@@ -86,7 +86,7 @@ const TaskForm = ({ taskId }) => {
         }
         await api.post('/tasks/', payload);
       }
-      navigate('/dashboard');
+      navigate('/produtividade/tarefas');
     } catch (err) {
       setError('Erro ao salvar a tarefa.');
       console.error(err);

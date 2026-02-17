@@ -541,6 +541,30 @@ async def upload_csv(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
+    # A importação funciona como "snapshot": sempre substitui a base anterior
+    # para evitar crescimento contínuo de armazenamento.
+    db.query(PickupCatalogInventoryItem).delete(synchronize_session=False)
+    db.query(PickupCatalogUploadBatch).delete(synchronize_session=False)
+
+    all_codes = sorted(merged_clients.keys())
+    referenced_client_ids = {
+        int(row[0])
+        for row in (
+            db.query(PickupCatalogOrder.client_id)
+            .filter(PickupCatalogOrder.client_id.isnot(None))
+            .distinct()
+            .all()
+        )
+        if row and row[0] is not None
+    }
+
+    stale_clients_query = db.query(PickupCatalogClient)
+    if all_codes:
+        stale_clients_query = stale_clients_query.filter(~PickupCatalogClient.client_code.in_(all_codes))
+    if referenced_client_ids:
+        stale_clients_query = stale_clients_query.filter(~PickupCatalogClient.id.in_(referenced_client_ids))
+    stale_clients_query.delete(synchronize_session=False)
+
     batch = PickupCatalogUploadBatch(
         clients_file_name=_safe_text(clients_csv.filename),
         inventory_file_name=_safe_text(inventory_csv.filename),
@@ -548,7 +572,6 @@ async def upload_csv(
     db.add(batch)
     db.flush()
 
-    all_codes = sorted(merged_clients.keys())
     existing_clients: dict[str, PickupCatalogClient] = {}
     if all_codes:
         existing_rows = db.query(PickupCatalogClient).filter(PickupCatalogClient.client_code.in_(all_codes)).all()
@@ -598,7 +621,7 @@ async def upload_csv(
     db.commit()
 
     return {
-        "message": "Dados gravados com sucesso.",
+        "message": "Dados gravados com sucesso. Base anterior substituida.",
         "stats": {
             "clients_count": batch.clients_count,
             "inventory_clients": batch.inventory_clients,

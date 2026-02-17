@@ -134,3 +134,21 @@ class EquipmentInventoryMaterialItemOut(BaseModel):
 class EquipmentInventoryMaterialListOut(BaseModel):
     items: list[EquipmentInventoryMaterialItemOut]
     page: EquipmentPageMetaOut
+
+
+class EquipmentAllocationLookupItemOut(BaseModel):
+    inventory_item_id: int
+    rg_code: str
+    tag_code: str
+    client_code: str
+    nome_fantasia: str
+    setor: str
+    model_name: str
+    invoice_issue_date: str
+
+
+class EquipmentAllocationLookupOut(BaseModel):
+    rg_code: str
+    tag_code: str
+    total: int
+    items: list[EquipmentAllocationLookupItemOut]

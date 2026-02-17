@@ -159,7 +159,7 @@ const DeliveriesCreate = () => {
     <Box sx={{ p: 3, display: 'grid', gap: 2 }}>
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
         <Typography variant="h5">Nova entrega de comodato</Typography>
-        <Button variant="outlined" onClick={() => navigate('/deliveries/history')}>
+        <Button variant="outlined" onClick={() => navigate('/operacoes/entregas/historico')}>
           Ver histórico
         </Button>
       </Box>

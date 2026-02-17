@@ -415,12 +415,12 @@ const PickupsCenter = ({ initialView = 'orders' }) => {
         </Box>
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ width: { xs: '100%', sm: 'auto' } }}>
           {canImportPickupBase && (
-            <Button variant="outlined" onClick={() => navigate('/pickups/import')} fullWidth={isMobile}>
+            <Button variant="outlined" onClick={() => navigate('/operacoes/ordens/base')} fullWidth={isMobile}>
               Atualizar base
             </Button>
           )}
           {canCreatePickupOrder && (
-            <Button variant="contained" onClick={() => navigate('/pickups/create')} fullWidth={isMobile}>
+            <Button variant="contained" onClick={() => navigate('/operacoes/ordens/nova')} fullWidth={isMobile}>
               Nova ordem de retirada
             </Button>
           )}

@@ -34,7 +34,7 @@ const Layout = () => {
     let active = true;
     const checkDailyFollowup = async () => {
       try {
-        if (location.pathname === '/pickups/withdrawals-history' || location.pathname === '/pickups/center') {
+        if (location.pathname === '/operacoes/ordens/central' || location.pathname === '/pickups/withdrawals-history' || location.pathname === '/pickups/center') {
           return;
         }
 
@@ -75,7 +75,7 @@ const Layout = () => {
 
   const handleGoToFollowup = () => {
     setFollowupOpen(false);
-    navigate('/pickups/center?view=withdrawals');
+    navigate('/operacoes/ordens/central?view=withdrawals');
   };
 
   const pendingCount = Number(followupInfo?.total_pending || 0);

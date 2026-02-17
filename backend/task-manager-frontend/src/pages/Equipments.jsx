@@ -365,7 +365,7 @@ const EquipmentPage = () => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
 
-  const [activeTab, setActiveTab] = useState('overview');
+  const [activeScreen, setActiveScreen] = useState('dashboard');
   const [refrigeratorsOverview, setRefrigeratorsOverview] = useState(null);
 
   const [overviewSearch, setOverviewSearch] = useState('');
@@ -412,8 +412,11 @@ const EquipmentPage = () => {
   const [scannerError, setScannerError] = useState('');
   const [scannerStep, setScannerStep] = useState('');
   const [scannerPhase, setScannerPhase] = useState('rg');
+  const [scannerMode, setScannerMode] = useState('form');
   const [scannerDraft, setScannerDraft] = useState({ rg_code: '', tag_code: '' });
   const [ocrBusy, setOcrBusy] = useState(false);
+  const [allocationLookupResult, setAllocationLookupResult] = useState(null);
+  const [allocationLookupLoading, setAllocationLookupLoading] = useState(false);
 
   const videoRef = useRef(null);
   const streamRef = useRef(null);
@@ -436,10 +439,10 @@ const EquipmentPage = () => {
   }, [materialsFilters.q]);
 
   useEffect(() => {
-    if (!canManageEquipments && activeTab !== 'overview') {
-      setActiveTab('overview');
+    if (!canManageEquipments && activeScreen === 'manage') {
+      setActiveScreen('dashboard');
     }
-  }, [activeTab, canManageEquipments]);
+  }, [activeScreen, canManageEquipments]);
 
   useEffect(() => {
     setNewRefrigeratorsPage((prev) => ({ ...prev, offset: 0 }));
@@ -784,6 +787,17 @@ const EquipmentPage = () => {
     clientes_alocados_020220: 0
   };
 
+  const screenOptions = [
+    { value: 'dashboard', label: 'Painel' },
+    { value: 'new-refrigerators', label: 'Refrigeradores novos' },
+    { value: 'materials', label: 'Geral' },
+    ...(canManageEquipments ? [{ value: 'manage', label: 'Cadastrar' }] : [])
+  ];
+  const isDashboardScreen = activeScreen === 'dashboard';
+  const isNewRefrigeratorsScreen = activeScreen === 'new-refrigerators';
+  const isMaterialsScreen = activeScreen === 'materials';
+  const isManageScreen = activeScreen === 'manage';
+
   const resetForm = () => {
     setForm(EMPTY_FORM);
     setEditingId(null);
@@ -797,6 +811,49 @@ const EquipmentPage = () => {
       fetchInventoryMaterials(),
     ]);
   };
+
+  const fetchAllocationLookup = useCallback(async ({ rgCode, tagCode }) => {
+    const normalizedRgCode = normalizeCodeInput(rgCode);
+    const normalizedTagCode = normalizeCodeInput(tagCode);
+    if (!normalizedRgCode && !normalizedTagCode) {
+      setError('Informe RG ou etiqueta para consultar as alocações.');
+      return;
+    }
+
+    setAllocationLookupLoading(true);
+    try {
+      const params = {};
+      if (normalizedRgCode) {
+        params.rg_code = normalizedRgCode;
+      }
+      if (normalizedTagCode) {
+        params.tag_code = normalizedTagCode;
+      }
+
+      const response = await api.get('/equipments/allocations/lookup', { params });
+      const payload = response?.data || {};
+      const items = Array.isArray(payload?.items) ? payload.items : [];
+
+      setAllocationLookupResult({
+        rg_code: normalizeCodeInput(payload?.rg_code || normalizedRgCode),
+        tag_code: normalizeCodeInput(payload?.tag_code || normalizedTagCode),
+        total: Number(payload?.total || items.length || 0),
+        items
+      });
+      setError('');
+      setSuccess(
+        items.length > 0
+          ? `Consulta concluída. ${items.length} registro(s) alocado(s) encontrado(s).`
+          : 'Nenhuma alocação encontrada para os códigos informados.'
+      );
+    } catch (err) {
+      const detail = normalizeTextInput(err?.response?.data?.detail);
+      setAllocationLookupResult(null);
+      setError(detail || 'Não foi possível consultar alocações por RG/Etiqueta.');
+    } finally {
+      setAllocationLookupLoading(false);
+    }
+  }, []);
 
   const loadTesseract = useCallback(async () => {
     if (typeof window === 'undefined') {
@@ -914,7 +971,7 @@ const EquipmentPage = () => {
       setError('');
       resetForm();
       await refreshData();
-      setActiveTab('overview');
+      setActiveScreen('new-refrigerators');
     } catch (err) {
       const detail = normalizeTextInput(err?.response?.data?.detail);
       setError(detail || 'Não foi possível salvar o equipamento.');
@@ -938,6 +995,7 @@ const EquipmentPage = () => {
     setScannerError('');
     setScannerStep('');
     setScannerPhase('rg');
+    setScannerMode('form');
     setScannerDraft({ rg_code: '', tag_code: '' });
     setOcrBusy(false);
     stopScanner();
@@ -948,10 +1006,11 @@ const EquipmentPage = () => {
       return;
     }
     if (!navigator.mediaDevices || typeof navigator.mediaDevices.getUserMedia !== 'function') {
-      setError('C?mera indispon?vel neste dispositivo ou navegador.');
+      setError('Câmera indisponível neste dispositivo ou navegador.');
       return;
     }
 
+    setScannerMode('form');
     setScannerPhase('rg');
     setScannerDraft({
       rg_code: normalizeCodeInput(form.rg_code),
@@ -963,6 +1022,25 @@ const EquipmentPage = () => {
     setSuccess('');
     setError('');
   }, [canManageEquipments, form.rg_code, form.tag_code]);
+
+  const openAllocationLookupScanner = useCallback(() => {
+    if (!canManageEquipments) {
+      return;
+    }
+    if (!navigator.mediaDevices || typeof navigator.mediaDevices.getUserMedia !== 'function') {
+      setError('Câmera indisponível neste dispositivo ou navegador.');
+      return;
+    }
+
+    setScannerMode('allocation');
+    setScannerPhase('rg');
+    setScannerDraft({ rg_code: '', tag_code: '' });
+    setScannerStep('Enquadre o RG no retângulo vermelho e toque em Validar RG.');
+    setScannerError('');
+    setScannerOpen(true);
+    setSuccess('');
+    setError('');
+  }, [canManageEquipments]);
 
   useEffect(() => {
     if (!scannerOpen) {
@@ -1069,22 +1147,32 @@ const EquipmentPage = () => {
         throw new Error('Não foi possível identificar a etiqueta. Você pode tentar novamente ou tocar em Concluir.');
       }
       setScannerDraft((prev) => ({ ...prev, tag_code: code }));
-      setScannerStep('Etiqueta validada. Toque em Concluir para preencher o formulário.');
+      setScannerStep(
+        scannerMode === 'allocation'
+          ? 'Etiqueta validada. Toque em Concluir para consultar a alocação.'
+          : 'Etiqueta validada. Toque em Concluir para preencher o formulário.'
+      );
     } catch (err) {
       const message = normalizeTextInput(err?.message);
       setScannerError(message || 'Falha ao ler a etiqueta. Tente com melhor iluminação e foco.');
     } finally {
       setOcrBusy(false);
     }
-  }, [loadTesseract, scannerPhase]);
+  }, [loadTesseract, scannerMode, scannerPhase]);
 
-  const concludeScannerReading = useCallback(() => {
+  const concludeScannerReading = useCallback(async () => {
     const rgCode = normalizeCodeInput(scannerDraft.rg_code || form.rg_code);
     const tagCode = normalizeCodeInput(scannerDraft.tag_code || form.tag_code);
     if (!rgCode) {
       setScannerError('RG é obrigatório. Valide o RG antes de concluir.');
       setScannerPhase('rg');
       setScannerStep('Enquadre o RG no retângulo vermelho e toque em Validar RG.');
+      return;
+    }
+
+    if (scannerMode === 'allocation') {
+      closeScanner();
+      await fetchAllocationLookup({ rgCode, tagCode });
       return;
     }
 
@@ -1095,12 +1183,12 @@ const EquipmentPage = () => {
     }));
 
     if (tagCode) {
-      setSuccess(`Leitura conclu?da. RG: ${rgCode} | Etiqueta: ${tagCode}`);
+      setSuccess(`Leitura concluída. RG: ${rgCode} | Etiqueta: ${tagCode}`);
     } else {
-      setSuccess(`Leitura conclu?da. RG: ${rgCode}. Etiqueta n?o informada.`);
+      setSuccess(`Leitura concluída. RG: ${rgCode}. Etiqueta não informada.`);
     }
     closeScanner();
-  }, [closeScanner, form.rg_code, form.tag_code, scannerDraft.rg_code, scannerDraft.tag_code]);
+  }, [closeScanner, fetchAllocationLookup, form.rg_code, form.tag_code, scannerDraft.rg_code, scannerDraft.tag_code, scannerMode]);
 
   return (
     <Box sx={{ p: { xs: 2, md: 3 }, display: 'grid', gap: 2.5 }}>
@@ -1122,13 +1210,13 @@ const EquipmentPage = () => {
 
         {canManageEquipments && (
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
-            <Button variant="outlined" onClick={() => setActiveTab('manage')} sx={{ width: { xs: '100%', sm: 'auto' } }}>
+            <Button variant="outlined" onClick={() => setActiveScreen('manage')} sx={{ width: { xs: '100%', sm: 'auto' } }}>
               Cadastrar
             </Button>
             <Button
               variant="contained"
               startIcon={<CameraAltIcon />}
-              onClick={openFullLabelScanner}
+              onClick={openAllocationLookupScanner}
               sx={{ width: { xs: '100%', sm: 'auto' } }}
             >
               Ler etiqueta
@@ -1141,64 +1229,157 @@ const EquipmentPage = () => {
       {success && <Alert severity="success">{success}</Alert>}
 
       <Card sx={{ border: '1px solid var(--stroke)', boxShadow: 'var(--shadow-md)' }}>
-        <CardContent sx={{ display: 'grid', gap: 2 }}>
-          <Typography variant="h6">Dashboard de refrigeradores</Typography>
-
-          {loadingOverview ? (
-            <Typography color="text.secondary">Carregando dashboard...</Typography>
-          ) : (
-            <Box
-              sx={{
-                display: 'grid',
-                gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', xl: 'repeat(4, minmax(0, 1fr))' },
-                gap: 1.5
-              }}
-            >
-              <Card sx={{ border: '1px solid var(--stroke)', boxShadow: 'none' }}>
-                <CardContent sx={{ display: 'grid', gap: 0.25 }}>
-                  <Typography variant="body2" color="text.secondary">Refrigeradores cadastrados</Typography>
-                  <Typography variant="h5">{dashboard.total_cadastrados}</Typography>
-                </CardContent>
-              </Card>
-              <Card sx={{ border: '1px solid var(--stroke)', boxShadow: 'none' }}>
-                <CardContent sx={{ display: 'grid', gap: 0.25 }}>
-                  <Typography variant="body2" color="text.secondary">Novos cadastrados</Typography>
-                  <Typography variant="h5">{dashboard.novos_cadastrados}</Typography>
-                </CardContent>
-              </Card>
-              <Card sx={{ border: '1px solid var(--stroke)', boxShadow: 'none' }}>
-                <CardContent sx={{ display: 'grid', gap: 0.25 }}>
-                  <Typography variant="body2" color="text.secondary">Disponíveis cadastrados</Typography>
-                  <Typography variant="h5">{dashboard.disponiveis_cadastrados}</Typography>
-                </CardContent>
-              </Card>
-              <Card sx={{ border: '1px solid var(--stroke)', boxShadow: 'none' }}>
-                <CardContent sx={{ display: 'grid', gap: 0.25 }}>
-                  <Typography variant="body2" color="text.secondary">Alocados na base 02.02.20</Typography>
-                  <Typography variant="h5">{dashboard.alocados_020220_unidades}</Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    {dashboard.alocados_020220_linhas} linhas | {dashboard.clientes_alocados_020220} clientes
-                  </Typography>
-                </CardContent>
-              </Card>
-            </Box>
-          )}
+        <CardContent sx={{ py: 0.5 }}>
+          <Tabs
+            value={activeScreen}
+            onChange={(_, value) => setActiveScreen(value)}
+            variant="scrollable"
+            allowScrollButtonsMobile
+          >
+            {screenOptions.map((item) => (
+              <Tab key={item.value} value={item.value} label={item.label} />
+            ))}
+          </Tabs>
         </CardContent>
       </Card>
 
-      {canManageEquipments && (
-        <Tabs
-          value={activeTab}
-          onChange={(_, value) => setActiveTab(value)}
-          variant="scrollable"
-          allowScrollButtonsMobile
-        >
-          <Tab label="Gerenciar" value="overview" />
-          <Tab label="Cadastrar" value="manage" />
-        </Tabs>
+      {isDashboardScreen && (
+        <>
+          <Card sx={{ border: '1px solid var(--stroke)', boxShadow: 'var(--shadow-md)' }}>
+            <CardContent sx={{ display: 'grid', gap: 2 }}>
+              <Typography variant="h6">Dashboard de refrigeradores</Typography>
+
+              {loadingOverview ? (
+                <Typography color="text.secondary">Carregando dashboard...</Typography>
+              ) : (
+                <Box
+                  sx={{
+                    display: 'grid',
+                    gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', xl: 'repeat(4, minmax(0, 1fr))' },
+                    gap: 1.5
+                  }}
+                >
+                  <Card sx={{ border: '1px solid var(--stroke)', boxShadow: 'none' }}>
+                    <CardContent sx={{ display: 'grid', gap: 0.25 }}>
+                      <Typography variant="body2" color="text.secondary">Refrigeradores cadastrados</Typography>
+                      <Typography variant="h5">{dashboard.total_cadastrados}</Typography>
+                    </CardContent>
+                  </Card>
+                  <Card sx={{ border: '1px solid var(--stroke)', boxShadow: 'none' }}>
+                    <CardContent sx={{ display: 'grid', gap: 0.25 }}>
+                      <Typography variant="body2" color="text.secondary">Novos cadastrados</Typography>
+                      <Typography variant="h5">{dashboard.novos_cadastrados}</Typography>
+                    </CardContent>
+                  </Card>
+                  <Card sx={{ border: '1px solid var(--stroke)', boxShadow: 'none' }}>
+                    <CardContent sx={{ display: 'grid', gap: 0.25 }}>
+                      <Typography variant="body2" color="text.secondary">Disponíveis cadastrados</Typography>
+                      <Typography variant="h5">{dashboard.disponiveis_cadastrados}</Typography>
+                    </CardContent>
+                  </Card>
+                  <Card sx={{ border: '1px solid var(--stroke)', boxShadow: 'none' }}>
+                    <CardContent sx={{ display: 'grid', gap: 0.25 }}>
+                      <Typography variant="body2" color="text.secondary">Alocados na base 02.02.20</Typography>
+                      <Typography variant="h5">{dashboard.alocados_020220_unidades}</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {dashboard.alocados_020220_linhas} linhas | {dashboard.clientes_alocados_020220} clientes
+                      </Typography>
+                    </CardContent>
+                  </Card>
+                </Box>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card sx={{ border: '1px solid var(--stroke)', boxShadow: 'var(--shadow-md)' }}>
+            <CardContent sx={{ display: 'grid', gap: 1.25 }}>
+              <Typography variant="subtitle2">Acessos rápidos</Typography>
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} useFlexGap>
+                <Button variant="outlined" onClick={() => setActiveScreen('new-refrigerators')} fullWidth={isMobile}>
+                  Ver refrigeradores novos
+                </Button>
+                <Button variant="outlined" onClick={() => setActiveScreen('materials')} fullWidth={isMobile}>
+                  Ver materiais da base
+                </Button>
+                {canManageEquipments && (
+                  <Button variant="contained" onClick={() => setActiveScreen('manage')} fullWidth={isMobile}>
+                    Cadastrar equipamento
+                  </Button>
+                )}
+              </Stack>
+            </CardContent>
+          </Card>
+
+          <Card sx={{ border: '1px solid var(--stroke)', boxShadow: 'var(--shadow-md)' }}>
+            <CardContent sx={{ display: 'grid', gap: 1.25 }}>
+              <Typography variant="subtitle2">Verificação por RG/Etiqueta</Typography>
+              {allocationLookupLoading ? (
+                <Typography color="text.secondary">Consultando alocações...</Typography>
+              ) : !allocationLookupResult ? (
+                <Typography color="text.secondary">
+                  Use o botão &quot;Ler etiqueta&quot; para consultar os dados dos equipamentos alocados.
+                </Typography>
+              ) : (
+                <>
+                  <Typography variant="caption" color="text.secondary">
+                    Consulta: RG {allocationLookupResult.rg_code || '-'} | Etiqueta {allocationLookupResult.tag_code || '-'}
+                  </Typography>
+                  {allocationLookupResult.items.length === 0 ? (
+                    <Typography color="text.secondary">
+                      Nenhuma alocação encontrada para os códigos informados.
+                    </Typography>
+                  ) : isMobile ? (
+                    <Box sx={{ display: 'grid', gap: 1 }}>
+                      {allocationLookupResult.items.map((item) => (
+                        <Card key={item.inventory_item_id} sx={{ border: '1px solid var(--stroke)', boxShadow: 'none' }}>
+                          <CardContent sx={{ display: 'grid', gap: 0.5, p: 1.25, '&:last-child': { pb: 1.25 } }}>
+                            <Typography variant="subtitle2" sx={{ wordBreak: 'break-word' }}>
+                              {item.model_name || '-'}
+                            </Typography>
+                            <Typography variant="body2">Código do cliente: {item.client_code || '-'}</Typography>
+                            <Typography variant="body2">Fantasia: {item.nome_fantasia || '-'}</Typography>
+                            <Typography variant="body2">Setor: {item.setor || '-'}</Typography>
+                            <Typography variant="caption" color="text.secondary">
+                              Emissão do contrato: {item.invoice_issue_date || '-'}
+                            </Typography>
+                          </CardContent>
+                        </Card>
+                      ))}
+                    </Box>
+                  ) : (
+                    <TableContainer sx={TABLE_CONTAINER_SX}>
+                      <Table size="small">
+                        <TableHead>
+                          <TableRow>
+                            <TableCell>Código do cliente</TableCell>
+                            <TableCell>Fantasia</TableCell>
+                            <TableCell>Setor</TableCell>
+                            <TableCell sx={COMPACT_MODEL_CELL_SX}>Descrição do equipamento</TableCell>
+                            <TableCell>Emissão do contrato</TableCell>
+                          </TableRow>
+                        </TableHead>
+                        <TableBody>
+                          {allocationLookupResult.items.map((item) => (
+                            <TableRow key={item.inventory_item_id}>
+                              <TableCell>{item.client_code || '-'}</TableCell>
+                              <TableCell>{item.nome_fantasia || '-'}</TableCell>
+                              <TableCell>{item.setor || '-'}</TableCell>
+                              <TableCell sx={COMPACT_MODEL_CELL_SX}>{item.model_name || '-'}</TableCell>
+                              <TableCell>{item.invoice_issue_date || '-'}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </TableContainer>
+                  )}
+                </>
+              )}
+            </CardContent>
+          </Card>
+        </>
       )}
 
-      {canManageEquipments && activeTab === 'manage' && (
+      {canManageEquipments && isManageScreen && (
         <Card sx={{ border: '1px solid var(--stroke)', boxShadow: 'var(--shadow-md)' }}>
           <CardContent>
             <Typography variant="h6" sx={{ mb: 2 }}>
@@ -1365,36 +1546,40 @@ const EquipmentPage = () => {
         </Card>
       )}
 
-      {activeTab === 'overview' && (
+      {(isNewRefrigeratorsScreen || isMaterialsScreen) && (
         <>
           <Card sx={{ border: '1px solid var(--stroke)', boxShadow: 'var(--shadow-md)' }}>
             <CardContent sx={{ display: 'grid', gap: 1.5 }}>
               <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 1, flexWrap: 'wrap' }}>
-                <Typography variant="h6">Filtros e materiais da base 02.02.20</Typography>
+                <Typography variant="h6">
+                  {isMaterialsScreen ? 'Filtros de materiais da base 02.02.20' : 'Filtros de refrigeradores novos'}
+                </Typography>
                 <Button variant="outlined" onClick={refreshData} fullWidth={isMobile}>Atualizar dados</Button>
               </Box>
-		              <Box
-		                sx={{
-		                  display: 'grid',
-		                  gap: 1.5,
-		                  gridTemplateColumns: { xs: '1fr', md: '2fr minmax(290px, 2.5fr) 1fr 1fr' }
-		                }}
-		              >
-                <TextField
-                  label="Pesquisar materiais (02.02.20)"
-                  placeholder="Modelo, RG, tipo, cliente ou comodato"
-                  value={materialsFilters.q}
-                  onChange={(event) => setMaterialsFilters((prev) => ({ ...prev, q: event.target.value }))}
-                />
-                <TextField
-                  label="Mês/Ano"
-                  value={selectedMonthYearValue}
-                  placeholder="MM/AAAA"
-                  onClick={openMonthPicker}
-		                  InputProps={{
-		                    readOnly: true,
-		                    endAdornment: (
-		                      <InputAdornment position="end">
+              {isMaterialsScreen ? (
+                <>
+                  <Box
+                    sx={{
+                      display: 'grid',
+                      gap: 1.5,
+                      gridTemplateColumns: { xs: '1fr', md: '2fr minmax(290px, 2.5fr) 1fr 1fr' }
+                    }}
+                  >
+                    <TextField
+                      label="Pesquisar materiais (02.02.20)"
+                      placeholder="Modelo, RG, tipo, cliente ou comodato"
+                      value={materialsFilters.q}
+                      onChange={(event) => setMaterialsFilters((prev) => ({ ...prev, q: event.target.value }))}
+                    />
+                    <TextField
+                      label="Mês/Ano"
+                      value={selectedMonthYearValue}
+                      placeholder="MM/AAAA"
+                      onClick={openMonthPicker}
+                      InputProps={{
+                        readOnly: true,
+                        endAdornment: (
+                          <InputAdornment position="end">
                             <IconButton
                               edge="end"
                               size="small"
@@ -1405,71 +1590,92 @@ const EquipmentPage = () => {
                             >
                               <CalendarMonthIcon fontSize="small" />
                             </IconButton>
-		                      </InputAdornment>
-		                    ),
-		                  }}
-		                  sx={{
-		                    '& .MuiInputBase-input': {
-		                      cursor: 'pointer',
-		                    }
-		                  }}
-                />
-                {isMobile ? (
-                  <Dialog open={monthPickerOpen} onClose={closeMonthPicker} fullWidth maxWidth="xs">
-                    <DialogTitle>Selecionar mês/ano</DialogTitle>
-                    <DialogContent>{monthPickerPanel}</DialogContent>
-                    <DialogActions>
-                      <Button onClick={closeMonthPicker}>Fechar</Button>
-		                    </DialogActions>
-		                  </Dialog>
-		                ) : (
-		                  <Popover
-		                    open={monthPickerOpen}
-		                    anchorEl={monthPickerAnchorEl}
-		                    onClose={closeMonthPicker}
-		                    anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
-		                    transformOrigin={{ vertical: 'top', horizontal: 'left' }}
-		                  >
-		                    {monthPickerPanel}
-		                  </Popover>
-		                )}
-                <TextField
-                  select
-                  label="Tipo de material"
-                  value={materialsFilters.item_type}
-                  onChange={(event) => setMaterialsFilters((prev) => ({ ...prev, item_type: event.target.value }))}
+                          </InputAdornment>
+                        ),
+                      }}
+                      sx={{
+                        '& .MuiInputBase-input': {
+                          cursor: 'pointer',
+                        }
+                      }}
+                    />
+                    {isMobile ? (
+                      <Dialog open={monthPickerOpen} onClose={closeMonthPicker} fullWidth maxWidth="xs">
+                        <DialogTitle>Selecionar mês/ano</DialogTitle>
+                        <DialogContent>{monthPickerPanel}</DialogContent>
+                        <DialogActions>
+                          <Button onClick={closeMonthPicker}>Fechar</Button>
+                        </DialogActions>
+                      </Dialog>
+                    ) : (
+                      <Popover
+                        open={monthPickerOpen}
+                        anchorEl={monthPickerAnchorEl}
+                        onClose={closeMonthPicker}
+                        anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+                        transformOrigin={{ vertical: 'top', horizontal: 'left' }}
+                      >
+                        {monthPickerPanel}
+                      </Popover>
+                    )}
+                    <TextField
+                      select
+                      label="Tipo de material"
+                      value={materialsFilters.item_type}
+                      onChange={(event) => setMaterialsFilters((prev) => ({ ...prev, item_type: event.target.value }))}
+                    >
+                      {MATERIAL_TYPE_OPTIONS.map((item) => (
+                        <MenuItem key={item.value || 'all'} value={item.value}>
+                          {item.label}
+                        </MenuItem>
+                      ))}
+                    </TextField>
+                    <TextField
+                      select
+                      label="Ordenação"
+                      value={materialsFilters.sort}
+                      onChange={(event) => setMaterialsFilters((prev) => ({ ...prev, sort: event.target.value }))}
+                    >
+                      <MenuItem value="newest">Do mais novo para o mais antigo</MenuItem>
+                      <MenuItem value="oldest">Do mais antigo para o mais novo</MenuItem>
+                    </TextField>
+                  </Box>
+                </>
+              ) : (
+                <Box
+                  sx={{
+                    display: 'grid',
+                    gap: 1.5,
+                    gridTemplateColumns: { xs: '1fr', md: '2fr 1fr' }
+                  }}
                 >
-                  {MATERIAL_TYPE_OPTIONS.map((item) => (
-                    <MenuItem key={item.value || 'all'} value={item.value}>
-                      {item.label}
-                    </MenuItem>
-                  ))}
-                </TextField>
-                <TextField
-                  select
-                  label="Ordenação"
-                  value={materialsFilters.sort}
-                  onChange={(event) => setMaterialsFilters((prev) => ({ ...prev, sort: event.target.value }))}
-                >
-                  <MenuItem value="newest">Do mais novo para o mais antigo</MenuItem>
-                  <MenuItem value="oldest">Do mais antigo para o mais novo</MenuItem>
-                </TextField>
-              </Box>
-              <TextField
-                label="Pesquisar refrigeradores novos cadastrados"
-                placeholder="Modelo, marca, RG, etiqueta ou voltagem"
-                value={overviewSearch}
-                onChange={(event) => setOverviewSearch(event.target.value)}
-              />
+                  <TextField
+                    label="Pesquisar refrigeradores novos cadastrados"
+                    placeholder="Modelo, marca, RG, etiqueta ou voltagem"
+                    value={overviewSearch}
+                    onChange={(event) => setOverviewSearch(event.target.value)}
+                  />
+                  <TextField
+                    select
+                    label="Ordenação"
+                    value={materialsFilters.sort}
+                    onChange={(event) => setMaterialsFilters((prev) => ({ ...prev, sort: event.target.value }))}
+                  >
+                    <MenuItem value="newest">Do mais novo para o mais antigo</MenuItem>
+                    <MenuItem value="oldest">Do mais antigo para o mais novo</MenuItem>
+                  </TextField>
+                </Box>
+              )}
             </CardContent>
           </Card>
 
-          <Card sx={{ border: '1px solid var(--stroke)', boxShadow: 'var(--shadow-md)' }}>
-            <CardContent sx={{ display: 'grid', gap: 1.25 }}>
-              <Typography variant="h6">Refrigeradores novos cadastrados</Typography>
-	              {loadingNewRefrigerators ? (
-	                <Typography color="text.secondary">Carregando novos cadastrados...</Typography>
-	              ) : newRefrigerators.length === 0 ? (
+          {isNewRefrigeratorsScreen && (
+            <Card sx={{ border: '1px solid var(--stroke)', boxShadow: 'var(--shadow-md)' }}>
+              <CardContent sx={{ display: 'grid', gap: 1.25 }}>
+                <Typography variant="h6">Refrigeradores novos cadastrados</Typography>
+		              {loadingNewRefrigerators ? (
+		                <Typography color="text.secondary">Carregando novos cadastrados...</Typography>
+		              ) : newRefrigerators.length === 0 ? (
 	                <Typography color="text.secondary">Nenhum refrigerador novo encontrado.</Typography>
 	              ) : (
 	                <>
@@ -1528,16 +1734,18 @@ const EquipmentPage = () => {
 	                    total={newRefrigeratorsPage.total}
 	                  />
                 </>
-              )}
-            </CardContent>
-          </Card>
+                )}
+              </CardContent>
+            </Card>
+          )}
 
-          <Card sx={{ border: '1px solid var(--stroke)', boxShadow: 'var(--shadow-md)' }}>
-            <CardContent sx={{ display: 'grid', gap: 1.25 }}>
-              <Typography variant="h6">Materiais alocados (base 02.02.20)</Typography>
-	              {loadingMaterials ? (
-	                <Typography color="text.secondary">Carregando materiais...</Typography>
-	              ) : inventoryMaterials.length === 0 ? (
+          {isMaterialsScreen && (
+            <Card sx={{ border: '1px solid var(--stroke)', boxShadow: 'var(--shadow-md)' }}>
+              <CardContent sx={{ display: 'grid', gap: 1.25 }}>
+                <Typography variant="h6">Materiais alocados (base 02.02.20)</Typography>
+		              {loadingMaterials ? (
+		                <Typography color="text.secondary">Carregando materiais...</Typography>
+		              ) : inventoryMaterials.length === 0 ? (
 	                <Typography color="text.secondary">Nenhum material encontrado para os filtros atuais.</Typography>
 	              ) : (
 	                <>
@@ -1602,52 +1810,55 @@ const EquipmentPage = () => {
                     total={inventoryPage.total}
                   />
                 </>
-              )}
-            </CardContent>
-          </Card>
+                )}
+              </CardContent>
+            </Card>
+          )}
 
-          <Card sx={{ border: '1px solid var(--stroke)', boxShadow: 'var(--shadow-md)' }}>
-            <CardContent
-              sx={{
-                display: 'flex',
-                alignItems: { xs: 'stretch', sm: 'center' },
-                justifyContent: 'space-between',
-                flexDirection: { xs: 'column', sm: 'row' },
-                gap: 1.5
-              }}
-            >
-              <Box>
-                <Typography variant="subtitle2">Período atual: {selectedMonthYearValue || '-'}</Typography>
-                <Typography variant="caption" color="text.secondary">
-                  Use o seletor de mês/ano apenas quando quiser escolher uma data específica.
-                </Typography>
-              </Box>
-              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ width: { xs: '100%', sm: 'auto' } }}>
-                <Button
-                  variant="contained"
-                  onClick={handlePreviousPeriod}
-                  disabled={!hasPreviousPeriod}
-                  fullWidth={isMobile}
-                >
-                  Anterior
-                </Button>
-                <Button
-                  variant="contained"
-                  onClick={handleNextPeriod}
-                  disabled={!hasNextPeriod}
-                  fullWidth={isMobile}
-                >
-                  Próximo
-                </Button>
-              </Stack>
-            </CardContent>
-          </Card>
+          {isMaterialsScreen && (
+            <Card sx={{ border: '1px solid var(--stroke)', boxShadow: 'var(--shadow-md)' }}>
+              <CardContent
+                sx={{
+                  display: 'flex',
+                  alignItems: { xs: 'stretch', sm: 'center' },
+                  justifyContent: 'space-between',
+                  flexDirection: { xs: 'column', sm: 'row' },
+                  gap: 1.5
+                }}
+              >
+                <Box>
+                  <Typography variant="subtitle2">Período atual: {selectedMonthYearValue || '-'}</Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Use o seletor de mês/ano apenas quando quiser escolher uma data específica.
+                  </Typography>
+                </Box>
+                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ width: { xs: '100%', sm: 'auto' } }}>
+                  <Button
+                    variant="contained"
+                    onClick={handlePreviousPeriod}
+                    disabled={!hasPreviousPeriod}
+                    fullWidth={isMobile}
+                  >
+                    Anterior
+                  </Button>
+                  <Button
+                    variant="contained"
+                    onClick={handleNextPeriod}
+                    disabled={!hasNextPeriod}
+                    fullWidth={isMobile}
+                  >
+                    Próximo
+                  </Button>
+                </Stack>
+              </CardContent>
+            </Card>
+          )}
 
 	        </>
 	      )}
 
       <Dialog open={scannerOpen} onClose={closeScanner} fullWidth maxWidth="sm" fullScreen={isMobile}>
-        <DialogTitle>Leitura da etiqueta</DialogTitle>
+        <DialogTitle>{scannerMode === 'allocation' ? 'Leitura para verificação de alocação' : 'Leitura da etiqueta'}</DialogTitle>
         <DialogContent sx={{ display: 'grid', gap: 1.5 }}>
           <Typography variant="body2" color="text.secondary">
             {scannerStep || 'Enquadre o RG no retângulo vermelho e toque em Validar RG.'}

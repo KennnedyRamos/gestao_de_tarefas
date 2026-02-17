@@ -20,6 +20,8 @@ from app.models.pickup_catalog import (
 from app.models.user import User
 from app.schemas.equipment import (
     EquipmentAllocatedRefrigeratorItemOut,
+    EquipmentAllocationLookupItemOut,
+    EquipmentAllocationLookupOut,
     EquipmentCreate,
     EquipmentInventoryMaterialItemOut,
     EquipmentInventoryMaterialListOut,
@@ -320,6 +322,21 @@ def _apply_inventory_base_filter(query, db: Session):
     if latest_batch_id is None:
         return filtered.filter(PickupCatalogInventoryItem.id == -1)
     return filtered.filter(PickupCatalogInventoryItem.batch_id == latest_batch_id)
+
+
+def _build_code_lookup_tokens(value: Optional[str]) -> set[str]:
+    normalized = normalize_spaces(value or "")
+    if not normalized:
+        return set()
+    upper = normalized.upper()
+    compact = re.sub(r"[^A-Z0-9]+", "", upper)
+    digits = digits_only(upper)
+    tokens = {upper}
+    if compact:
+        tokens.add(compact)
+    if digits:
+        tokens.add(digits)
+    return {token for token in tokens if token}
 
 
 def _build_page_meta(limit: int, offset: int, total: int) -> EquipmentPageMetaOut:
@@ -787,6 +804,110 @@ def list_inventory_materials(
     return EquipmentInventoryMaterialListOut(
         items=items,
         page=_build_page_meta(limit=limit, offset=offset, total=total),
+    )
+
+
+@router.get("/allocations/lookup", response_model=EquipmentAllocationLookupOut)
+def lookup_allocated_material(
+    rg_code: Optional[str] = Query(default=None),
+    tag_code: Optional[str] = Query(default=None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_equipments_viewer),
+):
+    normalized_rg_code = normalize_optional_code(rg_code) or ""
+    normalized_tag_code = normalize_optional_code(tag_code) or ""
+
+    if not normalized_rg_code and not normalized_tag_code:
+        raise HTTPException(status_code=422, detail="Informe RG ou etiqueta para consulta.")
+
+    equipment_from_tag = None
+    if normalized_tag_code:
+        equipment_from_tag = (
+            db.query(Equipment.rg_code, Equipment.tag_code)
+            .filter(func.upper(func.coalesce(Equipment.tag_code, "")) == normalized_tag_code)
+            .order_by(Equipment.id.desc())
+            .first()
+        )
+
+    resolved_rg_code = normalized_rg_code
+    if not resolved_rg_code and equipment_from_tag:
+        resolved_rg_code = normalize_optional_code(equipment_from_tag.rg_code) or ""
+
+    if not normalized_tag_code and resolved_rg_code:
+        equipment_from_rg = (
+            db.query(Equipment.tag_code)
+            .filter(func.upper(func.coalesce(Equipment.rg_code, "")) == resolved_rg_code)
+            .order_by(Equipment.id.desc())
+            .first()
+        )
+        if equipment_from_rg:
+            normalized_tag_code = normalize_optional_code(equipment_from_rg.tag_code) or ""
+
+    if not resolved_rg_code:
+        return EquipmentAllocationLookupOut(
+            rg_code="",
+            tag_code=normalized_tag_code,
+            total=0,
+            items=[],
+        )
+
+    target_tokens = _build_code_lookup_tokens(resolved_rg_code)
+    if not target_tokens:
+        return EquipmentAllocationLookupOut(
+            rg_code=resolved_rg_code,
+            tag_code=normalized_tag_code,
+            total=0,
+            items=[],
+        )
+
+    base_rows = _apply_inventory_base_filter(
+        db.query(
+            PickupCatalogInventoryItem.id.label("inventory_item_id"),
+            PickupCatalogInventoryItem.description.label("model_name"),
+            PickupCatalogInventoryItem.rg.label("rg_code"),
+            PickupCatalogInventoryItem.invoice_issue_date.label("invoice_issue_date"),
+            PickupCatalogInventoryItem.created_at.label("created_at"),
+            PickupCatalogClient.client_code.label("client_code"),
+            PickupCatalogClient.nome_fantasia.label("nome_fantasia"),
+            PickupCatalogClient.setor.label("setor"),
+        ).join(PickupCatalogClient, PickupCatalogClient.id == PickupCatalogInventoryItem.client_id),
+        db=db,
+    ).all()
+
+    matched_rows = []
+    for row in base_rows:
+        row_tokens = _build_code_lookup_tokens(row.rg_code)
+        if target_tokens.intersection(row_tokens):
+            matched_rows.append(row)
+
+    matched_rows.sort(
+        key=lambda item: (
+            _parse_inventory_issue_date(item.invoice_issue_date, item.created_at),
+            normalize_spaces(item.nome_fantasia or "").lower(),
+            int(item.inventory_item_id),
+        ),
+        reverse=True,
+    )
+
+    items = [
+        EquipmentAllocationLookupItemOut(
+            inventory_item_id=int(row.inventory_item_id),
+            rg_code=normalize_spaces(row.rg_code),
+            tag_code=normalized_tag_code,
+            client_code=normalize_spaces(row.client_code),
+            nome_fantasia=normalize_spaces(row.nome_fantasia),
+            setor=normalize_spaces(row.setor),
+            model_name=normalize_spaces(row.model_name),
+            invoice_issue_date=normalize_spaces(row.invoice_issue_date),
+        )
+        for row in matched_rows
+    ]
+
+    return EquipmentAllocationLookupOut(
+        rg_code=resolved_rg_code,
+        tag_code=normalized_tag_code,
+        total=len(items),
+        items=items,
     )
 
 

@@ -86,7 +86,7 @@ const PickupsDataUpload = () => {
     <Box sx={{ p: 3, display: 'grid', gap: 2 }}>
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
         <Typography variant="h5">Atualizar base de retiradas</Typography>
-        <Button variant="outlined" onClick={() => navigate('/pickups/create')}>
+        <Button variant="outlined" onClick={() => navigate('/operacoes/ordens/nova')}>
           Ir para retiradas
         </Button>
       </Box>

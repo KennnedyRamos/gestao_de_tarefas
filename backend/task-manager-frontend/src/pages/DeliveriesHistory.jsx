@@ -94,7 +94,7 @@ const DeliveriesHistory = () => {
     <Box sx={{ p: 3, display: 'grid', gap: 2 }}>
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
         <Typography variant="h5">Histórico de entregas</Typography>
-        <Button variant="contained" onClick={() => navigate('/deliveries/create')}>
+        <Button variant="contained" onClick={() => navigate('/operacoes/entregas/nova')}>
           Nova entrega
         </Button>
       </Box>

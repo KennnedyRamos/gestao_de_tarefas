@@ -20,12 +20,7 @@ const Sidebar = () => {
   const location = useLocation();
 
   const showAdmin = isAdmin();
-  const canManageTasks = hasPermission('tasks.manage');
-  const canManageRoutines = hasPermission('routines.manage');
   const canManageDeliveries = hasPermission('deliveries.manage');
-  const canCreatePickupOrder = hasPermission('pickups.create_order');
-  const canImportPickupBase = hasPermission('pickups.import_base');
-  const canPickupCenter = hasAnyPermission(['pickups.orders_history', 'pickups.withdrawals_history']);
   const canViewComodatos = hasPermission('comodatos.view');
   const canAccessEquipments = hasAnyPermission(['equipments.view', 'equipments.manage']);
   const hasPickupAreaAccess = hasAnyPermission([
@@ -34,6 +29,8 @@ const Sidebar = () => {
     'pickups.orders_history',
     'pickups.withdrawals_history',
   ]);
+  const canAccessProductivity = true;
+  const canAccessOperations = canManageDeliveries || hasPickupAreaAccess;
 
   const [users, setUsers] = useState([]);
   const [userMenuAnchor, setUserMenuAnchor] = useState(null);
@@ -60,7 +57,18 @@ const Sidebar = () => {
     ? new URLSearchParams(location.search).get('user')
     : null;
   const isActive = (path) => location.pathname === path;
-  const isPickupCenterActive = ['/pickups/center', '/pickups/history', '/pickups/withdrawals-history'].includes(location.pathname);
+  const isProductivityActive = (
+    location.pathname.startsWith('/produtividade')
+    || location.pathname === '/assignments'
+    || location.pathname === '/create-task'
+    || location.pathname === '/routines'
+    || location.pathname.startsWith('/edit-task/')
+  );
+  const isOperationsActive = (
+    location.pathname.startsWith('/operacoes')
+    || location.pathname.startsWith('/deliveries')
+    || location.pathname.startsWith('/pickups')
+  );
   const userMenuOpen = Boolean(userMenuAnchor);
 
   const navItemSx = {
@@ -151,128 +159,58 @@ const Sidebar = () => {
           <ListItemText primary='Dashboard' />
         </ListItemButton>
 
-        {canManageTasks && (
+        {canViewComodatos && (
           <ListItemButton
-            onClick={() => navigate('/create-task')}
-            selected={isActive('/create-task')}
+            onClick={() => navigate('/comodatos')}
+            selected={isActive('/comodatos')}
             sx={navItemSx}
           >
-            <ListItemText primary='Criar tarefa' />
+            <ListItemText primary='Dashboard de comodatos' />
           </ListItemButton>
         )}
 
-        <ListItemButton
-          onClick={() => navigate('/assignments')}
-          selected={isActive('/assignments')}
-          sx={navItemSx}
-        >
-          <ListItemText primary='Tarefas' />
-        </ListItemButton>
-
-        {canManageRoutines && (
+        {canAccessProductivity && (
           <ListItemButton
-            onClick={() => navigate('/routines')}
-            selected={isActive('/routines')}
+            onClick={() => navigate('/produtividade')}
+            selected={isProductivityActive}
             sx={navItemSx}
           >
-            <ListItemText primary='Rotinas' />
+            <ListItemText primary='Tarefas e rotinas' />
+          </ListItemButton>
+        )}
+
+        {canAccessOperations && (
+          <ListItemButton
+            onClick={() => navigate('/operacoes')}
+            selected={isOperationsActive}
+            sx={navItemSx}
+          >
+            <ListItemText primary='Entregas e ordens' />
+          </ListItemButton>
+        )}
+
+        {canAccessEquipments && (
+          <ListItemButton
+            onClick={() => navigate('/equipments')}
+            selected={isActive('/equipments')}
+            sx={navItemSx}
+          >
+            <ListItemText primary='Equipamento' />
           </ListItemButton>
         )}
       </List>
 
-      {(canManageDeliveries || hasPickupAreaAccess || showAdmin) && (
-        <>
-          <Divider sx={{ my: 1.5 }} />
-          <List>
-            {canManageDeliveries && (
-              <>
-                <ListItemButton
-                  onClick={() => navigate('/deliveries/create')}
-                  selected={isActive('/deliveries/create')}
-                  sx={navItemSx}
-                >
-                  <ListItemText primary='Entregas' />
-                </ListItemButton>
-                <ListItemButton
-                  onClick={() => navigate('/deliveries/history')}
-                  selected={isActive('/deliveries/history')}
-                  sx={navItemSx}
-                >
-                  <ListItemText primary='Histórico de entregas' />
-                </ListItemButton>
-              </>
-            )}
-
-            {canPickupCenter && (
-              <ListItemButton
-                onClick={() => navigate('/pickups/center')}
-                selected={isPickupCenterActive}
-                sx={navItemSx}
-              >
-                <ListItemText primary='Central de retiradas' />
-              </ListItemButton>
-            )}
-
-            {canCreatePickupOrder && (
-              <ListItemButton
-                onClick={() => navigate('/pickups/create')}
-                selected={isActive('/pickups/create')}
-                sx={navItemSx}
-              >
-                  <ListItemText primary='Ordem de retirada' />
-              </ListItemButton>
-            )}
-
-            {showAdmin && (
-              <>
-                <Divider sx={{ my: 1 }} />
-                <ListItemButton
-                  onClick={() => navigate('/users')}
-                  selected={isActive('/users')}
-                  sx={navItemSx}
-                >
-                  <ListItemText primary='Usuários' />
-                </ListItemButton>
-              </>
-            )}
-          </List>
-        </>
-      )}
-
-      {(canImportPickupBase || canViewComodatos || canAccessEquipments || showAdmin) && (
+      {showAdmin && (
         <Box sx={{ mt: 'auto', px: 1, pb: 1, display: 'grid', gap: 1 }}>
-          {canImportPickupBase && (
-            <ListItemButton
-              onClick={() => navigate('/pickups/import')}
-              selected={isActive('/pickups/import')}
-              sx={navItemSx}
-            >
-              <ListItemText primary='Atualizar base' />
-            </ListItemButton>
-          )}
-
-          {canViewComodatos && (
-            <ListItemButton
-              onClick={() => navigate('/comodatos')}
-              selected={isActive('/comodatos')}
-              sx={navItemSx}
-            >
-              <ListItemText primary='Dashboard de comodatos' />
-            </ListItemButton>
-          )}
-
-          {canAccessEquipments && (
-            <ListItemButton
-              onClick={() => navigate('/equipments')}
-              selected={isActive('/equipments')}
-              sx={navItemSx}
-            >
-              <ListItemText primary='Equipamento' />
-            </ListItemButton>
-          )}
-
-          {showAdmin && (
-            <Box sx={{ display: 'flex', justifyContent: 'flex-start' }}>
+          <Divider sx={{ my: 0.5 }} />
+          <ListItemButton
+            onClick={() => navigate('/users')}
+            selected={isActive('/users')}
+            sx={navItemSx}
+          >
+            <ListItemText primary='Usuários' />
+          </ListItemButton>
+          <Box sx={{ display: 'flex', justifyContent: 'flex-start' }}>
               <Button
                 variant='outlined'
                 startIcon={<MenuIcon />}
@@ -291,46 +229,45 @@ const Sidebar = () => {
                   boxShadow: 'var(--shadow-md)'
                 }}
               >
-                {'Usuários'}
+                {'Selecionar usuário'}
               </Button>
-              <Menu
-                anchorEl={userMenuAnchor}
-                open={userMenuOpen}
-                onClose={handleUserMenuClose}
-                anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
-                transformOrigin={{ vertical: 'top', horizontal: 'left' }}
-                MenuListProps={{
-                  dense: true,
-                  onMouseEnter: clearMenuCloseTimeout,
-                  onMouseLeave: handleUserMenuHoverClose
-                }}
-                PaperProps={{
-                  sx: {
-                    mb: 1,
-                    minWidth: 220,
-                    maxHeight: 320,
-                    border: '1px solid var(--stroke)',
-                    backgroundColor: 'var(--surface)',
-                    boxShadow: 'var(--shadow-md)'
-                  }
-                }}
-              >
-                {users.length === 0 ? (
-                  <MenuItem disabled>{'Nenhum usuário encontrado.'}</MenuItem>
-                ) : (
-                  users.map((user) => (
-                    <MenuItem
-                      key={user.id}
-                      selected={selectedUserId === String(user.id)}
-                      onClick={() => handleUserMenuSelect(user.id)}
-                    >
-                      {user.name}
-                    </MenuItem>
-                  ))
-                )}
-              </Menu>
-            </Box>
-          )}
+            <Menu
+              anchorEl={userMenuAnchor}
+              open={userMenuOpen}
+              onClose={handleUserMenuClose}
+              anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+              transformOrigin={{ vertical: 'top', horizontal: 'left' }}
+              MenuListProps={{
+                dense: true,
+                onMouseEnter: clearMenuCloseTimeout,
+                onMouseLeave: handleUserMenuHoverClose
+              }}
+              PaperProps={{
+                sx: {
+                  mb: 1,
+                  minWidth: 220,
+                  maxHeight: 320,
+                  border: '1px solid var(--stroke)',
+                  backgroundColor: 'var(--surface)',
+                  boxShadow: 'var(--shadow-md)'
+                }
+              }}
+            >
+              {users.length === 0 ? (
+                <MenuItem disabled>{'Nenhum usuário encontrado.'}</MenuItem>
+              ) : (
+                users.map((user) => (
+                  <MenuItem
+                    key={user.id}
+                    selected={selectedUserId === String(user.id)}
+                    onClick={() => handleUserMenuSelect(user.id)}
+                  >
+                    {user.name}
+                  </MenuItem>
+                ))
+              )}
+            </Menu>
+          </Box>
         </Box>
       )}
     </Box>

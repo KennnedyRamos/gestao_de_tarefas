@@ -179,11 +179,34 @@ def normalize_optional_text(value: Optional[str]) -> Optional[str]:
     return text or None
 
 
+def normalize_optional_code(value: Optional[str]) -> Optional[str]:
+    text = normalize_spaces(value or "")
+    if not text:
+        return None
+    return text.upper()
+
+
+def normalize_quantity(value: Optional[int], *, required: bool = False) -> int:
+    if value is None:
+        if required:
+            raise HTTPException(status_code=422, detail="Quantidade e obrigatoria para esta categoria.")
+        return 1
+    try:
+        resolved = int(value)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail="Quantidade invalida.") from exc
+    if resolved < 1:
+        raise HTTPException(status_code=422, detail="Quantidade deve ser maior que zero.")
+    return resolved
+
+
 def build_equipment_out(item: Equipment) -> EquipmentOut:
     return EquipmentOut(
         id=item.id,
         category=item.category,
         model_name=item.model_name,
+        brand=item.brand or "",
+        quantity=int(item.quantity or 1),
         voltage=item.voltage or "",
         rg_code=item.rg_code,
         tag_code=item.tag_code,
@@ -195,18 +218,25 @@ def build_equipment_out(item: Equipment) -> EquipmentOut:
     )
 
 
-def ensure_unique_codes(db: Session, rg_code: str, tag_code: str, current_id: Optional[int] = None) -> None:
-    rg_query = db.query(Equipment).filter(Equipment.rg_code == rg_code)
-    tag_query = db.query(Equipment).filter(Equipment.tag_code == tag_code)
-    if current_id is not None:
-        rg_query = rg_query.filter(Equipment.id != current_id)
-        tag_query = tag_query.filter(Equipment.id != current_id)
+def ensure_unique_codes(
+    db: Session,
+    rg_code: Optional[str],
+    tag_code: Optional[str],
+    current_id: Optional[int] = None,
+) -> None:
+    if rg_code:
+        rg_query = db.query(Equipment).filter(Equipment.rg_code == rg_code)
+        if current_id is not None:
+            rg_query = rg_query.filter(Equipment.id != current_id)
+        if rg_query.first():
+            raise HTTPException(status_code=409, detail="RG ja cadastrado.")
 
-    if rg_query.first():
-        raise HTTPException(status_code=409, detail="RG já cadastrado.")
-    if tag_query.first():
-        raise HTTPException(status_code=409, detail="Etiqueta já cadastrada.")
-
+    if tag_code:
+        tag_query = db.query(Equipment).filter(Equipment.tag_code == tag_code)
+        if current_id is not None:
+            tag_query = tag_query.filter(Equipment.id != current_id)
+        if tag_query.first():
+            raise HTTPException(status_code=409, detail="Etiqueta ja cadastrada.")
 
 def _inventory_uses_batches(db: Session) -> bool:
     return (
@@ -361,6 +391,7 @@ def list_equipments(
         query = query.filter(
             or_(
                 Equipment.model_name.ilike(search),
+                Equipment.brand.ilike(search),
                 Equipment.voltage.ilike(search),
                 Equipment.rg_code.ilike(search),
                 Equipment.tag_code.ilike(search),
@@ -525,6 +556,7 @@ def refrigerators_overview(
         EquipmentNewRefrigeratorItemOut(
             id=int(item.id),
             model_name=normalize_spaces(item.model_name),
+            brand=normalize_spaces(item.brand or ""),
             voltage=normalize_spaces(item.voltage or "") or "nao_informado",
             rg_code=normalize_spaces(item.rg_code),
             tag_code=normalize_spaces(item.tag_code),
@@ -585,6 +617,7 @@ def list_new_refrigerators(
         query = query.filter(
             or_(
                 Equipment.model_name.ilike(pattern),
+                Equipment.brand.ilike(pattern),
                 Equipment.voltage.ilike(pattern),
                 Equipment.rg_code.ilike(pattern),
                 Equipment.tag_code.ilike(pattern),
@@ -603,6 +636,7 @@ def list_new_refrigerators(
         EquipmentNewRefrigeratorItemOut(
             id=int(item.id),
             model_name=normalize_spaces(item.model_name),
+            brand=normalize_spaces(item.brand or ""),
             voltage=normalize_spaces(item.voltage or "") or "nao_informado",
             rg_code=normalize_spaces(item.rg_code),
             tag_code=normalize_spaces(item.tag_code),
@@ -763,20 +797,27 @@ def create_equipment(
     current_user: User = Depends(get_equipments_manager),
 ):
     resolved_category = normalize_category(payload.category)
-    resolved_status = normalize_status(payload.status)
+    is_refrigerator = resolved_category == "refrigerador"
+    resolved_status = normalize_status(payload.status) if is_refrigerator else "novo"
     model_name = normalize_spaces(payload.model_name)
-    resolved_voltage = normalize_voltage(payload.voltage)
-    rg_code = normalize_code(payload.rg_code)
-    tag_code = normalize_code(payload.tag_code)
-    client_name = normalize_optional_text(payload.client_name)
+    brand = normalize_spaces(payload.brand)
+    quantity = normalize_quantity(payload.quantity, required=not is_refrigerator)
+    resolved_voltage = normalize_voltage(payload.voltage) if is_refrigerator else ""
+    rg_code = normalize_optional_code(payload.rg_code)
+    tag_code = normalize_optional_code(payload.tag_code)
+    client_name = normalize_optional_text(payload.client_name) if is_refrigerator else None
     notes = normalize_optional_text(payload.notes)
 
-    if resolved_category == "refrigerador" and not resolved_voltage:
+    if not model_name:
+        raise HTTPException(status_code=422, detail="Modelo e obrigatorio.")
+    if not brand:
+        raise HTTPException(status_code=422, detail="Marca e obrigatoria.")
+    if is_refrigerator and not resolved_voltage:
         raise HTTPException(status_code=422, detail="Voltagem e obrigatoria para refrigerador.")
-    if resolved_category != "refrigerador":
-        resolved_voltage = ""
-    if resolved_status == "alocado" and not client_name:
-        raise HTTPException(status_code=422, detail="Cliente é obrigatório quando o equipamento está alocado.")
+    if is_refrigerator and not rg_code:
+        raise HTTPException(status_code=422, detail="RG e obrigatorio para refrigerador.")
+    if is_refrigerator and resolved_status == "alocado" and not client_name:
+        raise HTTPException(status_code=422, detail="Cliente e obrigatorio quando o equipamento esta alocado.")
     if resolved_status != "alocado":
         client_name = None
 
@@ -785,6 +826,8 @@ def create_equipment(
     row = Equipment(
         category=resolved_category,
         model_name=model_name,
+        brand=brand,
+        quantity=quantity if not is_refrigerator else 1,
         voltage=resolved_voltage,
         rg_code=rg_code,
         tag_code=tag_code,
@@ -798,10 +841,9 @@ def create_equipment(
         db.refresh(row)
     except IntegrityError as exc:
         db.rollback()
-        raise HTTPException(status_code=409, detail="RG ou etiqueta já cadastrados.") from exc
+        raise HTTPException(status_code=409, detail="RG ou etiqueta ja cadastrados.") from exc
 
     return build_equipment_out(row)
-
 
 @router.put("/{equipment_id}", response_model=EquipmentOut)
 def update_equipment(
@@ -812,7 +854,7 @@ def update_equipment(
 ):
     row = db.query(Equipment).filter(Equipment.id == equipment_id).first()
     if not row:
-        raise HTTPException(status_code=404, detail="Equipamento não encontrado.")
+        raise HTTPException(status_code=404, detail="Equipamento nao encontrado.")
 
     if hasattr(payload, "model_dump"):
         data = payload.model_dump(exclude_unset=True)
@@ -822,20 +864,32 @@ def update_equipment(
         return build_equipment_out(row)
 
     next_category = normalize_category(data["category"]) if "category" in data else row.category
+    next_is_refrigerator = next_category == "refrigerador"
     next_model_name = normalize_spaces(data["model_name"]) if "model_name" in data else row.model_name
-    next_voltage = normalize_voltage(data["voltage"]) if "voltage" in data else (row.voltage or "")
-    next_rg_code = normalize_code(data["rg_code"]) if "rg_code" in data else row.rg_code
-    next_tag_code = normalize_code(data["tag_code"]) if "tag_code" in data else row.tag_code
-    next_status = normalize_status(data["status"]) if "status" in data else row.status
-    next_client_name = normalize_optional_text(data["client_name"]) if "client_name" in data else row.client_name
+    next_brand = normalize_spaces(data["brand"]) if "brand" in data else (row.brand or "")
+    current_quantity = int(row.quantity or 1)
+    next_quantity = normalize_quantity(data["quantity"], required=not next_is_refrigerator) if "quantity" in data else current_quantity
+    next_voltage = normalize_voltage(data["voltage"]) if ("voltage" in data and next_is_refrigerator) else (row.voltage or "")
+    next_rg_code = normalize_optional_code(data["rg_code"]) if "rg_code" in data else row.rg_code
+    next_tag_code = normalize_optional_code(data["tag_code"]) if "tag_code" in data else row.tag_code
+    next_status = normalize_status(data["status"]) if ("status" in data and next_is_refrigerator) else (row.status if next_is_refrigerator else "novo")
+    next_client_name = normalize_optional_text(data["client_name"]) if ("client_name" in data and next_is_refrigerator) else (row.client_name if next_is_refrigerator else None)
     next_notes = normalize_optional_text(data["notes"]) if "notes" in data else row.notes
 
-    if next_category == "refrigerador" and not next_voltage:
+    if not next_model_name:
+        raise HTTPException(status_code=422, detail="Modelo e obrigatorio.")
+    if not next_brand:
+        raise HTTPException(status_code=422, detail="Marca e obrigatoria.")
+    if next_is_refrigerator and not next_voltage:
         raise HTTPException(status_code=422, detail="Voltagem e obrigatoria para refrigerador.")
-    if next_category != "refrigerador":
+    if not next_is_refrigerator:
         next_voltage = ""
-    if next_status == "alocado" and not next_client_name:
-        raise HTTPException(status_code=422, detail="Cliente é obrigatório quando o equipamento está alocado.")
+        next_rg_code = normalize_optional_code(data.get("rg_code")) if "rg_code" in data else normalize_optional_code(row.rg_code)
+        next_tag_code = normalize_optional_code(data.get("tag_code")) if "tag_code" in data else normalize_optional_code(row.tag_code)
+    if next_is_refrigerator and not next_rg_code:
+        raise HTTPException(status_code=422, detail="RG e obrigatorio para refrigerador.")
+    if next_is_refrigerator and next_status == "alocado" and not next_client_name:
+        raise HTTPException(status_code=422, detail="Cliente e obrigatorio quando o equipamento esta alocado.")
     if next_status != "alocado":
         next_client_name = None
 
@@ -843,6 +897,8 @@ def update_equipment(
 
     row.category = next_category
     row.model_name = next_model_name
+    row.brand = next_brand
+    row.quantity = next_quantity if not next_is_refrigerator else 1
     row.voltage = next_voltage
     row.rg_code = next_rg_code
     row.tag_code = next_tag_code
@@ -855,10 +911,9 @@ def update_equipment(
         db.refresh(row)
     except IntegrityError as exc:
         db.rollback()
-        raise HTTPException(status_code=409, detail="RG ou etiqueta já cadastrados.") from exc
+        raise HTTPException(status_code=409, detail="RG ou etiqueta ja cadastrados.") from exc
 
     return build_equipment_out(row)
-
 
 @router.delete("/{equipment_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_equipment(

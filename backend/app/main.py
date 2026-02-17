@@ -208,6 +208,24 @@ def ensure_equipment_columns():
         return
     columns = [col["name"] for col in inspector.get_columns("equipments")]
     with engine.begin() as conn:
+        if "brand" not in columns:
+            conn.execute(text("ALTER TABLE equipments ADD COLUMN brand VARCHAR DEFAULT ''"))
+        conn.execute(
+            text(
+                "UPDATE equipments "
+                "SET brand = '' "
+                "WHERE brand IS NULL"
+            )
+        )
+        if "quantity" not in columns:
+            conn.execute(text("ALTER TABLE equipments ADD COLUMN quantity INTEGER DEFAULT 1"))
+        conn.execute(
+            text(
+                "UPDATE equipments "
+                "SET quantity = 1 "
+                "WHERE quantity IS NULL OR quantity < 1"
+            )
+        )
         if "voltage" not in columns:
             conn.execute(text("ALTER TABLE equipments ADD COLUMN voltage VARCHAR DEFAULT ''"))
         conn.execute(
@@ -217,6 +235,15 @@ def ensure_equipment_columns():
                 "WHERE voltage IS NULL"
             )
         )
+        # Permite cadastrar equipamentos não refrigeradores sem RG/Etiqueta.
+        try:
+            conn.execute(text("ALTER TABLE equipments ALTER COLUMN rg_code DROP NOT NULL"))
+        except Exception:
+            pass
+        try:
+            conn.execute(text("ALTER TABLE equipments ALTER COLUMN tag_code DROP NOT NULL"))
+        except Exception:
+            pass
 
 
 def _has_index_with_columns(indexes: list[dict], columns: list[str]) -> bool:

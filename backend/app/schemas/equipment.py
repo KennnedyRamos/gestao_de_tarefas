@@ -7,9 +7,11 @@ from pydantic import BaseModel, Field
 class EquipmentBase(BaseModel):
     category: str = Field(default="refrigerador")
     model_name: str = Field(min_length=1, max_length=120)
+    brand: str = Field(min_length=1, max_length=120)
+    quantity: int = Field(default=1, ge=1)
     voltage: str = Field(default="", max_length=40)
-    rg_code: str = Field(min_length=1, max_length=120)
-    tag_code: str = Field(min_length=1, max_length=120)
+    rg_code: Optional[str] = Field(default=None, max_length=120)
+    tag_code: Optional[str] = Field(default=None, max_length=120)
     status: str = Field(default="novo")
     client_name: Optional[str] = Field(default=None, max_length=180)
     notes: Optional[str] = None
@@ -22,6 +24,8 @@ class EquipmentCreate(EquipmentBase):
 class EquipmentUpdate(BaseModel):
     category: Optional[str] = None
     model_name: Optional[str] = None
+    brand: Optional[str] = None
+    quantity: Optional[int] = Field(default=None, ge=1)
     voltage: Optional[str] = None
     rg_code: Optional[str] = None
     tag_code: Optional[str] = None
@@ -75,6 +79,7 @@ class EquipmentRefrigeratorDashboardOut(BaseModel):
 class EquipmentNewRefrigeratorItemOut(BaseModel):
     id: int
     model_name: str
+    brand: str
     voltage: str
     rg_code: str
     tag_code: str

@@ -11,6 +11,7 @@ from urllib.request import Request as UrlRequest, urlopen
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request as FastAPIRequest, UploadFile, status
+from fastapi.responses import FileResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
 from app.core.auth import require_any_permission, require_permission
@@ -296,6 +297,12 @@ def build_upload_url(relative_path: str, request: Optional[FastAPIRequest] = Non
         return ""
     if raw_path.startswith("http://") or raw_path.startswith("https://"):
         return raw_path
+    if request is not None:
+        try:
+            base_url = str(request.url_for("open_delivery_file"))
+        except Exception:
+            base_url = "/deliveries/files/open"
+        return f"{base_url}?path={quote(raw_path, safe='')}"
 
     supabase_ref = parse_supabase_reference(relative_path)
     if supabase_ref:
@@ -342,12 +349,47 @@ def build_upload_url(relative_path: str, request: Optional[FastAPIRequest] = Non
 
     if not normalized:
         return ""
-    if request is not None:
-        try:
-            return str(request.url_for("uploads", path=normalized))
-        except Exception:
-            pass
     return f"/uploads/{normalized}"
+
+
+@router.get("/files/open", name="open_delivery_file")
+def open_delivery_file(path: str):
+    raw_path = safe_text(path)
+    if not raw_path:
+        raise HTTPException(status_code=404, detail="Arquivo nao encontrado.")
+
+    resolved_url = build_upload_url(raw_path, request=None)
+    if not resolved_url:
+        raise HTTPException(status_code=404, detail="Arquivo nao encontrado.")
+
+    if resolved_url.startswith("http://") or resolved_url.startswith("https://"):
+        return RedirectResponse(url=resolved_url, status_code=status.HTTP_307_TEMPORARY_REDIRECT)
+
+    normalized = safe_text(resolved_url)
+    if normalized.startswith("/uploads/"):
+        normalized = normalized[len("/uploads/"):]
+    elif normalized.startswith("uploads/"):
+        normalized = normalized[len("uploads/"):]
+    else:
+        normalized = safe_text(raw_path).lstrip("/")
+        if normalized.startswith("uploads/"):
+            normalized = normalized[len("uploads/"):]
+
+    base_dir = get_uploads_base_dir().resolve()
+    target_path = (base_dir / normalized).resolve()
+    try:
+        target_path.relative_to(base_dir)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="Arquivo nao encontrado.") from exc
+
+    if not target_path.exists() or not target_path.is_file():
+        raise HTTPException(status_code=404, detail="Arquivo nao encontrado.")
+
+    return FileResponse(
+        path=str(target_path),
+        media_type="application/pdf",
+        filename=target_path.name,
+    )
 
 
 def parse_date(value: str) -> date:

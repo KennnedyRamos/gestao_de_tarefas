@@ -86,6 +86,8 @@ const VOLTAGE_OPTIONS = [
 const EMPTY_FORM = {
   category: 'refrigerador',
   model_name: '',
+  brand: '',
+  quantity: '1',
   voltage: '',
   rg_code: '',
   tag_code: '',
@@ -96,6 +98,28 @@ const EMPTY_FORM = {
 
 const TESSERACT_CDN_URL = 'https://unpkg.com/tesseract.js@5/dist/tesseract.min.js';
 const PAGE_SIZE = 25;
+const SCANNER_AREAS = {
+  rg: {
+    top: 0.22,
+    left: 0.1,
+    width: 0.8,
+    height: 0.24,
+    borderColor: '#d32f2f',
+    labelColor: '#d32f2f',
+    labelTextColor: '#fff',
+    label: 'RG'
+  },
+  tag: {
+    top: 0.57,
+    left: 0.1,
+    width: 0.8,
+    height: 0.2,
+    borderColor: '#fbc02d',
+    labelColor: '#fbc02d',
+    labelTextColor: '#1f1f1f',
+    label: 'Etiqueta'
+  }
+};
 const TABLE_CONTAINER_SX = {
   border: '1px solid var(--stroke)',
   borderRadius: 2,
@@ -112,6 +136,17 @@ const COMPACT_MODEL_CELL_SX = {
 
 const normalizeCodeInput = (value) => String(value || '').trim().toUpperCase();
 const normalizeTextInput = (value) => String(value || '').trim();
+const normalizeQuantityInput = (value) => {
+  const digits = String(value || '').replace(/\D+/g, '');
+  if (!digits) {
+    return '';
+  }
+  const parsed = Number(digits);
+  if (!Number.isFinite(parsed) || parsed < 1) {
+    return '1';
+  }
+  return String(parsed);
+};
 
 const normalizeOcrText = (value) => (
   String(value || '')
@@ -263,6 +298,31 @@ const buildEnhancedCanvas = (sourceCanvas) => {
   return canvas;
 };
 
+const buildScannerCropCanvas = (sourceCanvas, area) => {
+  const left = Math.max(0, Math.min(1, Number(area?.left ?? 0)));
+  const top = Math.max(0, Math.min(1, Number(area?.top ?? 0)));
+  const widthFactor = Math.max(0.05, Math.min(1, Number(area?.width ?? 1)));
+  const heightFactor = Math.max(0.05, Math.min(1, Number(area?.height ?? 1)));
+
+  const sourceWidth = sourceCanvas.width || 1;
+  const sourceHeight = sourceCanvas.height || 1;
+
+  const cropX = Math.max(0, Math.floor(sourceWidth * left));
+  const cropY = Math.max(0, Math.floor(sourceHeight * top));
+  const cropWidth = Math.max(1, Math.min(sourceWidth - cropX, Math.floor(sourceWidth * widthFactor)));
+  const cropHeight = Math.max(1, Math.min(sourceHeight - cropY, Math.floor(sourceHeight * heightFactor)));
+
+  const croppedCanvas = document.createElement('canvas');
+  croppedCanvas.width = cropWidth;
+  croppedCanvas.height = cropHeight;
+  const ctx = croppedCanvas.getContext('2d');
+  if (!ctx) {
+    return sourceCanvas;
+  }
+  ctx.drawImage(sourceCanvas, cropX, cropY, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight);
+  return croppedCanvas;
+};
+
 const formatDateTime = (value) => {
   if (!value) {
     return '-';
@@ -351,11 +411,15 @@ const EquipmentPage = () => {
   const [scannerOpen, setScannerOpen] = useState(false);
   const [scannerError, setScannerError] = useState('');
   const [scannerStep, setScannerStep] = useState('');
+  const [scannerPhase, setScannerPhase] = useState('rg');
+  const [scannerDraft, setScannerDraft] = useState({ rg_code: '', tag_code: '' });
   const [ocrBusy, setOcrBusy] = useState(false);
 
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const tesseractLoaderRef = useRef(null);
+  const activeScannerArea = scannerPhase === 'tag' ? SCANNER_AREAS.tag : SCANNER_AREAS.rg;
+  const scannerHasRequiredRg = Boolean(normalizeCodeInput(scannerDraft.rg_code));
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -798,26 +862,42 @@ const EquipmentPage = () => {
       return;
     }
 
+    const isRefrigerator = form.category === 'refrigerador';
+    const normalizedQuantity = normalizeQuantityInput(form.quantity);
     const payload = {
       category: form.category,
       model_name: normalizeTextInput(form.model_name),
-      voltage: form.category === 'refrigerador' ? normalizeTextInput(form.voltage) : '',
-      rg_code: normalizeCodeInput(form.rg_code),
-      tag_code: normalizeCodeInput(form.tag_code),
-      status: form.status,
-      client_name: normalizeTextInput(form.client_name) || null,
-      notes: normalizeTextInput(form.notes) || null
+      brand: normalizeTextInput(form.brand),
+      quantity: isRefrigerator ? 1 : Number(normalizedQuantity || 0),
+      voltage: isRefrigerator ? normalizeTextInput(form.voltage) : '',
+      rg_code: isRefrigerator ? (normalizeCodeInput(form.rg_code) || null) : null,
+      tag_code: isRefrigerator ? (normalizeCodeInput(form.tag_code) || null) : null,
+      status: isRefrigerator ? form.status : 'novo',
+      client_name: isRefrigerator ? (normalizeTextInput(form.client_name) || null) : null,
+      notes: isRefrigerator ? (normalizeTextInput(form.notes) || null) : null
     };
 
-    if (!payload.model_name || !payload.rg_code || !payload.tag_code) {
-      setError('Preencha modelo, RG e etiqueta para salvar.');
+    if (!payload.model_name) {
+      setError('Preencha o modelo para salvar.');
       return;
     }
-    if (payload.category === 'refrigerador' && !payload.voltage) {
+    if (!payload.brand) {
+      setError('Preencha a marca para salvar.');
+      return;
+    }
+    if (isRefrigerator && !payload.rg_code) {
+      setError('Preencha o RG para refrigeradores.');
+      return;
+    }
+    if (isRefrigerator && !payload.voltage) {
       setError('Informe a voltagem para refrigeradores.');
       return;
     }
-    if (payload.status === 'alocado' && !payload.client_name) {
+    if (!isRefrigerator && (!payload.quantity || payload.quantity < 1)) {
+      setError('Informe uma quantidade valida para o material.');
+      return;
+    }
+    if (isRefrigerator && payload.status === 'alocado' && !payload.client_name) {
       setError('Informe o cliente quando o equipamento estiver alocado.');
       return;
     }
@@ -857,6 +937,8 @@ const EquipmentPage = () => {
     setScannerOpen(false);
     setScannerError('');
     setScannerStep('');
+    setScannerPhase('rg');
+    setScannerDraft({ rg_code: '', tag_code: '' });
     setOcrBusy(false);
     stopScanner();
   }, [stopScanner]);
@@ -866,16 +948,21 @@ const EquipmentPage = () => {
       return;
     }
     if (!navigator.mediaDevices || typeof navigator.mediaDevices.getUserMedia !== 'function') {
-      setError('Câmera indisponível neste dispositivo ou navegador.');
+      setError('C?mera indispon?vel neste dispositivo ou navegador.');
       return;
     }
 
-    setScannerStep('Enquadre a etiqueta inteira e toque em Capturar etiqueta.');
+    setScannerPhase('rg');
+    setScannerDraft({
+      rg_code: normalizeCodeInput(form.rg_code),
+      tag_code: normalizeCodeInput(form.tag_code)
+    });
+    setScannerStep('Enquadre o RG no retângulo vermelho e toque em Validar RG.');
     setScannerError('');
     setScannerOpen(true);
     setSuccess('');
     setError('');
-  }, [canManageEquipments]);
+  }, [canManageEquipments, form.rg_code, form.tag_code]);
 
   useEffect(() => {
     if (!scannerOpen) {
@@ -914,84 +1001,106 @@ const EquipmentPage = () => {
     };
   }, [scannerOpen, stopScanner]);
 
-  const captureAndExtractLabel = useCallback(async () => {
+  const validateScannerStep = useCallback(async () => {
     if (!videoRef.current || videoRef.current.readyState < 2) {
       setScannerError('A câmera ainda não está pronta. Aguarde e tente novamente.');
       return;
     }
 
+    const phase = scannerPhase === 'tag' ? 'tag' : 'rg';
+    const area = SCANNER_AREAS[phase];
+    const phaseLabel = phase === 'rg' ? 'RG' : 'etiqueta';
+
     try {
       setOcrBusy(true);
       setScannerError('');
-      setScannerStep('Capturando imagem da etiqueta...');
+      setScannerStep(`Capturando ${phaseLabel}...`);
 
       const video = videoRef.current;
-      const canvas = document.createElement('canvas');
-      canvas.width = video.videoWidth || 1280;
-      canvas.height = video.videoHeight || 720;
-      const context = canvas.getContext('2d');
-      if (!context) {
+      const fullCanvas = document.createElement('canvas');
+      fullCanvas.width = video.videoWidth || 1280;
+      fullCanvas.height = video.videoHeight || 720;
+      const fullContext = fullCanvas.getContext('2d');
+      if (!fullContext) {
         throw new Error('Não foi possível processar a imagem da câmera.');
       }
-      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+      fullContext.drawImage(video, 0, 0, fullCanvas.width, fullCanvas.height);
 
+      const cropCanvas = buildScannerCropCanvas(fullCanvas, area);
       const Tesseract = await loadTesseract();
-      setScannerStep('Lendo texto da etiqueta (OCR)...');
-      const result = await Tesseract.recognize(canvas, 'por+eng', {
+      setScannerStep(`Lendo ${phaseLabel} (OCR)...`);
+      const result = await Tesseract.recognize(cropCanvas, 'por+eng', {
         logger: (message) => {
           if (message?.status === 'recognizing text' && typeof message?.progress === 'number') {
             const progress = Math.round(message.progress * 100);
-            setScannerStep(`Lendo texto da etiqueta (OCR)... ${progress}%`);
+            setScannerStep(`Lendo ${phaseLabel} (OCR)... ${progress}%`);
           }
         }
       });
 
       const firstPassText = result?.data?.text || '';
       let extracted = extractCodesFromLabelText(firstPassText);
+      let code = phase === 'rg'
+        ? normalizeCodeInput(extracted.rgCode)
+        : normalizeCodeInput(extracted.tagCode);
 
-      if (!extracted.rgCode || !extracted.tagCode) {
-        setScannerStep('Refinando leitura da etiqueta...');
-        const enhancedCanvas = buildEnhancedCanvas(canvas);
+      if (!code) {
+        setScannerStep(`Refinando leitura de ${phaseLabel}...`);
+        const enhancedCanvas = buildEnhancedCanvas(cropCanvas);
         const secondResult = await Tesseract.recognize(enhancedCanvas, 'por+eng');
         const secondPassText = secondResult?.data?.text || '';
-        const secondExtracted = extractCodesFromLabelText(secondPassText);
-        extracted = {
-          rgCode: extracted.rgCode || secondExtracted.rgCode,
-          tagCode: extracted.tagCode || secondExtracted.tagCode
-        };
+        extracted = extractCodesFromLabelText(secondPassText);
+        code = phase === 'rg'
+          ? normalizeCodeInput(extracted.rgCode)
+          : normalizeCodeInput(extracted.tagCode);
       }
 
-      const rgCode = normalizeCodeInput(extracted.rgCode);
-      const tagCode = normalizeCodeInput(extracted.tagCode);
-
-      if (!rgCode && !tagCode) {
-        throw new Error('Não foi possível identificar RG e etiqueta na imagem.');
+      if (phase === 'rg') {
+        if (!code) {
+          throw new Error('Não foi possível identificar o RG. Ajuste o enquadramento e tente novamente.');
+        }
+        setScannerDraft((prev) => ({ ...prev, rg_code: code }));
+        setScannerPhase('tag');
+        setScannerStep('RG validado. Agora enquadre a etiqueta no retângulo amarelo e toque em Validar etiqueta.');
+        return;
       }
 
-      setForm((prev) => ({
-        ...prev,
-        rg_code: rgCode || prev.rg_code,
-        tag_code: tagCode || prev.tag_code
-      }));
-
-      const readSummary = [
-        rgCode ? `RG: ${rgCode}` : null,
-        tagCode ? `Etiqueta: ${tagCode}` : null
-      ].filter(Boolean).join(' | ');
-
-      if (rgCode && tagCode) {
-        setSuccess(`Leitura automática concluída. ${readSummary}`);
-      } else {
-        setSuccess(`Leitura parcial concluída. ${readSummary}. Revise antes de salvar.`);
+      if (!code) {
+        throw new Error('Não foi possível identificar a etiqueta. Você pode tentar novamente ou tocar em Concluir.');
       }
-      closeScanner();
+      setScannerDraft((prev) => ({ ...prev, tag_code: code }));
+      setScannerStep('Etiqueta validada. Toque em Concluir para preencher o formulário.');
     } catch (err) {
       const message = normalizeTextInput(err?.message);
       setScannerError(message || 'Falha ao ler a etiqueta. Tente com melhor iluminação e foco.');
     } finally {
       setOcrBusy(false);
     }
-  }, [closeScanner, loadTesseract]);
+  }, [loadTesseract, scannerPhase]);
+
+  const concludeScannerReading = useCallback(() => {
+    const rgCode = normalizeCodeInput(scannerDraft.rg_code || form.rg_code);
+    const tagCode = normalizeCodeInput(scannerDraft.tag_code || form.tag_code);
+    if (!rgCode) {
+      setScannerError('RG é obrigatório. Valide o RG antes de concluir.');
+      setScannerPhase('rg');
+      setScannerStep('Enquadre o RG no retângulo vermelho e toque em Validar RG.');
+      return;
+    }
+
+    setForm((prev) => ({
+      ...prev,
+      rg_code: rgCode,
+      tag_code: tagCode
+    }));
+
+    if (tagCode) {
+      setSuccess(`Leitura conclu?da. RG: ${rgCode} | Etiqueta: ${tagCode}`);
+    } else {
+      setSuccess(`Leitura conclu?da. RG: ${rgCode}. Etiqueta n?o informada.`);
+    }
+    closeScanner();
+  }, [closeScanner, form.rg_code, form.tag_code, scannerDraft.rg_code, scannerDraft.tag_code]);
 
   return (
     <Box sx={{ p: { xs: 2, md: 3 }, display: 'grid', gap: 2.5 }}>
@@ -1111,7 +1220,13 @@ const EquipmentPage = () => {
                   onChange={(event) => setForm((prev) => ({
                     ...prev,
                     category: event.target.value,
-                    voltage: event.target.value === 'refrigerador' ? prev.voltage : ''
+                    voltage: event.target.value === 'refrigerador' ? prev.voltage : '',
+                    rg_code: event.target.value === 'refrigerador' ? prev.rg_code : '',
+                    tag_code: event.target.value === 'refrigerador' ? prev.tag_code : '',
+                    status: event.target.value === 'refrigerador' ? prev.status : 'novo',
+                    client_name: event.target.value === 'refrigerador' ? prev.client_name : '',
+                    notes: event.target.value === 'refrigerador' ? prev.notes : '',
+                    quantity: event.target.value === 'refrigerador' ? '1' : (prev.quantity || '1')
                   }))}
                   required
                 >
@@ -1128,84 +1243,111 @@ const EquipmentPage = () => {
                 />
 
                 <TextField
-                  select
-                  label="Voltagem"
-                  value={form.voltage}
-                  onChange={(event) => setForm((prev) => ({ ...prev, voltage: event.target.value }))}
-                  required={form.category === 'refrigerador'}
-                  disabled={form.category !== 'refrigerador'}
-                >
-                  {VOLTAGE_OPTIONS.map((item) => (
-                    <MenuItem key={item.value || 'empty'} value={item.value}>{item.label}</MenuItem>
-                  ))}
-                </TextField>
+                  label="Marca"
+                  value={form.brand}
+                  onChange={(event) => setForm((prev) => ({ ...prev, brand: event.target.value }))}
+                  required
+                />
 
-                <TextField
-                  select
-                  label="Status"
-                  value={form.status}
-                  onChange={(event) => {
-                    const nextStatus = event.target.value;
-                    setForm((prev) => ({
-                      ...prev,
-                      status: nextStatus,
-                      client_name: nextStatus === 'alocado' ? prev.client_name : ''
-                    }));
+                {form.category === 'refrigerador' ? (
+                  <>
+                    <TextField
+                      select
+                      label="Voltagem"
+                      value={form.voltage}
+                      onChange={(event) => setForm((prev) => ({ ...prev, voltage: event.target.value }))}
+                      required
+                    >
+                      {VOLTAGE_OPTIONS.map((item) => (
+                        <MenuItem key={item.value || 'empty'} value={item.value}>{item.label}</MenuItem>
+                      ))}
+                    </TextField>
+
+                    <TextField
+                      select
+                      label="Status"
+                      value={form.status}
+                      onChange={(event) => {
+                        const nextStatus = event.target.value;
+                        setForm((prev) => ({
+                          ...prev,
+                          status: nextStatus,
+                          client_name: nextStatus === 'alocado' ? prev.client_name : ''
+                        }));
+                      }}
+                      required
+                    >
+                      {STATUS_OPTIONS.map((item) => (
+                        <MenuItem key={item.value} value={item.value}>{item.label}</MenuItem>
+                      ))}
+                    </TextField>
+                  </>
+                ) : (
+                  <TextField
+                    label="Quantidade"
+                    type="number"
+                    value={form.quantity}
+                    onChange={(event) => setForm((prev) => ({ ...prev, quantity: normalizeQuantityInput(event.target.value) }))}
+                    required
+                    inputProps={{ min: 1, step: 1 }}
+                  />
+                )}
+              </Box>
+
+              {form.category === 'refrigerador' && (
+                <Box
+                  sx={{
+                    display: 'grid',
+                    gap: 1.5,
+                    gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }
                   }}
-                  required
                 >
-                  {STATUS_OPTIONS.map((item) => (
-                    <MenuItem key={item.value} value={item.value}>{item.label}</MenuItem>
-                  ))}
-                </TextField>
-              </Box>
+                  <TextField
+                    label="RG"
+                    value={form.rg_code}
+                    onChange={(event) => setForm((prev) => ({ ...prev, rg_code: event.target.value }))}
+                    required
+                  />
 
-              <Box
-                sx={{
-                  display: 'grid',
-                  gap: 1.5,
-                  gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }
-                }}
-              >
+                  <TextField
+                    label="Etiqueta"
+                    value={form.tag_code}
+                    onChange={(event) => setForm((prev) => ({ ...prev, tag_code: event.target.value }))}
+                    helperText="Opcional"
+                  />
+                </Box>
+              )}
+
+              {form.category === 'refrigerador' && (
+                <Button
+                  variant="outlined"
+                  startIcon={<CameraAltIcon />}
+                  onClick={openFullLabelScanner}
+                  sx={{ width: { xs: '100%', sm: 'auto' } }}
+                >
+                  Ler etiqueta completa
+                </Button>
+              )}
+
+              {form.category === 'refrigerador' && (
                 <TextField
-                  label="RG"
-                  value={form.rg_code}
-                  onChange={(event) => setForm((prev) => ({ ...prev, rg_code: event.target.value }))}
-                  required
+                  label="Cliente (quando alocado)"
+                  value={form.client_name}
+                  onChange={(event) => setForm((prev) => ({ ...prev, client_name: event.target.value }))}
+                  required={form.status === 'alocado'}
+                  disabled={form.status !== 'alocado'}
                 />
+              )}
 
+              {form.category === 'refrigerador' && (
                 <TextField
-                  label="Etiqueta"
-                  value={form.tag_code}
-                  onChange={(event) => setForm((prev) => ({ ...prev, tag_code: event.target.value }))}
-                  required
+                  label="Observação"
+                  multiline
+                  minRows={2}
+                  value={form.notes}
+                  onChange={(event) => setForm((prev) => ({ ...prev, notes: event.target.value }))}
                 />
-              </Box>
-
-	              <Button
-	                variant="outlined"
-	                startIcon={<CameraAltIcon />}
-	                onClick={openFullLabelScanner}
-	                sx={{ width: { xs: '100%', sm: 'auto' } }}
-	              >
-	                Ler etiqueta completa
-	              </Button>
-
-              <TextField
-                label="Cliente (quando alocado)"
-                value={form.client_name}
-                onChange={(event) => setForm((prev) => ({ ...prev, client_name: event.target.value }))}
-                required={form.status === 'alocado'}
-                disabled={form.status !== 'alocado'}
-              />
-
-              <TextField
-                label="Observação"
-                multiline
-                minRows={2}
-                value={form.notes}
-                onChange={(event) => setForm((prev) => ({ ...prev, notes: event.target.value }))}
-              />
+              )}
 
               <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} useFlexGap>
                 <Button type="submit" variant="contained" disabled={saving} fullWidth={isMobile}>
@@ -1315,7 +1457,7 @@ const EquipmentPage = () => {
               </Box>
               <TextField
                 label="Pesquisar refrigeradores novos cadastrados"
-                placeholder="Modelo, RG, etiqueta ou voltagem"
+                placeholder="Modelo, marca, RG, etiqueta ou voltagem"
                 value={overviewSearch}
                 onChange={(event) => setOverviewSearch(event.target.value)}
               />
@@ -1336,10 +1478,11 @@ const EquipmentPage = () => {
 	                      {newRefrigerators.map((item) => (
 	                        <Card key={item.id} sx={{ border: '1px solid var(--stroke)', boxShadow: 'none' }}>
 	                          <CardContent sx={{ display: 'grid', gap: 0.5, p: 1.25, '&:last-child': { pb: 1.25 } }}>
-	                            <Typography variant="subtitle2" sx={{ wordBreak: 'break-word' }}>
-	                              {item.model_name || '-'}
-	                            </Typography>
-	                            <Typography variant="body2">RG: {item.rg_code || '-'}</Typography>
+                            <Typography variant="subtitle2" sx={{ wordBreak: 'break-word' }}>
+                              {item.model_name || '-'}
+                            </Typography>
+                            <Typography variant="body2">Marca: {item.brand || '-'}</Typography>
+                            <Typography variant="body2">RG: {item.rg_code || '-'}</Typography>
                             <Typography variant="body2">Etiqueta: {item.tag_code || '-'}</Typography>
                             <Typography variant="body2">
                               Voltagem: {voltageByValue[item.voltage] || item.voltage || 'Não informado'}
@@ -1355,18 +1498,20 @@ const EquipmentPage = () => {
 	                    <TableContainer sx={TABLE_CONTAINER_SX}>
 	                      <Table size="small">
 	                        <TableHead>
-	                          <TableRow>
-	                            <TableCell sx={COMPACT_MODEL_CELL_SX}>Modelo</TableCell>
-	                            <TableCell>RG</TableCell>
-	                            <TableCell>Etiqueta</TableCell>
-	                            <TableCell>Voltagem</TableCell>
+                          <TableRow>
+                            <TableCell sx={COMPACT_MODEL_CELL_SX}>Modelo</TableCell>
+                            <TableCell>Marca</TableCell>
+                            <TableCell>RG</TableCell>
+                            <TableCell>Etiqueta</TableCell>
+                            <TableCell>Voltagem</TableCell>
 	                            <TableCell>Cadastrado em</TableCell>
 	                          </TableRow>
 	                        </TableHead>
 	                        <TableBody>
-	                          {newRefrigerators.map((item) => (
-	                            <TableRow key={item.id}>
-	                              <TableCell sx={COMPACT_MODEL_CELL_SX}>{item.model_name}</TableCell>
+                          {newRefrigerators.map((item) => (
+                            <TableRow key={item.id}>
+                              <TableCell sx={COMPACT_MODEL_CELL_SX}>{item.model_name}</TableCell>
+                              <TableCell>{item.brand || '-'}</TableCell>
                               <TableCell>{item.rg_code}</TableCell>
                               <TableCell>{item.tag_code}</TableCell>
                               <TableCell>{voltageByValue[item.voltage] || item.voltage || 'Não informado'}</TableCell>
@@ -1505,7 +1650,7 @@ const EquipmentPage = () => {
         <DialogTitle>Leitura da etiqueta</DialogTitle>
         <DialogContent sx={{ display: 'grid', gap: 1.5 }}>
           <Typography variant="body2" color="text.secondary">
-            {scannerStep || 'Enquadre a etiqueta completa para extrair RG e etiqueta automaticamente.'}
+            {scannerStep || 'Enquadre o RG no retângulo vermelho e toque em Validar RG.'}
           </Typography>
 
           <Box
@@ -1513,7 +1658,8 @@ const EquipmentPage = () => {
               borderRadius: 2,
               overflow: 'hidden',
               border: '1px solid var(--stroke)',
-              backgroundColor: '#111'
+              backgroundColor: '#111',
+              position: 'relative'
             }}
           >
             <video
@@ -1523,10 +1669,52 @@ const EquipmentPage = () => {
               playsInline
               style={{ width: '100%', display: 'block', maxHeight: isMobile ? '60vh' : 320, objectFit: 'cover' }}
             />
+              <Box
+                sx={{
+                  position: 'absolute',
+                  inset: 0,
+                  pointerEvents: 'none'
+                }}
+              >
+                <Box
+                  sx={{
+                    position: 'absolute',
+                    top: `${activeScannerArea.top * 100}%`,
+                    left: `${activeScannerArea.left * 100}%`,
+                    width: `${activeScannerArea.width * 100}%`,
+                    height: `${activeScannerArea.height * 100}%`,
+                    border: `3px solid ${activeScannerArea.borderColor}`,
+                    borderRadius: 1.5,
+                    boxShadow: '0 0 0 1px rgba(0,0,0,0.2)'
+                  }}
+                >
+                  <Typography
+                    variant="caption"
+                    sx={{
+                      position: 'absolute',
+                      top: -22,
+                      left: 0,
+                      px: 0.75,
+                      borderRadius: 0.75,
+                      bgcolor: activeScannerArea.labelColor,
+                      color: activeScannerArea.labelTextColor,
+                      fontWeight: 700
+                    }}
+                  >
+                    {activeScannerArea.label}
+                  </Typography>
+                </Box>
+              </Box>
           </Box>
 
           <Typography variant="caption" color="text.secondary">
-            Dica: aproxime a câmera, centralize Número Serial e R.G. e mantenha a imagem estável.
+            {scannerPhase === 'rg'
+              ? 'RG obrigatório: valide no retângulo vermelho.'
+              : 'Etiqueta opcional: valide no retângulo amarelo ou toque em Concluir para pular.'}
+          </Typography>
+
+          <Typography variant="caption" color="text.secondary">
+            Leitura atual: RG {scannerDraft.rg_code || '-'} | Etiqueta {scannerDraft.tag_code || '-'}
           </Typography>
 
           {scannerError && <Alert severity="warning">{scannerError}</Alert>}
@@ -1534,8 +1722,20 @@ const EquipmentPage = () => {
 
         <DialogActions sx={{ flexDirection: isMobile ? 'column-reverse' : 'row', gap: 1 }}>
           <Button onClick={closeScanner} fullWidth={isMobile}>Fechar</Button>
-          <Button variant="contained" onClick={captureAndExtractLabel} disabled={ocrBusy} fullWidth={isMobile}>
-            {ocrBusy ? 'Processando...' : 'Capturar etiqueta'}
+          <Button variant="outlined" onClick={validateScannerStep} disabled={ocrBusy} fullWidth={isMobile}>
+            {ocrBusy
+              ? 'Processando...'
+              : scannerPhase === 'rg'
+                ? 'Validar RG'
+                : 'Validar etiqueta'}
+          </Button>
+          <Button
+            variant="contained"
+            onClick={concludeScannerReading}
+            disabled={ocrBusy || !scannerHasRequiredRg}
+            fullWidth={isMobile}
+          >
+            Concluir
           </Button>
         </DialogActions>
       </Dialog>

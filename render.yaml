@@ -6,10 +6,6 @@ services:
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
-    disk:
-      name: uploads-disk
-      mountPath: /var/data
-      sizeGB: 1
     envVars:
       - key: DATABASE_URL
         sync: false
@@ -31,5 +27,21 @@ services:
         sync: false
       - key: CORS_ORIGIN_REGEX
         value: ^https://.*\\.vercel\\.app$
+      # No plano Free do Render, prefira Supabase Storage para persistir PDFs.
+      # Se for usar disco persistente (pago), ajuste UPLOADS_DIR para /var/data/uploads.
       - key: UPLOADS_DIR
-        value: /var/data/uploads
+        value: uploads
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SUPABASE_STORAGE_BUCKET
+        value: deliveries
+      - key: SUPABASE_STORAGE_PREFIX
+        value: deliveries
+      - key: SUPABASE_STORAGE_PUBLIC
+        value: "true"
+      - key: SUPABASE_STORAGE_LEGACY_PATHS
+        value: "true"
+      - key: SUPABASE_STORAGE_SIGNED_URL_TTL
+        value: "3600"

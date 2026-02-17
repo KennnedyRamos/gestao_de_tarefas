@@ -49,6 +49,7 @@ Este repositorio ja inclui `render.yaml` com:
 - Build command: `pip install -r requirements.txt`
 - Start command: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
 - Healthcheck: `GET /health`
+- Configuracao pronta para plano Free usando Supabase Storage nos PDFs
 
 Variaveis obrigatorias no Render:
 - `DATABASE_URL`
@@ -58,11 +59,18 @@ Variaveis obrigatorias no Render:
 - `CORS_ORIGINS` (inclua sua URL do Vercel)
 
 Opcional:
-- `UPLOADS_DIR` (padrao no `render.yaml`: `/var/data/uploads`)
+- `UPLOADS_DIR` (somente se quiser salvar localmente no servidor)
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `SUPABASE_STORAGE_BUCKET` (ex.: `deliveries`)
+- `SUPABASE_STORAGE_PREFIX` (ex.: `deliveries`)
+- `SUPABASE_STORAGE_PUBLIC` (`true` para bucket publico, `false` para URL assinada)
+- `SUPABASE_STORAGE_LEGACY_PATHS` (`true` para tentar resolver caminhos antigos do banco no Supabase)
 
 Importante:
 - sem armazenamento persistente no backend, arquivos em `uploads/` podem ser perdidos em reinicio/deploy.
-- para persistencia real no Render, o `render.yaml` ja inclui disco persistente montado em `/var/data`.
+- alternativa no plano free: usar Supabase Storage para os PDFs de entregas.
+- se usar plano pago com disco persistente no Render, configure `UPLOADS_DIR=/var/data/uploads`.
 
 ### Frontend (Vercel)
 No projeto `backend/task-manager-frontend`:

@@ -7,10 +7,10 @@ from pathlib import Path
 from typing import Optional
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote
-from urllib.request import Request, urlopen
+from urllib.request import Request as UrlRequest, urlopen
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request as FastAPIRequest, UploadFile, status
 from sqlalchemy.orm import Session
 
 from app.core.auth import require_any_permission, require_permission
@@ -101,7 +101,7 @@ def supabase_storage_request(
     if content_type:
         headers["Content-Type"] = content_type
 
-    request_obj = Request(endpoint, method=method.upper(), data=body, headers=headers)
+    request_obj = UrlRequest(endpoint, method=method.upper(), data=body, headers=headers)
     try:
         with urlopen(request_obj, timeout=25) as response:
             payload = response.read().decode("utf-8", errors="ignore")
@@ -148,6 +148,9 @@ def build_supabase_object_url(config: dict, bucket: str, object_path: str) -> st
     quoted_bucket = quote(bucket, safe="")
     quoted_path = quote(object_path, safe="/")
     if config["use_public_url"]:
+        signed_url = build_supabase_signed_url(config, bucket, object_path)
+        if signed_url:
+            return signed_url
         return f"{config['url']}/storage/v1/object/public/{quoted_bucket}/{quoted_path}"
     return build_supabase_signed_url(config, bucket, object_path)
 
@@ -178,15 +181,51 @@ def safe_text(value: object) -> str:
     return str(value or "").strip()
 
 
-def build_upload_url(relative_path: str, request: Optional[Request] = None) -> str:
+def supabase_object_exists(config: dict, bucket: str, object_path: str) -> bool:
+    endpoint = (
+        f"{config['url']}/storage/v1/object/info/"
+        f"{quote(bucket, safe='')}/{quote(object_path, safe='/')}"
+    )
+    try:
+        response_status, _ = supabase_storage_request(
+            method="GET",
+            endpoint=endpoint,
+            service_role_key=config["service_role_key"],
+        )
+    except HTTPException:
+        return False
+    return response_status == 200
+
+
+def build_upload_url(relative_path: str, request: Optional[FastAPIRequest] = None) -> str:
     supabase_ref = parse_supabase_reference(relative_path)
     if supabase_ref:
         bucket, object_path = supabase_ref
         config = get_supabase_storage_config()
         if config:
-            object_url = build_supabase_object_url(config, bucket, object_path)
-            if object_url:
-                return object_url
+            candidates = [object_path]
+            prefix = safe_text(config.get("prefix")).strip("/")
+            object_name = Path(object_path).name
+            if prefix:
+                prefixed_path = f"{prefix}/{object_path}".lstrip("/")
+                if prefixed_path not in candidates:
+                    candidates.append(prefixed_path)
+            if object_name and object_name not in candidates:
+                candidates.append(object_name)
+            if prefix and object_name:
+                prefixed_name = f"{prefix}/{object_name}".lstrip("/")
+                if prefixed_name not in candidates:
+                    candidates.append(prefixed_name)
+
+            for candidate in candidates:
+                clean_candidate = safe_text(candidate).lstrip("/")
+                if not clean_candidate:
+                    continue
+                if not supabase_object_exists(config, bucket, clean_candidate):
+                    continue
+                object_url = build_supabase_object_url(config, bucket, clean_candidate)
+                if object_url:
+                    return object_url
         return ""
 
     normalized = str(relative_path or "").strip().lstrip("/")
@@ -208,6 +247,8 @@ def build_upload_url(relative_path: str, request: Optional[Request] = None) -> s
             if not clean_candidate or clean_candidate in seen:
                 continue
             seen.add(clean_candidate)
+            if not supabase_object_exists(config, config["bucket"], clean_candidate):
+                continue
             object_url = build_supabase_object_url(config, config["bucket"], clean_candidate)
             if object_url:
                 return object_url
@@ -324,7 +365,7 @@ def remove_upload(relative_path: Optional[str]) -> None:
         target_path.unlink(missing_ok=True)
 
 
-def build_delivery_out(delivery: Delivery, request: Optional[Request] = None) -> DeliveryOut:
+def build_delivery_out(delivery: Delivery, request: Optional[FastAPIRequest] = None) -> DeliveryOut:
     return DeliveryOut(
         id=delivery.id,
         description=delivery.description,
@@ -340,7 +381,7 @@ def build_delivery_out(delivery: Delivery, request: Optional[Request] = None) ->
 
 @router.get("/", response_model=list[DeliveryOut])
 def list_deliveries(
-    request: Request,
+    request: FastAPIRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_deliveries_viewer)
 ):
@@ -380,7 +421,7 @@ def lookup_delivery_client(
 
 @router.post("/", response_model=DeliveryOut, status_code=status.HTTP_201_CREATED)
 def create_delivery(
-    request: Request,
+    request: FastAPIRequest,
     description: str = Form(...),
     delivery_date: str = Form(...),
     delivery_time: Optional[str] = Form(None),

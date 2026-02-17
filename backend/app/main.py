@@ -1,4 +1,6 @@
+import logging
 import os
+import threading
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -20,6 +22,8 @@ from app.core.config import (
 )
 from app.core.security import get_password_hash
 from app.models.user import User
+
+logger = logging.getLogger("uvicorn.error")
 app = FastAPI(title="Gestão de Tarefas")
 
 cors_origins = parse_cors_origins(CORS_ORIGINS)
@@ -32,8 +36,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"]
 )
-
-Base.metadata.create_all(bind=engine)
 
 uploads_dir = Path(os.getenv("UPLOADS_DIR", Path(__file__).resolve().parents[1] / "uploads")).resolve()
 uploads_dir.mkdir(parents=True, exist_ok=True)
@@ -56,8 +58,6 @@ def ensure_task_columns():
         if "priority" in columns or priority_added:
             conn.execute(text("UPDATE tasks SET priority = 'media' WHERE priority IS NULL"))
 
-ensure_task_columns()
-
 def ensure_pickup_columns():
     inspector = inspect(engine)
     if "pickups" not in inspector.get_table_names():
@@ -66,9 +66,6 @@ def ensure_pickup_columns():
     with engine.begin() as conn:
         if "photo_path" not in columns:
             conn.execute(text("ALTER TABLE pickups ADD COLUMN photo_path VARCHAR"))
-
-ensure_pickup_columns()
-
 
 def ensure_user_permissions_column():
     inspector = inspect(engine)
@@ -87,9 +84,6 @@ def ensure_user_permissions_column():
         )
 
 
-ensure_user_permissions_column()
-
-
 def ensure_pickup_catalog_columns():
     inspector = inspect(engine)
     if "pickup_catalog_inventory_items" not in inspector.get_table_names():
@@ -100,9 +94,6 @@ def ensure_pickup_catalog_columns():
             conn.execute(text("ALTER TABLE pickup_catalog_inventory_items ADD COLUMN comodato_number VARCHAR"))
         if "invoice_issue_date" not in columns:
             conn.execute(text("ALTER TABLE pickup_catalog_inventory_items ADD COLUMN invoice_issue_date VARCHAR"))
-
-
-ensure_pickup_catalog_columns()
 
 
 def ensure_pickup_catalog_item_type_overrides():
@@ -139,9 +130,6 @@ def ensure_pickup_catalog_item_type_overrides():
                 "AND LOWER(TRIM(COALESCE(item_type, ''))) <> 'refrigerador'"
             )
         )
-
-
-ensure_pickup_catalog_item_type_overrides()
 
 
 def ensure_pickup_catalog_order_columns():
@@ -197,9 +185,6 @@ def ensure_pickup_catalog_order_columns():
         )
 
 
-ensure_pickup_catalog_order_columns()
-
-
 def ensure_pickup_catalog_order_item_columns():
     inspector = inspect(engine)
     if "pickup_catalog_order_items" not in inspector.get_table_names():
@@ -217,9 +202,6 @@ def ensure_pickup_catalog_order_item_columns():
         )
 
 
-ensure_pickup_catalog_order_item_columns()
-
-
 def ensure_equipment_columns():
     inspector = inspect(engine)
     if "equipments" not in inspector.get_table_names():
@@ -235,9 +217,6 @@ def ensure_equipment_columns():
                 "WHERE voltage IS NULL"
             )
         )
-
-
-ensure_equipment_columns()
 
 
 def _has_index_with_columns(indexes: list[dict], columns: list[str]) -> bool:
@@ -318,8 +297,6 @@ def ensure_pickup_catalog_indexes():
                 )
 
 
-ensure_pickup_catalog_indexes()
-
 def ensure_admin_user():
     if not ADMIN_EMAIL or not ADMIN_PASSWORD:
         return
@@ -348,7 +325,51 @@ def ensure_admin_user():
     finally:
         db.close()
 
-ensure_admin_user()
+
+def run_db_bootstrap() -> None:
+    steps = [
+        ("create_all", lambda: Base.metadata.create_all(bind=engine)),
+        ("ensure_task_columns", ensure_task_columns),
+        ("ensure_pickup_columns", ensure_pickup_columns),
+        ("ensure_user_permissions_column", ensure_user_permissions_column),
+        ("ensure_pickup_catalog_columns", ensure_pickup_catalog_columns),
+        ("ensure_pickup_catalog_item_type_overrides", ensure_pickup_catalog_item_type_overrides),
+        ("ensure_pickup_catalog_order_columns", ensure_pickup_catalog_order_columns),
+        ("ensure_pickup_catalog_order_item_columns", ensure_pickup_catalog_order_item_columns),
+        ("ensure_equipment_columns", ensure_equipment_columns),
+        ("ensure_pickup_catalog_indexes", ensure_pickup_catalog_indexes),
+        ("ensure_admin_user", ensure_admin_user),
+    ]
+    for step_name, step_fn in steps:
+        try:
+            step_fn()
+        except Exception:  # pragma: no cover - startup hardening
+            logger.exception("Falha ao executar bootstrap do banco (etapa: %s)", step_name)
+
+
+_bootstrap_lock = threading.Lock()
+_bootstrap_started = False
+
+
+def trigger_db_bootstrap() -> None:
+    global _bootstrap_started
+    with _bootstrap_lock:
+        if _bootstrap_started:
+            return
+        _bootstrap_started = True
+
+    mode = str(os.getenv("DB_BOOTSTRAP_MODE", "background") or "background").strip().lower()
+    if mode == "off":
+        logger.info("DB bootstrap desativado (DB_BOOTSTRAP_MODE=off).")
+        return
+    if mode == "sync":
+        logger.info("Executando DB bootstrap em modo sincronizado.")
+        run_db_bootstrap()
+        return
+
+    logger.info("Executando DB bootstrap em background.")
+    threading.Thread(target=run_db_bootstrap, daemon=True, name="db-bootstrap").start()
+
 
 app.include_router(tasks.router)
 app.include_router(auth.router)
@@ -367,6 +388,11 @@ def root():
 @app.get("/health")
 def healthcheck():
     return {"status": "ok"}
+
+
+@app.on_event("startup")
+def startup_event():
+    trigger_db_bootstrap()
 
 
 

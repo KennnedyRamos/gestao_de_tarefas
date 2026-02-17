@@ -60,6 +60,7 @@ Variaveis obrigatorias no Render:
 
 Opcional:
 - `UPLOADS_DIR` (somente se quiser salvar localmente no servidor)
+- `DB_BOOTSTRAP_MODE` (`background` recomendado no deploy; `sync` para rodar ajustes no startup; `off` para desativar)
 - `SUPABASE_URL`
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `SUPABASE_STORAGE_BUCKET` (ex.: `deliveries`)

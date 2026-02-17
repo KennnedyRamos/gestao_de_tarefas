@@ -31,6 +31,8 @@ services:
       # Se for usar disco persistente (pago), ajuste UPLOADS_DIR para /var/data/uploads.
       - key: UPLOADS_DIR
         value: uploads
+      - key: DB_BOOTSTRAP_MODE
+        value: background
       - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY

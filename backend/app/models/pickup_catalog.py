@@ -105,4 +105,5 @@ class PickupCatalogOrderItem(Base):
     quantity = Column(Integer, default=0)
     quantity_text = Column(String(120), default="")
     rg = Column(String(120), default="")
+    comodato_number = Column(String(120), default="")
     volume_key = Column(String(20), default="")

@@ -94,6 +94,29 @@ class PickupCatalogOrderOut(BaseModel):
         from_attributes = True
 
 
+class PickupCatalogOrderEmailRefrigeratorOut(BaseModel):
+    modelo: str = ""
+    rg: str = ""
+    etiqueta: str = ""
+    nota: str = ""
+
+
+class PickupCatalogOrderEmailOtherOut(BaseModel):
+    modelo: str = ""
+    quantidade: int = 0
+    nota: str = ""
+
+
+class PickupCatalogOrderEmailRequestOut(BaseModel):
+    order_id: int
+    order_number: str = ""
+    client_code: str = ""
+    nome_fantasia: str = ""
+    cnpj_cpf: str = ""
+    refrigeradores: List[PickupCatalogOrderEmailRefrigeratorOut] = Field(default_factory=list)
+    outros: List[PickupCatalogOrderEmailOtherOut] = Field(default_factory=list)
+
+
 class PickupCatalogOrderStatusUpdateIn(BaseModel):
     status: Literal["pendente", "concluida", "cancelada"]
     status_note: Optional[str] = ""

@@ -16,6 +16,7 @@ import {
   useMediaQuery
 } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
+import EmailIcon from '@mui/icons-material/Email';
 import dayjs from 'dayjs';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 
@@ -43,6 +44,58 @@ const normalizeStatus = (value) => {
 
 const statusLabel = (value) => STATUS_BY_VALUE[normalizeStatus(value)]?.label || 'Pendente';
 const statusColor = (value) => STATUS_BY_VALUE[normalizeStatus(value)]?.color || 'warning';
+
+const greetingByHour = () => {
+  const hour = new Date().getHours();
+  return hour < 12 ? 'Bom dia' : 'Boa tarde';
+};
+
+const buildEmailRequestBody = (payload) => {
+  const clientCode = safeText(payload?.client_code);
+  const fantasyName = safeText(payload?.nome_fantasia);
+  const cnpjCpf = safeText(payload?.cnpj_cpf);
+  const refrigerators = Array.isArray(payload?.refrigeradores) ? payload.refrigeradores : [];
+  const others = Array.isArray(payload?.outros) ? payload.outros : [];
+  const hasClientInfo = Boolean(clientCode || fantasyName || cnpjCpf);
+
+  const lines = [
+    `${greetingByHour()}, Gleicy!`,
+    '',
+    'Solicitação de baixa dos seguintes equipamentos já retirados:',
+    '',
+  ];
+
+  if (hasClientInfo) {
+    const clientLine = `${clientCode || '-'} - ${fantasyName || '-'}${cnpjCpf ? ` (${cnpjCpf})` : ''}:`;
+    lines.push(clientLine);
+    lines.push('');
+  }
+
+  if (refrigerators.length > 0) {
+    refrigerators.forEach((item) => {
+      lines.push(`Modelo: ${safeText(item?.modelo) || '-'}`);
+      lines.push(`RG: ${safeText(item?.rg) || '-'}`);
+      lines.push(`Etiqueta: ${safeText(item?.etiqueta) || '-'}`);
+      lines.push(`Nota: ${safeText(item?.nota) || '-'}`);
+      lines.push('');
+    });
+  }
+
+  if (others.length > 0) {
+    others.forEach((item) => {
+      lines.push(`Modelo: ${safeText(item?.modelo) || '-'}`);
+      lines.push(`Quantidade: ${Number(item?.quantidade || 0)}`);
+      lines.push(`Nota: ${safeText(item?.nota) || '-'}`);
+      lines.push('');
+    });
+  }
+
+  if (refrigerators.length === 0 && others.length === 0) {
+    lines.push('Nenhum equipamento encontrado na ordem.');
+  }
+
+  return lines.join('\n').trim();
+};
 
 const resolveView = (initialView, availableViews) => {
   const normalized = safeText(initialView).toLowerCase();
@@ -100,6 +153,7 @@ const PickupsCenter = ({ initialView = 'orders' }) => {
   const [bulkStatusNote, setBulkStatusNote] = useState('');
   const [bulkUpdating, setBulkUpdating] = useState(false);
   const [deletingOrderId, setDeletingOrderId] = useState(null);
+  const [emailingOrderId, setEmailingOrderId] = useState(null);
 
   useEffect(() => {
     setActiveView((prev) => {
@@ -329,6 +383,27 @@ const PickupsCenter = ({ initialView = 'orders' }) => {
     }
   };
 
+  const handleRequestLowByEmail = async (orderId, orderNumber) => {
+    setEmailingOrderId(orderId);
+    setError('');
+    setSuccess('');
+
+    try {
+      const response = await api.get(`/pickup-catalog/orders/${orderId}/email-request`);
+      const payload = response?.data || {};
+      const subject = `Solicitação de baixa ${safeText(payload?.client_code) || '-'} - ${safeText(payload?.nome_fantasia) || '-'}`;
+      const body = buildEmailRequestBody(payload);
+      const mailtoUrl = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+      window.location.href = mailtoUrl;
+      setSuccess(`Solicitação de baixa da ordem ${safeText(orderNumber) || `RET-${orderId}`} preparada no e-mail.`);
+    } catch (err) {
+      const detail = err?.response?.data?.detail;
+      setError(typeof detail === 'string' ? detail : 'Erro ao preparar solicitação de baixa por e-mail.');
+    } finally {
+      setEmailingOrderId(null);
+    }
+  };
+
   const helperText = availableViews.find((item) => item.value === activeView)?.helper || '';
 
   return (
@@ -552,6 +627,19 @@ const PickupsCenter = ({ initialView = 'orders' }) => {
                           sx={{ width: { xs: '100%', sm: 'auto' } }}
                         >
                           {deletingOrderId === item.id ? 'Excluindo...' : 'Excluir ordem'}
+                        </Button>
+                      )}
+                      {item.status === 'concluida' && (
+                        <Button
+                          size="small"
+                          color="primary"
+                          variant="outlined"
+                          startIcon={<EmailIcon />}
+                          onClick={() => handleRequestLowByEmail(item.id, item.orderNumber)}
+                          disabled={updatingOrderId === item.id || bulkUpdating || emailingOrderId === item.id}
+                          sx={{ width: { xs: '100%', sm: 'auto' } }}
+                        >
+                          {emailingOrderId === item.id ? 'Abrindo e-mail...' : 'Solicitar baixa por e-mail'}
                         </Button>
                       )}
                       {updatingOrderId === item.id && (

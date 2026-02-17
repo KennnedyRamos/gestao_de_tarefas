@@ -21,6 +21,7 @@ from app.models.pickup_catalog import (
     PickupCatalogOrderItem,
     PickupCatalogUploadBatch,
 )
+from app.models.equipment import Equipment
 from app.models.user import User
 from app.schemas.pickup_catalog import (
     PickupCatalogClientData,
@@ -30,6 +31,9 @@ from app.schemas.pickup_catalog import (
     PickupCatalogOrderBulkStatusUpdateOut,
     PickupCatalogInventoryItemOut,
     PickupCatalogOrderOut,
+    PickupCatalogOrderEmailOtherOut,
+    PickupCatalogOrderEmailRefrigeratorOut,
+    PickupCatalogOrderEmailRequestOut,
     PickupCatalogOrderStatusUpdateIn,
     PickupCatalogPdfRequest,
     PickupCatalogStats,
@@ -253,6 +257,7 @@ def _build_line_from_inventory(item: PickupCatalogInventoryItem, quantity: int) 
         "type_label": item_type_label(item_type),
         "quantity": quantity,
         "rg": _safe_text(item.rg),
+        "comodato_number": _safe_text(item.comodato_number),
         "volume_key": _safe_text(item.volume_key),
     }
 
@@ -282,6 +287,7 @@ def _build_line_from_manual(
         "type_label": item_type_label(normalized_type),
         "quantity": quantity,
         "rg": _safe_text(rg),
+        "comodato_number": "",
         "volume_key": _safe_text(volume_key),
     }
 
@@ -310,6 +316,10 @@ def _build_summary(lines: list[dict[str, Any]]) -> str:
         else:
             parts.append(f"{description} - {quantity_text}")
     return "; ".join(parts)
+
+
+def _normalize_code_key(value: Any) -> str:
+    return re.sub(r"\s+", "", _safe_text(value)).upper()
 
 
 def _equipment_by_type(items: list[PickupCatalogInventoryItem]) -> dict[str, list[dict[str, Any]]]:
@@ -758,6 +768,94 @@ def bulk_update_order_status(
     return PickupCatalogOrderBulkStatusUpdateOut(updated_count=len(output_orders), orders=output_orders)
 
 
+@router.get("/orders/{order_id}/email-request", response_model=PickupCatalogOrderEmailRequestOut)
+def get_order_email_request(
+    order_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_pickup_catalog_withdrawals_access),
+):
+    order = (
+        db.query(PickupCatalogOrder)
+        .options(
+            load_only(
+                PickupCatalogOrder.id,
+                PickupCatalogOrder.order_number,
+                PickupCatalogOrder.client_code,
+                PickupCatalogOrder.nome_fantasia,
+                PickupCatalogOrder.cnpj_cpf,
+            )
+        )
+        .filter(PickupCatalogOrder.id == order_id)
+        .first()
+    )
+    if not order:
+        raise HTTPException(status_code=404, detail="Ordem de retirada não encontrada.")
+
+    order_items = (
+        db.query(PickupCatalogOrderItem)
+        .filter(PickupCatalogOrderItem.order_id == order_id)
+        .order_by(PickupCatalogOrderItem.id.asc())
+        .all()
+    )
+
+    normalized_rgs = sorted({
+        _normalize_code_key(item.rg)
+        for item in order_items
+        if _safe_text(item.rg)
+    })
+
+    equipment_by_rg: dict[str, Equipment] = {}
+    if normalized_rgs:
+        matched_equipments = (
+            db.query(Equipment)
+            .filter(func.replace(func.upper(Equipment.rg_code), " ", "").in_(normalized_rgs))
+            .all()
+        )
+        equipment_by_rg = {
+            _normalize_code_key(equipment.rg_code): equipment
+            for equipment in matched_equipments
+        }
+
+    refrigeradores: list[PickupCatalogOrderEmailRefrigeratorOut] = []
+    outros: list[PickupCatalogOrderEmailOtherOut] = []
+
+    for item in order_items:
+        item_type = _safe_text(item.item_type) or "outro"
+        modelo = _safe_text(item.description)
+        rg = _safe_text(item.rg)
+        nota = _safe_text(getattr(item, "comodato_number", ""))
+
+        if item_type == "refrigerador":
+            equipment = equipment_by_rg.get(_normalize_code_key(rg))
+            refrigeradores.append(
+                PickupCatalogOrderEmailRefrigeratorOut(
+                    modelo=_safe_text(getattr(equipment, "model_name", "")) or modelo,
+                    rg=rg,
+                    etiqueta=_safe_text(getattr(equipment, "tag_code", "")),
+                    nota=nota,
+                )
+            )
+            continue
+
+        outros.append(
+            PickupCatalogOrderEmailOtherOut(
+                modelo=modelo,
+                quantidade=int(item.quantity or 0),
+                nota=nota,
+            )
+        )
+
+    return PickupCatalogOrderEmailRequestOut(
+        order_id=order.id,
+        order_number=_safe_text(order.order_number),
+        client_code=_safe_text(order.client_code),
+        nome_fantasia=_safe_text(order.nome_fantasia),
+        cnpj_cpf=_safe_text(order.cnpj_cpf),
+        refrigeradores=refrigeradores,
+        outros=outros,
+    )
+
+
 @router.delete("/orders/{order_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_order(
     order_id: int,
@@ -929,6 +1027,7 @@ def create_order_pdf(
                 quantity=int(line.get("quantity", 0) or 0),
                 quantity_text=_safe_text(line.get("quantity_text")),
                 rg=_safe_text(line.get("rg")),
+                comodato_number=_safe_text(line.get("comodato_number")),
                 volume_key=_safe_text(line.get("volume_key")),
             )
         )

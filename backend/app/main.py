@@ -200,6 +200,26 @@ def ensure_pickup_catalog_order_columns():
 ensure_pickup_catalog_order_columns()
 
 
+def ensure_pickup_catalog_order_item_columns():
+    inspector = inspect(engine)
+    if "pickup_catalog_order_items" not in inspector.get_table_names():
+        return
+    columns = [col["name"] for col in inspector.get_columns("pickup_catalog_order_items")]
+    with engine.begin() as conn:
+        if "comodato_number" not in columns:
+            conn.execute(text("ALTER TABLE pickup_catalog_order_items ADD COLUMN comodato_number VARCHAR"))
+        conn.execute(
+            text(
+                "UPDATE pickup_catalog_order_items "
+                "SET comodato_number = '' "
+                "WHERE comodato_number IS NULL"
+            )
+        )
+
+
+ensure_pickup_catalog_order_item_columns()
+
+
 def ensure_equipment_columns():
     inspector = inspect(engine)
     if "equipments" not in inspector.get_table_names():

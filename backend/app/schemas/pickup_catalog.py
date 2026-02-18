@@ -84,10 +84,12 @@ class PickupCatalogOrderOut(BaseModel):
     nome_fantasia: str = ""
     withdrawal_date: str = ""
     status: str = "pendente"
+    email_request_status: str = ""
     status_note: str = ""
     status_updated_by: str = ""
     status_updated_at: Optional[datetime] = None
     summary_line: str = ""
+    has_refrigerator: bool = False
     created_at: Optional[datetime] = None
 
     class Config:
@@ -120,15 +122,26 @@ class PickupCatalogOrderEmailRequestOut(BaseModel):
 class PickupCatalogOrderStatusUpdateIn(BaseModel):
     status: Literal["pendente", "concluida", "cancelada"]
     status_note: Optional[str] = ""
+    refrigerator_condition: Optional[Literal["boa", "recap", "sucata"]] = None
 
 
 class PickupCatalogOrderBulkStatusUpdateIn(BaseModel):
     order_ids: List[int] = Field(default_factory=list)
     status: Literal["pendente", "concluida", "cancelada"]
     status_note: Optional[str] = ""
+    refrigerator_condition: Optional[Literal["boa", "recap", "sucata"]] = None
 
 
 class PickupCatalogOrderBulkStatusUpdateOut(BaseModel):
+    updated_count: int = 0
+    orders: List[PickupCatalogOrderOut] = Field(default_factory=list)
+
+
+class PickupCatalogOrderEmailRequestBulkIn(BaseModel):
+    order_ids: List[int] = Field(default_factory=list)
+
+
+class PickupCatalogOrderEmailRequestBulkOut(BaseModel):
     updated_count: int = 0
     orders: List[PickupCatalogOrderOut] = Field(default_factory=list)
 

@@ -16,6 +16,7 @@ import PickupsDataUpload from './pages/PickupsDataUpload';
 import PickupsCenter from './pages/PickupsCenter';
 import OperationsHub from './pages/OperationsHub';
 import Equipments from './pages/Equipments';
+import Requests from './pages/Requests';
 import Layout from './components/Layout';
 import { getToken, hasAnyPermission, hasPermission, isAdmin } from './utils/auth';
 import './App.css';
@@ -139,6 +140,24 @@ function App() {
             element={(
               <RequireAnyPermission permissions={['equipments.view', 'equipments.manage']}>
                 <Equipments />
+              </RequireAnyPermission>
+            )}
+          />
+          <Route
+            path="requests"
+            element={(
+              <RequireAnyPermission
+                permissions={[
+                  'deliveries.manage',
+                  'pickups.create_order',
+                  'pickups.import_base',
+                  'pickups.orders_history',
+                  'pickups.withdrawals_history',
+                  'equipments.view',
+                  'equipments.manage'
+                ]}
+              >
+                <Requests />
               </RequireAnyPermission>
             )}
           />

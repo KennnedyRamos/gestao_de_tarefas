@@ -8,6 +8,7 @@
 
 # Virtual environments
 backend/venv/
+backend/.venv/
 
 # Environment files
 backend/.env

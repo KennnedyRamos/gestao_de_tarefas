@@ -16,20 +16,32 @@ import {
   useMediaQuery
 } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
-import EmailIcon from '@mui/icons-material/Email';
 import dayjs from 'dayjs';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 
 import api from '../services/api';
 import { hasPermission } from '../utils/auth';
 
-const PAGE_SIZE = 30;
+const PAGE_SIZE = 25;
 const safeText = (value) => String(value || '').trim();
+const ORDERS_SCROLL_SX = {
+  display: 'grid',
+  gap: 1.25,
+  maxHeight: { xs: '60vh', md: '68vh' },
+  overflowY: 'auto',
+  pr: { xs: 0, sm: 0.25 },
+};
 
 const STATUS_OPTIONS = [
   { value: 'pendente', label: 'Pendente', color: 'warning' },
-  { value: 'concluida', label: 'Concluída', color: 'success' },
+  { value: 'concluida', label: 'Conclu\u00EDda', color: 'success' },
   { value: 'cancelada', label: 'Cancelada', color: 'error' }
+];
+
+const REFRIGERATOR_CONDITION_OPTIONS = [
+  { value: 'boa', label: 'Boa (disponivel)' },
+  { value: 'recap', label: 'Recap (reforma)' },
+  { value: 'sucata', label: 'Sucata (descarte)' }
 ];
 
 const STATUS_BY_VALUE = STATUS_OPTIONS.reduce((acc, option) => {
@@ -44,58 +56,6 @@ const normalizeStatus = (value) => {
 
 const statusLabel = (value) => STATUS_BY_VALUE[normalizeStatus(value)]?.label || 'Pendente';
 const statusColor = (value) => STATUS_BY_VALUE[normalizeStatus(value)]?.color || 'warning';
-
-const greetingByHour = () => {
-  const hour = new Date().getHours();
-  return hour < 12 ? 'Bom dia' : 'Boa tarde';
-};
-
-const buildEmailRequestBody = (payload) => {
-  const clientCode = safeText(payload?.client_code);
-  const fantasyName = safeText(payload?.nome_fantasia);
-  const cnpjCpf = safeText(payload?.cnpj_cpf);
-  const refrigerators = Array.isArray(payload?.refrigeradores) ? payload.refrigeradores : [];
-  const others = Array.isArray(payload?.outros) ? payload.outros : [];
-  const hasClientInfo = Boolean(clientCode || fantasyName || cnpjCpf);
-
-  const lines = [
-    `${greetingByHour()}, Gleicy!`,
-    '',
-    'Solicitação de baixa dos seguintes equipamentos já retirados:',
-    '',
-  ];
-
-  if (hasClientInfo) {
-    const clientLine = `${clientCode || '-'} - ${fantasyName || '-'}${cnpjCpf ? ` (${cnpjCpf})` : ''}:`;
-    lines.push(clientLine);
-    lines.push('');
-  }
-
-  if (refrigerators.length > 0) {
-    refrigerators.forEach((item) => {
-      lines.push(`Modelo: ${safeText(item?.modelo) || '-'}`);
-      lines.push(`RG: ${safeText(item?.rg) || '-'}`);
-      lines.push(`Etiqueta: ${safeText(item?.etiqueta) || '-'}`);
-      lines.push(`Nota: ${safeText(item?.nota) || '-'}`);
-      lines.push('');
-    });
-  }
-
-  if (others.length > 0) {
-    others.forEach((item) => {
-      lines.push(`Modelo: ${safeText(item?.modelo) || '-'}`);
-      lines.push(`Quantidade: ${Number(item?.quantidade || 0)}`);
-      lines.push(`Nota: ${safeText(item?.nota) || '-'}`);
-      lines.push('');
-    });
-  }
-
-  if (refrigerators.length === 0 && others.length === 0) {
-    lines.push('Nenhum equipamento encontrado na ordem.');
-  }
-
-  return lines.join('\n').trim();
-};
 
 const resolveView = (initialView, availableViews) => {
   const normalized = safeText(initialView).toLowerCase();
@@ -122,15 +82,15 @@ const PickupsCenter = ({ initialView = 'orders' }) => {
     if (canOrdersHistory) {
       views.push({
         value: 'orders',
-        label: 'Visão de ordens',
+        label: 'Vis\u00E3o de ordens',
         helper: 'Lista consolidada das ordens geradas'
       });
     }
     if (canWithdrawalsHistory) {
       views.push({
         value: 'withdrawals',
-        label: 'Gestão de retiradas',
-        helper: 'Atualização de status individual e em lote'
+        label: 'Gest\u00E3o de retiradas',
+        helper: 'Atualiza\u00E7\u00E3o de status individual e em lote'
       });
     }
     return views;
@@ -151,9 +111,10 @@ const PickupsCenter = ({ initialView = 'orders' }) => {
   const [selectedOrderIds, setSelectedOrderIds] = useState([]);
   const [bulkStatus, setBulkStatus] = useState('concluida');
   const [bulkStatusNote, setBulkStatusNote] = useState('');
+  const [bulkRefrigeratorCondition, setBulkRefrigeratorCondition] = useState('');
   const [bulkUpdating, setBulkUpdating] = useState(false);
   const [deletingOrderId, setDeletingOrderId] = useState(null);
-  const [emailingOrderId, setEmailingOrderId] = useState(null);
+  const [statusConditionByOrder, setStatusConditionByOrder] = useState({});
 
   useEffect(() => {
     setActiveView((prev) => {
@@ -239,15 +200,24 @@ const PickupsCenter = ({ initialView = 'orders' }) => {
     () => orders.map((item) => {
       const createdAt = item?.created_at ? dayjs(item.created_at) : null;
       const statusUpdatedAt = item?.status_updated_at ? dayjs(item.status_updated_at) : null;
+      const summaryLine = safeText(item?.summary_line);
+      const summaryHint = summaryLine.toLowerCase();
+      const hasRefrigeratorHint = (
+        summaryHint.includes('(rg')
+        || summaryHint.includes(' rg ')
+        || summaryHint.includes('refrigerador')
+        || summaryHint.includes('visa cooler')
+      );
 
       return {
         id: item?.id,
         orderNumber: safeText(item?.order_number),
         clientCode: safeText(item?.client_code),
         fantasyName: safeText(item?.nome_fantasia),
-        summaryLine: safeText(item?.summary_line),
+        summaryLine,
         withdrawalDate: safeText(item?.withdrawal_date),
         status: normalizeStatus(item?.status),
+        hasRefrigerator: Boolean(item?.has_refrigerator) || hasRefrigeratorHint,
         statusNote: safeText(item?.status_note),
         statusUpdatedBy: safeText(item?.status_updated_by),
         createdAtLabel: createdAt && createdAt.isValid() ? createdAt.format('DD/MM/YYYY HH:mm') : '-',
@@ -275,9 +245,26 @@ const PickupsCenter = ({ initialView = 'orders' }) => {
     return { total, pendente, concluida, cancelada };
   }, [formattedOrders]);
 
+  useEffect(() => {
+    setStatusConditionByOrder((prev) => {
+      const next = {};
+      formattedOrders.forEach((item) => {
+        if (!item?.hasRefrigerator) {
+          return;
+        }
+        next[item.id] = safeText(prev[item.id]).toLowerCase();
+      });
+      return next;
+    });
+  }, [formattedOrders]);
+
   const selectedIdSet = useMemo(() => new Set(selectedOrderIds), [selectedOrderIds]);
   const allSelected = formattedOrders.length > 0 && formattedOrders.every((item) => selectedIdSet.has(item.id));
   const partiallySelected = selectedOrderIds.length > 0 && !allSelected;
+  const selectionHasRefrigerator = useMemo(
+    () => formattedOrders.some((item) => selectedIdSet.has(item.id) && Boolean(item?.hasRefrigerator)),
+    [formattedOrders, selectedIdSet]
+  );
 
   const handleToggleOrder = (orderId) => {
     setSelectedOrderIds((prev) => (
@@ -302,6 +289,19 @@ const PickupsCenter = ({ initialView = 'orders' }) => {
 
   const handleUpdateStatus = async (orderId, nextStatus) => {
     const normalizedStatus = normalizeStatus(nextStatus);
+    const targetOrder = formattedOrders.find((item) => item.id === orderId);
+    const hasRefrigerator = Boolean(targetOrder?.hasRefrigerator);
+    const refrigeratorCondition = safeText(statusConditionByOrder[orderId]).toLowerCase();
+
+    if (
+      normalizedStatus === 'concluida'
+      && hasRefrigerator
+      && !REFRIGERATOR_CONDITION_OPTIONS.some((option) => option.value === refrigeratorCondition)
+    ) {
+      setError('Selecione a condicao do refrigerador (Boa, Recap ou Sucata) antes de concluir.');
+      return;
+    }
+
     setUpdatingOrderId(orderId);
     setError('');
     setSuccess('');
@@ -309,7 +309,10 @@ const PickupsCenter = ({ initialView = 'orders' }) => {
     try {
       const response = await api.patch(`/pickup-catalog/orders/${orderId}/status`, {
         status: normalizedStatus,
-        status_note: ''
+        status_note: '',
+        refrigerator_condition: normalizedStatus === 'concluida' && hasRefrigerator
+          ? refrigeratorCondition
+          : undefined,
       });
       const updatedOrder = response?.data || {};
       mergeUpdatedOrders([updatedOrder]);
@@ -330,6 +333,18 @@ const PickupsCenter = ({ initialView = 'orders' }) => {
       setError('Selecione pelo menos uma ordem para atualizar em lote.');
       return;
     }
+    const normalizedBulkStatus = normalizeStatus(bulkStatus);
+    const selectedOrders = formattedOrders.filter((item) => selectedOrderIds.includes(item.id));
+    const hasRefrigeratorInSelection = selectedOrders.some((item) => Boolean(item?.hasRefrigerator));
+    const normalizedBulkCondition = safeText(bulkRefrigeratorCondition).toLowerCase();
+    if (
+      normalizedBulkStatus === 'concluida'
+      && hasRefrigeratorInSelection
+      && !REFRIGERATOR_CONDITION_OPTIONS.some((option) => option.value === normalizedBulkCondition)
+    ) {
+      setError('Selecione a condicao do refrigerador (Boa, Recap ou Sucata) para concluir em lote.');
+      return;
+    }
 
     setBulkUpdating(true);
     setError('');
@@ -338,14 +353,18 @@ const PickupsCenter = ({ initialView = 'orders' }) => {
     try {
       const response = await api.patch('/pickup-catalog/orders/status/bulk', {
         order_ids: selectedOrderIds,
-        status: normalizeStatus(bulkStatus),
-        status_note: safeText(bulkStatusNote)
+        status: normalizedBulkStatus,
+        status_note: safeText(bulkStatusNote),
+        refrigerator_condition: normalizedBulkStatus === 'concluida' && hasRefrigeratorInSelection
+          ? normalizedBulkCondition
+          : undefined,
       });
 
       const updatedCount = Number(response?.data?.updated_count || 0);
       const updatedOrders = Array.isArray(response?.data?.orders) ? response.data.orders : [];
       mergeUpdatedOrders(updatedOrders);
       setSelectedOrderIds([]);
+      setBulkRefrigeratorCondition('');
 
       setSuccess(`${updatedCount} ordem(ns) atualizada(s) para ${statusLabel(bulkStatus)}.`);
     } catch (err) {
@@ -357,7 +376,7 @@ const PickupsCenter = ({ initialView = 'orders' }) => {
   };
 
   const handleDeleteOrder = async (orderId, orderNumber) => {
-    if (!window.confirm('Deseja excluir esta ordem cancelada? Esta ação não pode ser desfeita.')) {
+    if (!window.confirm('Deseja excluir esta ordem cancelada? Esta a\u00E7\u00E3o n\u00E3o pode ser desfeita.')) {
       return;
     }
 
@@ -374,33 +393,12 @@ const PickupsCenter = ({ initialView = 'orders' }) => {
         query: searchDebounced,
         status: effectiveStatusFilter,
       });
-      setSuccess(`Ordem ${safeText(orderNumber) || `RET-${orderId}`} excluída com sucesso.`);
+      setSuccess(`Ordem ${safeText(orderNumber) || `RET-${orderId}`} exclu\u00EDda com sucesso.`);
     } catch (err) {
       const detail = err?.response?.data?.detail;
       setError(typeof detail === 'string' ? detail : 'Erro ao excluir ordem cancelada.');
     } finally {
       setDeletingOrderId(null);
-    }
-  };
-
-  const handleRequestLowByEmail = async (orderId, orderNumber) => {
-    setEmailingOrderId(orderId);
-    setError('');
-    setSuccess('');
-
-    try {
-      const response = await api.get(`/pickup-catalog/orders/${orderId}/email-request`);
-      const payload = response?.data || {};
-      const subject = `Solicitação de baixa ${safeText(payload?.client_code) || '-'} - ${safeText(payload?.nome_fantasia) || '-'}`;
-      const body = buildEmailRequestBody(payload);
-      const mailtoUrl = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-      window.location.href = mailtoUrl;
-      setSuccess(`Solicitação de baixa da ordem ${safeText(orderNumber) || `RET-${orderId}`} preparada no e-mail.`);
-    } catch (err) {
-      const detail = err?.response?.data?.detail;
-      setError(typeof detail === 'string' ? detail : 'Erro ao preparar solicitação de baixa por e-mail.');
-    } finally {
-      setEmailingOrderId(null);
     }
   };
 
@@ -445,7 +443,7 @@ const PickupsCenter = ({ initialView = 'orders' }) => {
 
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: activeView === 'withdrawals' ? '2fr 1fr' : '1fr' }, gap: 1 }}>
         <TextField
-          label="Pesquisar por número da ordem, código ou nome fantasia"
+          label="Pesquisar por n\u00FAmero da ordem, c\u00F3digo ou nome fantasia"
           placeholder="Ex.: RET-20260214-000010, 10099 ou Nome Fantasia"
           value={searchQuery}
           onChange={(event) => setSearchQuery(event.target.value)}
@@ -474,7 +472,7 @@ const PickupsCenter = ({ initialView = 'orders' }) => {
       <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
         <Chip label={`Carregadas: ${summary.total}`} />
         <Chip color="warning" label={`Pendentes: ${summary.pendente}`} />
-        <Chip color="success" label={`Concluídas: ${summary.concluida}`} />
+        <Chip color="success" label={`Conclu\u00EDdas: ${summary.concluida}`} />
         <Chip color="error" label={`Canceladas: ${summary.cancelada}`} />
       </Box>
 
@@ -482,7 +480,7 @@ const PickupsCenter = ({ initialView = 'orders' }) => {
         <Box
           sx={{
             display: 'grid',
-            gridTemplateColumns: { xs: '1fr', lg: 'auto minmax(180px, 220px) minmax(220px, 1fr) auto' },
+            gridTemplateColumns: { xs: '1fr', lg: 'auto minmax(180px, 220px) minmax(220px, 1fr) minmax(200px, 240px) auto' },
             gap: 1,
             alignItems: 'center'
           }}
@@ -516,13 +514,37 @@ const PickupsCenter = ({ initialView = 'orders' }) => {
           </TextField>
 
           <TextField
-            label="Observação do status (opcional)"
+            label="Observa\u00E7\u00E3o do status (opcional)"
             value={bulkStatusNote}
             onChange={(event) => setBulkStatusNote(event.target.value)}
             size="small"
             fullWidth
             disabled={bulkUpdating}
           />
+
+          <TextField
+            select
+            label="Condi\u00E7\u00E3o do refrigerador"
+            value={bulkRefrigeratorCondition}
+            onChange={(event) => setBulkRefrigeratorCondition(event.target.value)}
+            size="small"
+            fullWidth
+            disabled={bulkUpdating || bulkStatus !== 'concluida'}
+            helperText={
+              bulkStatus !== 'concluida'
+                ? 'Defina status Conclu\\u00EDda para aplicar.'
+                : selectionHasRefrigerator
+                  ? 'Obrigatoria para ordens com refrigerador.'
+                  : 'Selecione ao menos uma ordem com refrigerador.'
+            }
+          >
+            <MenuItem value="">Selecione</MenuItem>
+            {REFRIGERATOR_CONDITION_OPTIONS.map((option) => (
+              <MenuItem key={option.value} value={option.value}>
+                {option.label}
+              </MenuItem>
+            ))}
+          </TextField>
 
           <Button
             variant="contained"
@@ -545,7 +567,8 @@ const PickupsCenter = ({ initialView = 'orders' }) => {
         </Typography>
       ) : (
         <>
-          {formattedOrders.map((item, index) => (
+          <Box sx={ORDERS_SCROLL_SX}>
+            {formattedOrders.map((item, index) => (
             <Card
               key={item.id}
               className="stagger-item"
@@ -571,7 +594,7 @@ const PickupsCenter = ({ initialView = 'orders' }) => {
                 </Box>
 
                 <Typography variant="body2" color="text.secondary">
-                  Código do cliente: {item.clientCode || '-'}
+                  C\u00F3digo do cliente: {item.clientCode || '-'}
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
                   Nome fantasia: {item.fantasyName || '-'}
@@ -590,14 +613,14 @@ const PickupsCenter = ({ initialView = 'orders' }) => {
                   <>
                     {(item.statusUpdatedAtLabel || item.statusUpdatedBy) && (
                       <Typography variant="caption" color="text.secondary">
-                        Última atualização: {item.statusUpdatedAtLabel || '-'}
+                        \u00DAltima atualiza\u00E7\u00E3o: {item.statusUpdatedAtLabel || '-'}
                         {item.statusUpdatedBy ? ` por ${item.statusUpdatedBy}` : ''}
                       </Typography>
                     )}
 
                     {item.statusNote && (
                       <Typography variant="caption" color="text.secondary">
-                        Observação do status: {item.statusNote}
+                        Observa\u00E7\u00E3o do status: {item.statusNote}
                       </Typography>
                     )}
 
@@ -617,6 +640,28 @@ const PickupsCenter = ({ initialView = 'orders' }) => {
                           </MenuItem>
                         ))}
                       </TextField>
+                      {item.hasRefrigerator && (
+                        <TextField
+                          select
+                          label="Condi\u00E7\u00E3o do refrigerador"
+                          value={statusConditionByOrder[item.id] || ''}
+                          onChange={(event) => setStatusConditionByOrder((prev) => ({
+                            ...prev,
+                            [item.id]: safeText(event.target.value).toLowerCase(),
+                          }))}
+                          size="small"
+                          sx={{ width: { xs: '100%', sm: 260 }, maxWidth: '100%' }}
+                          disabled={updatingOrderId === item.id || bulkUpdating}
+                          helperText="Selecione antes de marcar a retirada como Conclu\u00EDda."
+                        >
+                          <MenuItem value="">Selecione</MenuItem>
+                          {REFRIGERATOR_CONDITION_OPTIONS.map((option) => (
+                            <MenuItem key={option.value} value={option.value}>
+                              {option.label}
+                            </MenuItem>
+                          ))}
+                        </TextField>
+                      )}
                       {item.status === 'cancelada' && (
                         <Button
                           size="small"
@@ -629,19 +674,6 @@ const PickupsCenter = ({ initialView = 'orders' }) => {
                           {deletingOrderId === item.id ? 'Excluindo...' : 'Excluir ordem'}
                         </Button>
                       )}
-                      {item.status === 'concluida' && (
-                        <Button
-                          size="small"
-                          color="primary"
-                          variant="outlined"
-                          startIcon={<EmailIcon />}
-                          onClick={() => handleRequestLowByEmail(item.id, item.orderNumber)}
-                          disabled={updatingOrderId === item.id || bulkUpdating || emailingOrderId === item.id}
-                          sx={{ width: { xs: '100%', sm: 'auto' } }}
-                        >
-                          {emailingOrderId === item.id ? 'Abrindo e-mail...' : 'Solicitar baixa por e-mail'}
-                        </Button>
-                      )}
                       {updatingOrderId === item.id && (
                         <Typography variant="caption" color="text.secondary">
                           Atualizando status...
@@ -652,7 +684,8 @@ const PickupsCenter = ({ initialView = 'orders' }) => {
                 )}
               </CardContent>
             </Card>
-          ))}
+            ))}
+          </Box>
 
           {hasMore && (
             <Box sx={{ display: 'flex', justifyContent: 'center', pt: 0.5 }}>
@@ -677,3 +710,5 @@ const PickupsCenter = ({ initialView = 'orders' }) => {
 };
 
 export default PickupsCenter;
+
+

@@ -27,6 +27,8 @@ from app.schemas.pickup_catalog import (
     PickupCatalogClientData,
     PickupCatalogClientOut,
     PickupCatalogDailyFollowupOut,
+    PickupCatalogOrderEmailRequestBulkIn,
+    PickupCatalogOrderEmailRequestBulkOut,
     PickupCatalogOrderBulkStatusUpdateIn,
     PickupCatalogOrderBulkStatusUpdateOut,
     PickupCatalogInventoryItemOut,
@@ -67,6 +69,12 @@ MANUAL_CLIENT_FIELDS = {
 }
 
 ORDER_STATUS_VALUES = {"pendente", "concluida", "cancelada"}
+EMAIL_REQUEST_STATUS_VALUES = {"pending", "requested"}
+REFRIGERATOR_CONDITION_TO_EQUIPMENT_STATUS = {
+    "boa": "disponivel",
+    "recap": "recap",
+    "sucata": "sucata",
+}
 
 
 def _resolve_brazil_tz():
@@ -106,6 +114,20 @@ def _safe_text(value: Any) -> str:
 def _normalized_order_status(value: Any) -> str:
     status_value = _safe_text(value).lower()
     return status_value if status_value in ORDER_STATUS_VALUES else "pendente"
+
+
+def _normalized_email_request_status(value: Any, default: str = "") -> str:
+    status_value = _safe_text(value).lower()
+    if status_value in EMAIL_REQUEST_STATUS_VALUES:
+        return status_value
+    return default
+
+
+def _normalized_refrigerator_condition(value: Any) -> str:
+    condition_value = _safe_text(value).lower()
+    if condition_value in REFRIGERATOR_CONDITION_TO_EQUIPMENT_STATUS:
+        return condition_value
+    return ""
 
 
 def _now_brazil() -> datetime:
@@ -322,6 +344,68 @@ def _normalize_code_key(value: Any) -> str:
     return re.sub(r"\s+", "", _safe_text(value)).upper()
 
 
+def _looks_like_refrigerator(item_type: Any, rg_value: Any) -> bool:
+    normalized_type = _safe_text(item_type).lower()
+    if normalized_type.startswith("refrigerador"):
+        return True
+    return bool(_safe_text(rg_value))
+
+
+def _is_refrigerator_order_item(item: PickupCatalogOrderItem) -> bool:
+    return _looks_like_refrigerator(getattr(item, "item_type", ""), getattr(item, "rg", ""))
+
+
+def _has_refrigerator_map_for_orders(db: Session, order_ids: list[int]) -> set[int]:
+    normalized_ids = sorted({int(order_id) for order_id in order_ids if int(order_id) > 0})
+    if not normalized_ids:
+        return set()
+    rows = (
+        db.query(
+            PickupCatalogOrderItem.order_id.label("order_id"),
+            PickupCatalogOrderItem.item_type.label("item_type"),
+            PickupCatalogOrderItem.rg.label("rg"),
+        )
+        .filter(PickupCatalogOrderItem.order_id.in_(normalized_ids))
+        .all()
+    )
+    order_ids_with_refrigerator: set[int] = set()
+    for row in rows:
+        if _looks_like_refrigerator(row.item_type, row.rg):
+            order_ids_with_refrigerator.add(int(row.order_id))
+    return order_ids_with_refrigerator
+
+
+def _apply_refrigerator_condition_to_equipments(
+    db: Session,
+    refrigerator_items: list[PickupCatalogOrderItem],
+    condition: str,
+) -> None:
+    normalized_condition = _normalized_refrigerator_condition(condition)
+    if not normalized_condition:
+        return
+    target_status = REFRIGERATOR_CONDITION_TO_EQUIPMENT_STATUS[normalized_condition]
+
+    normalized_rgs = sorted({
+        _normalize_code_key(item.rg)
+        for item in refrigerator_items
+        if _safe_text(item.rg)
+    })
+    if not normalized_rgs:
+        return
+
+    equipments = (
+        db.query(Equipment)
+        .filter(
+            Equipment.category == "refrigerador",
+            func.replace(func.upper(Equipment.rg_code), " ", "").in_(normalized_rgs),
+        )
+        .all()
+    )
+    for equipment in equipments:
+        equipment.status = target_status
+        equipment.client_name = None
+
+
 def _equipment_by_type(items: list[PickupCatalogInventoryItem]) -> dict[str, list[dict[str, Any]]]:
     grouped: dict[str, dict[str, dict[str, Any]]] = {}
     for item in items:
@@ -402,6 +486,27 @@ def _load_inventory_items_for_client(db: Session, client_id: int) -> list[Pickup
         query = query.filter(PickupCatalogInventoryItem.batch_id == latest_batch_id)
 
     return query.order_by(PickupCatalogInventoryItem.item_type.asc(), PickupCatalogInventoryItem.description.asc()).all()
+
+
+def _order_out(order: PickupCatalogOrder, has_refrigerator: bool = False) -> PickupCatalogOrderOut:
+    return PickupCatalogOrderOut(
+        id=order.id,
+        order_number=_safe_text(order.order_number),
+        client_code=_safe_text(order.client_code),
+        nome_fantasia=_safe_text(order.nome_fantasia),
+        withdrawal_date=_safe_text(order.withdrawal_date),
+        status=_normalized_order_status(order.status),
+        email_request_status=_normalized_email_request_status(
+            order.email_request_status,
+            default="pending" if _normalized_order_status(order.status) == "concluida" else "",
+        ),
+        status_note=_safe_text(order.status_note),
+        status_updated_by=_safe_text(order.status_updated_by),
+        status_updated_at=order.status_updated_at,
+        summary_line=_safe_text(order.summary_line),
+        has_refrigerator=bool(has_refrigerator),
+        created_at=order.created_at,
+    )
 
 
 def _latest_status(db: Session) -> tuple[bool, PickupCatalogStats, datetime | None]:
@@ -668,11 +773,15 @@ def list_orders(
     limit: int = Query(default=DEFAULT_ORDERS_PAGE_SIZE, ge=1, le=MAX_ORDERS_PAGE_SIZE),
     offset: int = Query(default=0, ge=0),
     status_filter: str | None = Query(default=None, alias="status"),
+    email_request_status: str | None = Query(default=None),
     q: str | None = Query(default=None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_pickup_catalog_orders_access),
 ):
     normalized_status_filter = _normalized_order_status(status_filter) if _safe_text(status_filter) else ""
+    normalized_email_filter = _safe_text(email_request_status).lower()
+    if normalized_email_filter and normalized_email_filter not in EMAIL_REQUEST_STATUS_VALUES:
+        raise HTTPException(status_code=422, detail="Filtro de solicitacao de e-mail invalido.")
     search_text = _safe_text(q)
 
     query = db.query(PickupCatalogOrder).options(
@@ -683,6 +792,7 @@ def list_orders(
             PickupCatalogOrder.nome_fantasia,
             PickupCatalogOrder.withdrawal_date,
             PickupCatalogOrder.status,
+            PickupCatalogOrder.email_request_status,
             PickupCatalogOrder.status_note,
             PickupCatalogOrder.status_updated_by,
             PickupCatalogOrder.status_updated_at,
@@ -693,6 +803,21 @@ def list_orders(
 
     if normalized_status_filter:
         query = query.filter(PickupCatalogOrder.status == normalized_status_filter)
+
+    if normalized_email_filter == "pending":
+        query = query.filter(
+            PickupCatalogOrder.status == "concluida",
+            or_(
+                PickupCatalogOrder.email_request_status.is_(None),
+                func.trim(PickupCatalogOrder.email_request_status) == "",
+                PickupCatalogOrder.email_request_status == "pending",
+            ),
+        )
+    elif normalized_email_filter == "requested":
+        query = query.filter(
+            PickupCatalogOrder.status == "concluida",
+            PickupCatalogOrder.email_request_status == "requested",
+        )
 
     if search_text:
         pattern = f"%{search_text}%"
@@ -713,20 +838,9 @@ def list_orders(
         .all()
     )
 
+    has_refrigerator_set = _has_refrigerator_map_for_orders(db, [int(order.id) for order in orders])
     return [
-        PickupCatalogOrderOut(
-            id=order.id,
-            order_number=_safe_text(order.order_number),
-            client_code=_safe_text(order.client_code),
-            nome_fantasia=_safe_text(order.nome_fantasia),
-            withdrawal_date=_safe_text(order.withdrawal_date),
-            status=_normalized_order_status(order.status),
-            status_note=_safe_text(order.status_note),
-            status_updated_by=_safe_text(order.status_updated_by),
-            status_updated_at=order.status_updated_at,
-            summary_line=_safe_text(order.summary_line),
-            created_at=order.created_at,
-        )
+        _order_out(order, has_refrigerator=(int(order.id) in has_refrigerator_set))
         for order in orders
     ]
 
@@ -742,13 +856,38 @@ def update_order_status(
     if not order:
         raise HTTPException(status_code=404, detail="Ordem de retirada não encontrada.")
 
-    order.status = _normalized_order_status(payload.status)
+    next_status = _normalized_order_status(payload.status)
+    order_items = (
+        db.query(PickupCatalogOrderItem)
+        .filter(PickupCatalogOrderItem.order_id == order_id)
+        .all()
+    )
+    refrigerator_items = [item for item in order_items if _is_refrigerator_order_item(item)]
+    has_refrigerator = len(refrigerator_items) > 0
+    refrigerator_condition = _normalized_refrigerator_condition(payload.refrigerator_condition)
+    if next_status == "concluida" and has_refrigerator and not refrigerator_condition:
+        raise HTTPException(
+            status_code=422,
+            detail="Informe a condicao do refrigerador (Boa, Recap ou Sucata) para concluir a retirada.",
+        )
+    order.status = next_status
     order.status_note = _safe_text(payload.status_note)
     order.status_updated_at = _now_brazil()
     order.status_updated_by = _safe_text(getattr(current_user, "name", "")) or _safe_text(getattr(current_user, "email", ""))
+    if next_status == "concluida":
+        if _normalized_email_request_status(order.email_request_status) != "requested":
+            order.email_request_status = "pending"
+    else:
+        order.email_request_status = ""
+    if next_status == "concluida" and has_refrigerator:
+        for item in refrigerator_items:
+            item.refrigerator_condition = refrigerator_condition
+        _apply_refrigerator_condition_to_equipments(db, refrigerator_items, refrigerator_condition)
+    order.email_request_updated_at = _now_brazil()
+    order.email_request_updated_by = _safe_text(getattr(current_user, "name", "")) or _safe_text(getattr(current_user, "email", ""))
     db.commit()
     db.refresh(order)
-    return order
+    return _order_out(order, has_refrigerator=has_refrigerator)
 
 
 @router.patch("/orders/status/bulk", response_model=PickupCatalogOrderBulkStatusUpdateOut)
@@ -773,12 +912,41 @@ def bulk_update_order_status(
     status_note = _safe_text(payload.status_note)
     status_updated_at = _now_brazil()
     status_updated_by = _safe_text(getattr(current_user, "name", "")) or _safe_text(getattr(current_user, "email", ""))
+    refrigerator_condition = _normalized_refrigerator_condition(payload.refrigerator_condition)
+    order_items_rows = (
+        db.query(PickupCatalogOrderItem)
+        .filter(PickupCatalogOrderItem.order_id.in_(order_ids))
+        .all()
+    )
+    refrigerator_items_by_order: dict[int, list[PickupCatalogOrderItem]] = {}
+    for item in order_items_rows:
+        if not _is_refrigerator_order_item(item):
+            continue
+        refrigerator_items_by_order.setdefault(int(item.order_id), []).append(item)
+    if status_value == "concluida" and refrigerator_items_by_order and not refrigerator_condition:
+        raise HTTPException(
+            status_code=422,
+            detail="Informe a condicao do refrigerador (Boa, Recap ou Sucata) para concluir as retiradas.",
+        )
 
     for order in orders:
         order.status = status_value
         order.status_note = status_note
         order.status_updated_at = status_updated_at
         order.status_updated_by = status_updated_by
+        if status_value == "concluida":
+            if _normalized_email_request_status(order.email_request_status) != "requested":
+                order.email_request_status = "pending"
+        else:
+            order.email_request_status = ""
+        order.email_request_updated_at = status_updated_at
+        order.email_request_updated_by = status_updated_by
+        if status_value == "concluida":
+            order_refrigerator_items = refrigerator_items_by_order.get(int(order.id), [])
+            if order_refrigerator_items:
+                for item in order_refrigerator_items:
+                    item.refrigerator_condition = refrigerator_condition
+                _apply_refrigerator_condition_to_equipments(db, order_refrigerator_items, refrigerator_condition)
 
     db.commit()
 
@@ -788,7 +956,13 @@ def bulk_update_order_status(
         .order_by(PickupCatalogOrder.id.desc())
         .all()
     )
-    return PickupCatalogOrderBulkStatusUpdateOut(updated_count=len(output_orders), orders=output_orders)
+    return PickupCatalogOrderBulkStatusUpdateOut(
+        updated_count=len(output_orders),
+        orders=[
+            _order_out(order, has_refrigerator=(int(order.id) in refrigerator_items_by_order))
+            for order in output_orders
+        ],
+    )
 
 
 @router.get("/orders/{order_id}/email-request", response_model=PickupCatalogOrderEmailRequestOut)
@@ -843,12 +1017,11 @@ def get_order_email_request(
     outros: list[PickupCatalogOrderEmailOtherOut] = []
 
     for item in order_items:
-        item_type = _safe_text(item.item_type) or "outro"
         modelo = _safe_text(item.description)
         rg = _safe_text(item.rg)
         nota = _safe_text(getattr(item, "comodato_number", ""))
 
-        if item_type == "refrigerador":
+        if _is_refrigerator_order_item(item):
             equipment = equipment_by_rg.get(_normalize_code_key(rg))
             refrigeradores.append(
                 PickupCatalogOrderEmailRefrigeratorOut(
@@ -876,6 +1049,61 @@ def get_order_email_request(
         cnpj_cpf=_safe_text(order.cnpj_cpf),
         refrigeradores=refrigeradores,
         outros=outros,
+    )
+
+
+@router.patch("/orders/email-request/bulk", response_model=PickupCatalogOrderEmailRequestBulkOut)
+def mark_orders_email_request_bulk(
+    payload: PickupCatalogOrderEmailRequestBulkIn,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_pickup_catalog_withdrawals_access),
+):
+    order_ids = sorted({int(order_id) for order_id in payload.order_ids if int(order_id) > 0})
+    if not order_ids:
+        raise HTTPException(status_code=422, detail="Selecione pelo menos uma ordem para marcar.")
+
+    orders = (
+        db.query(PickupCatalogOrder)
+        .filter(PickupCatalogOrder.id.in_(order_ids))
+        .all()
+    )
+    if not orders:
+        raise HTTPException(status_code=404, detail="Nenhuma ordem encontrada.")
+
+    now_value = _now_brazil()
+    updated_by = _safe_text(getattr(current_user, "name", "")) or _safe_text(getattr(current_user, "email", ""))
+    updated_ids: list[int] = []
+
+    for order in orders:
+        if _normalized_order_status(order.status) != "concluida":
+            continue
+        order.email_request_status = "requested"
+        order.email_request_updated_at = now_value
+        order.email_request_updated_by = updated_by
+        updated_ids.append(int(order.id))
+
+    if not updated_ids:
+        raise HTTPException(
+            status_code=422,
+            detail="Nenhuma ordem concluida encontrada para marcar como solicitada por e-mail.",
+        )
+
+    db.commit()
+
+    updated_orders = (
+        db.query(PickupCatalogOrder)
+        .filter(PickupCatalogOrder.id.in_(updated_ids))
+        .order_by(PickupCatalogOrder.id.desc())
+        .all()
+    )
+    has_refrigerator_set = _has_refrigerator_map_for_orders(db, updated_ids)
+
+    return PickupCatalogOrderEmailRequestBulkOut(
+        updated_count=len(updated_orders),
+        orders=[
+            _order_out(order, has_refrigerator=(int(order.id) in has_refrigerator_set))
+            for order in updated_orders
+        ],
     )
 
 
@@ -1029,6 +1257,9 @@ def create_order_pdf(
         withdrawal_date=withdrawal_date,
         withdrawal_time=withdrawal_time,
         status="pendente",
+        email_request_status="",
+        email_request_updated_at=None,
+        email_request_updated_by="",
         status_note="",
         status_updated_at=None,
         status_updated_by="",

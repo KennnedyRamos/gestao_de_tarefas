@@ -15,6 +15,8 @@ import dayjs from 'dayjs';
 import api from '../services/api';
 import Calendar from '../components/Calendar';
 
+const AGENDA_PAGE_SIZE = 25;
+
 const Routines = () => {
   const [routines, setRoutines] = useState([]);
   const [tasks, setTasks] = useState([]);
@@ -22,6 +24,7 @@ const Routines = () => {
   const [description, setDescription] = useState('');
   const [routineDate, setRoutineDate] = useState(dayjs().format('YYYY-MM-DD'));
   const [routineTime, setRoutineTime] = useState('');
+  const [agendaPage, setAgendaPage] = useState(1);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
@@ -105,9 +108,11 @@ const Routines = () => {
   const handleDateSelect = (date) => {
     if (!date) {
       setRoutineDate('');
+      setAgendaPage(1);
       return;
     }
     setRoutineDate(dayjs(date).format('YYYY-MM-DD'));
+    setAgendaPage(1);
   };
 
   const formatDate = (value) => {
@@ -198,6 +203,19 @@ const Routines = () => {
     }
     return 0;
   });
+  const totalAgendaPages = Math.max(1, Math.ceil(agendaItems.length / AGENDA_PAGE_SIZE));
+  const currentAgendaPage = Math.min(agendaPage, totalAgendaPages);
+  const agendaStart = (currentAgendaPage - 1) * AGENDA_PAGE_SIZE;
+  const agendaEnd = agendaStart + AGENDA_PAGE_SIZE;
+  const pagedAgendaItems = agendaItems.slice(agendaStart, agendaEnd);
+  const agendaFrom = agendaItems.length === 0 ? 0 : agendaStart + 1;
+  const agendaTo = Math.min(agendaEnd, agendaItems.length);
+
+  useEffect(() => {
+    if (agendaPage > totalAgendaPages) {
+      setAgendaPage(totalAgendaPages);
+    }
+  }, [agendaPage, totalAgendaPages]);
 
   return (
     <Box sx={{ p: 3 }}>
@@ -247,7 +265,10 @@ const Routines = () => {
             fullWidth
             sx={{ mb: 2 }}
             value={routineDate}
-            onChange={(e) => setRoutineDate(e.target.value)}
+            onChange={(e) => {
+              setRoutineDate(e.target.value);
+              setAgendaPage(1);
+            }}
             InputLabelProps={{ shrink: true }}
             required
           />
@@ -266,7 +287,10 @@ const Routines = () => {
         <Calendar
           selectedDate={selectedDate}
           onSelectDate={handleDateSelect}
-          onClearDate={() => setRoutineDate('')}
+          onClearDate={() => {
+            setRoutineDate('');
+            setAgendaPage(1);
+          }}
         />
       </Box>
 
@@ -275,7 +299,17 @@ const Routines = () => {
         {agendaItems.length === 0 ? (
           <Typography color="text.secondary">{agendaEmptyText}</Typography>
         ) : (
-          agendaItems.map((item, index) => {
+          <>
+            <Box
+              sx={{
+                display: 'grid',
+                gap: 1,
+                maxHeight: { xs: '60vh', md: '68vh' },
+                overflowY: 'auto',
+                pr: { xs: 0, sm: 0.25 }
+              }}
+            >
+              {pagedAgendaItems.map((item, index) => {
             const isRoutine = item.type === 'routine';
             const isCompleted = item.type === 'task' ? Boolean(item.completed) : false;
             const typeLabel = isRoutine ? 'Rotina' : 'Agendamento';
@@ -350,7 +384,40 @@ const Routines = () => {
                 </CardContent>
               </Card>
             );
-          })
+              })}
+            </Box>
+            <Box
+              sx={{
+                display: 'flex',
+                alignItems: { xs: 'stretch', sm: 'center' },
+                justifyContent: 'space-between',
+                flexDirection: { xs: 'column', sm: 'row' },
+                gap: 1
+              }}
+            >
+              <Typography variant="caption" color="text.secondary">
+                {`Mostrando ${agendaFrom}-${agendaTo} de ${agendaItems.length} | Página ${currentAgendaPage} de ${totalAgendaPages}`}
+              </Typography>
+              <Box sx={{ display: 'flex', gap: 1 }}>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  disabled={currentAgendaPage <= 1}
+                  onClick={() => setAgendaPage((prev) => Math.max(1, prev - 1))}
+                >
+                  Anterior
+                </Button>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  disabled={currentAgendaPage >= totalAgendaPages}
+                  onClick={() => setAgendaPage((prev) => Math.min(totalAgendaPages, prev + 1))}
+                >
+                  Próximo
+                </Button>
+              </Box>
+            </Box>
+          </>
         )}
       </Box>
     </Box>

@@ -1,10 +1,12 @@
+import csv
+import io
 import re
 import unicodedata
 from collections import defaultdict
 from datetime import datetime
 from typing import Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from sqlalchemy import func, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -22,11 +24,14 @@ from app.schemas.equipment import (
     EquipmentAllocatedRefrigeratorItemOut,
     EquipmentAllocationLookupItemOut,
     EquipmentAllocationLookupOut,
+    EquipmentBulkImportResultOut,
     EquipmentCreate,
     EquipmentInventoryMaterialItemOut,
     EquipmentInventoryMaterialListOut,
     EquipmentNewRefrigeratorItemOut,
     EquipmentNewRefrigeratorListOut,
+    EquipmentNonAllocatedDashboardOut,
+    EquipmentNonAllocatedListOut,
     EquipmentOut,
     EquipmentPageMetaOut,
     EquipmentRefrigeratorDashboardOut,
@@ -65,7 +70,7 @@ CATEGORY_ALIASES = {
     "outro": "outro",
     "outros": "outro",
 }
-VALID_STATUSES = {"novo", "disponivel", "alocado"}
+VALID_STATUSES = {"novo", "disponivel", "recap", "sucata", "alocado"}
 VOLTAGE_ALIASES = {
     "": "",
     "110": "110v",
@@ -130,6 +135,14 @@ MATERIAL_TYPE_ALIASES = {
     "outros": "outro",
 }
 INVOICE_DATE_FORMATS = ("%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y", "%d/%m/%y", "%Y/%m/%d")
+IMPORT_CSV_HEADERS = {
+    "tipo": {"tipo", "type"},
+    "modelo": {"modelo", "model", "material", "descricao", "descrição"},
+    "marca": {"marca", "brand"},
+    "voltagem": {"voltagem", "voltage"},
+    "rg": {"rg", "r.g", "r g"},
+    "etiqueta": {"etiqueta", "tag", "tag_code"},
+}
 
 
 def normalize_spaces(value: str) -> str:
@@ -146,6 +159,54 @@ def normalize_lookup_text(value: str) -> str:
     without_accents = "".join(ch for ch in without_accents if unicodedata.category(ch) != "Mn")
     without_accents = without_accents.replace("-", " ").replace("_", " ")
     return re.sub(r"\s+", " ", without_accents).strip()
+
+
+def _decode_import_csv(raw_bytes: bytes) -> str:
+    for encoding in ("utf-8-sig", "utf-8", "cp1252", "latin-1"):
+        try:
+            return raw_bytes.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+    raise HTTPException(status_code=422, detail="Nao foi possivel ler o CSV enviado.")
+
+
+def _sniff_csv_delimiter(text: str) -> str:
+    sample = text[:4096]
+    try:
+        dialect = csv.Sniffer().sniff(sample, delimiters=";,|\t")
+        return dialect.delimiter
+    except csv.Error:
+        return ";"
+
+
+def _resolve_import_header_map(headers: list[str]) -> dict[str, str]:
+    normalized_headers = {
+        normalize_lookup_text(header): str(header or "").strip()
+        for header in headers
+        if normalize_spaces(header)
+    }
+    resolved: dict[str, str] = {}
+    missing: list[str] = []
+    for field_name, aliases in IMPORT_CSV_HEADERS.items():
+        found = ""
+        for alias in aliases:
+            normalized_alias = normalize_lookup_text(alias)
+            if normalized_alias in normalized_headers:
+                found = normalized_headers[normalized_alias]
+                break
+        if not found:
+            missing.append(field_name.upper())
+            continue
+        resolved[field_name] = found
+    if missing:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Cabecalho CSV invalido. "
+                f"Colunas obrigatorias nao encontradas: {', '.join(missing)}."
+            ),
+        )
+    return resolved
 
 
 def normalize_category(value: str) -> str:
@@ -434,9 +495,9 @@ def equipment_summary(
 ):
     rows = db.query(Equipment.category, Equipment.status, Equipment.client_name).all()
 
-    totals = {"total": 0, "novo": 0, "disponivel": 0, "alocado": 0}
+    totals = {"total": 0, "novo": 0, "disponivel": 0, "recap": 0, "sucata": 0, "alocado": 0}
     by_category = {
-        category: {"total": 0, "novo": 0, "disponivel": 0, "alocado": 0}
+        category: {"total": 0, "novo": 0, "disponivel": 0, "recap": 0, "sucata": 0, "alocado": 0}
         for category in CATEGORY_LABELS
     }
     client_counts: dict[str, int] = defaultdict(int)
@@ -460,6 +521,8 @@ def equipment_summary(
             "total": counts["total"],
             "novo": counts["novo"],
             "disponivel": counts["disponivel"],
+            "recap": counts["recap"],
+            "sucata": counts["sucata"],
             "alocado": counts["alocado"],
         }
         for category, counts in by_category.items()
@@ -473,6 +536,8 @@ def equipment_summary(
         total=totals["total"],
         novo=totals["novo"],
         disponivel=totals["disponivel"],
+        recap=totals["recap"],
+        sucata=totals["sucata"],
         alocado=totals["alocado"],
         categories=categories_payload,
         clients=clients_payload,
@@ -492,7 +557,7 @@ def refrigerators_overview(
         .group_by(Equipment.status)
         .all()
     )
-    status_counts = {"novo": 0, "disponivel": 0, "alocado": 0}
+    status_counts = {"novo": 0, "disponivel": 0, "recap": 0, "sucata": 0, "alocado": 0}
     total_cadastrados = 0
     for status_value, qty in status_counts_rows:
         normalized_status = normalize_lookup_text(status_value)
@@ -603,6 +668,8 @@ def refrigerators_overview(
             total_cadastrados=total_cadastrados,
             novos_cadastrados=status_counts["novo"],
             disponiveis_cadastrados=status_counts["disponivel"],
+            recap_cadastrados=status_counts["recap"],
+            sucata_cadastrados=status_counts["sucata"],
             alocados_cadastrados=status_counts["alocado"],
             alocados_020220_linhas=alocados_linhas,
             alocados_020220_unidades=alocados_unidades,
@@ -665,6 +732,190 @@ def list_new_refrigerators(
     ]
 
     return EquipmentNewRefrigeratorListOut(
+        items=items,
+        page=_build_page_meta(limit=limit, offset=offset, total=total),
+    )
+
+
+@router.get("/refrigerators/available-for-comodato", response_model=list[EquipmentNewRefrigeratorItemOut])
+def list_available_refrigerators_for_comodato(
+    limit: int = Query(default=200, ge=1, le=1000),
+    offset: int = Query(default=0, ge=0),
+    q: Optional[str] = Query(default=None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_equipments_viewer),
+):
+    search = normalize_spaces(q or "")
+
+    query = db.query(Equipment).filter(
+        Equipment.category == "refrigerador",
+        Equipment.status.in_(["novo", "disponivel"]),
+    )
+    if search:
+        pattern = f"%{search}%"
+        query = query.filter(
+            or_(
+                Equipment.model_name.ilike(pattern),
+                Equipment.brand.ilike(pattern),
+                Equipment.voltage.ilike(pattern),
+                Equipment.rg_code.ilike(pattern),
+                Equipment.tag_code.ilike(pattern),
+                Equipment.notes.ilike(pattern),
+            )
+        )
+
+    rows = query.order_by(Equipment.created_at.desc(), Equipment.id.desc()).all()
+    if not rows:
+        return []
+
+    inventory_rows = _apply_inventory_base_filter(
+        db.query(
+            PickupCatalogInventoryItem.item_type.label("item_type"),
+            PickupCatalogInventoryItem.description.label("description"),
+            PickupCatalogInventoryItem.rg.label("rg_code"),
+        ),
+        db=db,
+    ).all()
+
+    allocated_rg_tokens: set[str] = set()
+    for row in inventory_rows:
+        item_type_value = normalize_spaces(row.item_type)
+        mapped_type = _material_type_bucket(item_type_value)
+        if mapped_type != "refrigerador":
+            inferred = _material_type_bucket(classify_item_type(normalize_spaces(row.description)))
+            if inferred != "refrigerador":
+                continue
+        allocated_rg_tokens.update(_build_code_lookup_tokens(row.rg_code))
+
+    filtered_rows: list[Equipment] = []
+    for row in rows:
+        rg_tokens = _build_code_lookup_tokens(row.rg_code)
+        if rg_tokens and allocated_rg_tokens.intersection(rg_tokens):
+            continue
+        filtered_rows.append(row)
+
+    sorted_rows = sorted(
+        filtered_rows,
+        key=lambda item: (
+            0 if normalize_lookup_text(item.status) == "novo" else 1,
+            normalize_spaces(item.model_name).lower(),
+            int(item.id),
+        ),
+    )
+
+    paged_rows = sorted_rows[offset: offset + limit]
+    return [
+        EquipmentNewRefrigeratorItemOut(
+            id=int(item.id),
+            model_name=normalize_spaces(item.model_name),
+            brand=normalize_spaces(item.brand or ""),
+            voltage=normalize_spaces(item.voltage or "") or "nao_informado",
+            rg_code=normalize_spaces(item.rg_code),
+            tag_code=normalize_spaces(item.tag_code),
+            status=normalize_spaces(item.status),
+            client_name=normalize_optional_text(item.client_name),
+            created_at=item.created_at,
+        )
+        for item in paged_rows
+    ]
+
+
+@router.get("/refrigerators/non-allocated", response_model=EquipmentNonAllocatedListOut)
+def list_non_allocated_refrigerators(
+    limit: int = Query(default=25, ge=1, le=50),
+    offset: int = Query(default=0, ge=0),
+    q: Optional[str] = Query(default=None),
+    status_filter: Optional[str] = Query(default="todos", alias="status"),
+    sort: str = Query(default="newest"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_equipments_viewer),
+):
+    normalized_sort = _normalize_sort(sort)
+    normalized_status = normalize_lookup_text(status_filter or "todos")
+    allowed_status_filters = {"todos", "novo", "disponivel", "recap", "sucata"}
+    if normalized_status not in allowed_status_filters:
+        raise HTTPException(status_code=422, detail="Status invalido para consulta de refrigeradores.")
+
+    search = normalize_spaces(q or "")
+    query = db.query(Equipment).filter(
+        Equipment.category == "refrigerador",
+        Equipment.status != "alocado",
+    )
+    if normalized_status != "todos":
+        query = query.filter(Equipment.status == normalized_status)
+    if search:
+        pattern = f"%{search}%"
+        query = query.filter(
+            or_(
+                Equipment.model_name.ilike(pattern),
+                Equipment.brand.ilike(pattern),
+                Equipment.voltage.ilike(pattern),
+                Equipment.rg_code.ilike(pattern),
+                Equipment.tag_code.ilike(pattern),
+                Equipment.notes.ilike(pattern),
+            )
+        )
+
+    rows = query.order_by(Equipment.created_at.desc(), Equipment.id.desc()).all()
+
+    inventory_rows = _apply_inventory_base_filter(
+        db.query(
+            PickupCatalogInventoryItem.item_type.label("item_type"),
+            PickupCatalogInventoryItem.description.label("description"),
+            PickupCatalogInventoryItem.rg.label("rg_code"),
+        ),
+        db=db,
+    ).all()
+
+    allocated_rg_tokens: set[str] = set()
+    for row in inventory_rows:
+        item_type_value = normalize_spaces(row.item_type)
+        mapped_type = _material_type_bucket(item_type_value)
+        if mapped_type != "refrigerador":
+            inferred = _material_type_bucket(classify_item_type(normalize_spaces(row.description)))
+            if inferred != "refrigerador":
+                continue
+        allocated_rg_tokens.update(_build_code_lookup_tokens(row.rg_code))
+
+    counters = {"novo": 0, "disponivel": 0, "recap": 0, "sucata": 0}
+    filtered_rows: list[Equipment] = []
+    for row in rows:
+        rg_tokens = _build_code_lookup_tokens(row.rg_code)
+        if rg_tokens and allocated_rg_tokens.intersection(rg_tokens):
+            continue
+        status_value = normalize_lookup_text(row.status)
+        if status_value in counters:
+            counters[status_value] += 1
+        filtered_rows.append(row)
+
+    if normalized_sort == "oldest":
+        filtered_rows = list(reversed(filtered_rows))
+
+    total = len(filtered_rows)
+    paged_rows = filtered_rows[offset: offset + limit]
+    items = [
+        EquipmentNewRefrigeratorItemOut(
+            id=int(item.id),
+            model_name=normalize_spaces(item.model_name),
+            brand=normalize_spaces(item.brand or ""),
+            voltage=normalize_spaces(item.voltage or "") or "nao_informado",
+            rg_code=normalize_spaces(item.rg_code),
+            tag_code=normalize_spaces(item.tag_code),
+            status=normalize_spaces(item.status),
+            client_name=normalize_optional_text(item.client_name),
+            created_at=item.created_at,
+        )
+        for item in paged_rows
+    ]
+
+    return EquipmentNonAllocatedListOut(
+        dashboard=EquipmentNonAllocatedDashboardOut(
+            total_nao_alocados=total,
+            novo=counters["novo"],
+            disponivel=counters["disponivel"],
+            recap=counters["recap"],
+            sucata=counters["sucata"],
+        ),
         items=items,
         page=_build_page_meta(limit=limit, offset=offset, total=total),
     )
@@ -908,6 +1159,168 @@ def lookup_allocated_material(
         tag_code=normalized_tag_code,
         total=len(items),
         items=items,
+    )
+
+
+@router.post("/refrigerators/import-csv", response_model=EquipmentBulkImportResultOut)
+async def import_refrigerators_csv(
+    csv_file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_equipments_manager),
+):
+    raw_bytes = await csv_file.read()
+    if not raw_bytes:
+        raise HTTPException(status_code=400, detail="Arquivo CSV vazio.")
+
+    text = _decode_import_csv(raw_bytes)
+    delimiter = _sniff_csv_delimiter(text)
+    reader = csv.DictReader(io.StringIO(text), delimiter=delimiter)
+    if not reader.fieldnames:
+        raise HTTPException(status_code=422, detail="CSV sem cabecalho.")
+    header_map = _resolve_import_header_map([str(item or "") for item in reader.fieldnames])
+
+    existing_rg_tokens: set[str] = set()
+    existing_tag_codes: set[str] = set()
+    for row in db.query(Equipment.rg_code, Equipment.tag_code).all():
+        existing_rg_tokens.update(_build_code_lookup_tokens(row.rg_code))
+        normalized_tag = normalize_optional_code(row.tag_code)
+        if normalized_tag:
+            existing_tag_codes.add(normalized_tag)
+
+    base_inventory_rg_tokens: set[str] = set()
+    base_inventory_rows = _apply_inventory_base_filter(
+        db.query(PickupCatalogInventoryItem.rg.label("rg_code")),
+        db=db,
+    ).all()
+    for row in base_inventory_rows:
+        base_inventory_rg_tokens.update(_build_code_lookup_tokens(row.rg_code))
+
+    total_rows = 0
+    imported_count = 0
+    duplicated_by_rg = 0
+    duplicates_in_file = 0
+    duplicates_in_020220 = 0
+    duplicates_in_cadastro = 0
+    invalid_rows = 0
+    ignored_non_refrigerator = 0
+    errors: list[str] = []
+
+    seen_import_rg_tokens: set[str] = set()
+    seen_import_tags: set[str] = set()
+    pending_rows: list[Equipment] = []
+
+    for index, raw_row in enumerate(reader, start=2):
+        row = raw_row or {}
+        if not any(normalize_spaces(value or "") for value in row.values()):
+            continue
+
+        total_rows += 1
+        raw_tipo = normalize_spaces(row.get(header_map["tipo"]) or "")
+        if raw_tipo:
+            try:
+                resolved_type = normalize_category(raw_tipo)
+            except HTTPException:
+                invalid_rows += 1
+                if len(errors) < 30:
+                    errors.append(f"Linha {index}: tipo invalido ({raw_tipo}).")
+                continue
+            if resolved_type != "refrigerador":
+                ignored_non_refrigerator += 1
+                continue
+
+        model_name = normalize_spaces(row.get(header_map["modelo"]) or "")
+        brand = normalize_spaces(row.get(header_map["marca"]) or "")
+        raw_voltage = normalize_spaces(row.get(header_map["voltagem"]) or "")
+        rg_code = normalize_optional_code(row.get(header_map["rg"]) or "")
+        tag_code = normalize_optional_code(row.get(header_map["etiqueta"]) or "")
+
+        if not model_name or not brand or not raw_voltage or not rg_code:
+            invalid_rows += 1
+            if len(errors) < 30:
+                errors.append(
+                    f"Linha {index}: informe Tipo/Modelo/Marca/Voltagem/RG para importar refrigerador."
+                )
+            continue
+
+        try:
+            voltage = normalize_voltage(raw_voltage)
+        except HTTPException:
+            invalid_rows += 1
+            if len(errors) < 30:
+                errors.append(f"Linha {index}: voltagem invalida ({raw_voltage}).")
+            continue
+
+        rg_tokens = _build_code_lookup_tokens(rg_code)
+        if not rg_tokens:
+            invalid_rows += 1
+            if len(errors) < 30:
+                errors.append(f"Linha {index}: RG invalido.")
+            continue
+
+        if any(token in seen_import_rg_tokens for token in rg_tokens):
+            duplicates_in_file += 1
+            duplicated_by_rg += 1
+            continue
+
+        if any(token in existing_rg_tokens for token in rg_tokens):
+            duplicates_in_cadastro += 1
+            duplicated_by_rg += 1
+            continue
+
+        if any(token in base_inventory_rg_tokens for token in rg_tokens):
+            duplicates_in_020220 += 1
+            duplicated_by_rg += 1
+            continue
+
+        if tag_code and (tag_code in existing_tag_codes or tag_code in seen_import_tags):
+            invalid_rows += 1
+            if len(errors) < 30:
+                errors.append(f"Linha {index}: etiqueta ja cadastrada ({tag_code}).")
+            continue
+
+        pending_rows.append(
+            Equipment(
+                category="refrigerador",
+                model_name=model_name,
+                brand=brand,
+                quantity=1,
+                voltage=voltage,
+                rg_code=rg_code,
+                tag_code=tag_code,
+                status="novo",
+                client_name=None,
+                notes=None,
+            )
+        )
+        imported_count += 1
+        seen_import_rg_tokens.update(rg_tokens)
+        if tag_code:
+            seen_import_tags.add(tag_code)
+
+    if pending_rows:
+        try:
+            db.add_all(pending_rows)
+            db.commit()
+        except IntegrityError as exc:
+            db.rollback()
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Conflito de unicidade durante a importacao. "
+                    "Verifique RG ou etiqueta duplicados."
+                ),
+            ) from exc
+
+    return EquipmentBulkImportResultOut(
+        total_rows=total_rows,
+        imported_count=imported_count,
+        duplicated_by_rg=duplicated_by_rg,
+        duplicates_in_file=duplicates_in_file,
+        duplicates_in_020220=duplicates_in_020220,
+        duplicates_in_cadastro=duplicates_in_cadastro,
+        invalid_rows=invalid_rows,
+        ignored_non_refrigerator=ignored_non_refrigerator,
+        errors=errors,
     )
 
 

@@ -6,6 +6,7 @@ import {
   Button,
   Card,
   CardContent,
+  Chip,
   Dialog,
   DialogActions,
   DialogContent,
@@ -39,7 +40,7 @@ import { hasPermission } from '../utils/auth';
 
 const CATEGORY_OPTIONS = [
   { value: 'refrigerador', label: 'Refrigeradores' },
-  { value: 'caixa_termica', label: 'Caixa térmica' },
+  { value: 'caixa_termica', label: 'Caixa t\u00E9rmica' },
   { value: 'jogo_mesa', label: 'Jogos de mesa' },
   { value: 'outro', label: 'Outros' }
 ];
@@ -49,7 +50,7 @@ const MATERIAL_TYPE_OPTIONS = [
   { value: 'refrigerador', label: 'Refrigeradores' },
   { value: 'garrafeira', label: 'Garrafeiras' },
   { value: 'jogo_mesa', label: 'Jogos de mesa' },
-  { value: 'caixa_termica', label: 'Caixa térmica' },
+  { value: 'caixa_termica', label: 'Caixa t\u00E9rmica' },
   { value: 'outro', label: 'Outros' },
 ];
 
@@ -70,8 +71,16 @@ const MONTH_PICKER_OPTIONS = [
 
 const STATUS_OPTIONS = [
   { value: 'novo', label: 'Novo' },
-  { value: 'disponivel', label: 'Disponível' },
-  { value: 'alocado', label: 'Alocado' }
+  { value: 'disponivel', label: 'Boa' },
+  { value: 'recap', label: 'Recap' }
+];
+
+const NON_ALLOCATED_STATUS_OPTIONS = [
+  { value: 'todos', label: 'Todos os status' },
+  { value: 'novo', label: 'Novo' },
+  { value: 'disponivel', label: 'Boa' },
+  { value: 'recap', label: 'Recap' },
+  { value: 'sucata', label: 'Sucata' },
 ];
 
 const VOLTAGE_OPTIONS = [
@@ -80,7 +89,7 @@ const VOLTAGE_OPTIONS = [
   { value: '127v', label: '127V' },
   { value: '220v', label: '220V' },
   { value: 'bivolt', label: 'Bivolt' },
-  { value: 'nao_informado', label: 'Não informado' }
+  { value: 'nao_informado', label: 'N\u00E3o informado' }
 ];
 
 const EMPTY_FORM = {
@@ -98,6 +107,10 @@ const EMPTY_FORM = {
 
 const TESSERACT_CDN_URL = 'https://unpkg.com/tesseract.js@5/dist/tesseract.min.js';
 const PAGE_SIZE = 25;
+const BULK_IMPORT_TEMPLATE_CSV = [
+  'Tipo,Modelo,Marca,Voltagem,RG,Etiqueta',
+  'refrigerador,PORTA DE VIDRO,BRAHMA,220v,2253088657624-9,8657624',
+].join('\n');
 const SCANNER_AREAS = {
   rg: {
     top: 0.22,
@@ -124,7 +137,16 @@ const TABLE_CONTAINER_SX = {
   border: '1px solid var(--stroke)',
   borderRadius: 2,
   width: '100%',
-  overflowX: 'auto'
+  overflowX: 'auto',
+  overflowY: 'auto',
+  maxHeight: { xs: '60vh', md: 560 },
+};
+const SCROLLABLE_CARD_LIST_SX = {
+  display: 'grid',
+  gap: 1,
+  maxHeight: { xs: '60vh', md: 560 },
+  overflowY: 'auto',
+  pr: 0.25,
 };
 const COMPACT_MODEL_CELL_SX = {
   maxWidth: { xs: 110, sm: 140, md: 180 },
@@ -354,7 +376,7 @@ const PaginationFooter = ({
       }}
     >
       <Typography variant="caption" color="text.secondary">
-        {`Mostrando ${start}-${end} de ${total} | Página ${currentPage} de ${totalPages}`}
+        {`Mostrando ${start}-${end} de ${total} | P\u00E1gina ${currentPage} de ${totalPages}`}
       </Typography>
     </Box>
   );
@@ -370,7 +392,15 @@ const EquipmentPage = () => {
 
   const [overviewSearch, setOverviewSearch] = useState('');
   const [overviewSearchDebounced, setOverviewSearchDebounced] = useState('');
+  const [nonAllocatedStatusFilter, setNonAllocatedStatusFilter] = useState('todos');
   const [newRefrigerators, setNewRefrigerators] = useState([]);
+  const [nonAllocatedDashboard, setNonAllocatedDashboard] = useState({
+    total_nao_alocados: 0,
+    novo: 0,
+    disponivel: 0,
+    recap: 0,
+    sucata: 0,
+  });
   const [newRefrigeratorsPage, setNewRefrigeratorsPage] = useState({
     offset: 0,
     limit: PAGE_SIZE,
@@ -417,10 +447,14 @@ const EquipmentPage = () => {
   const [ocrBusy, setOcrBusy] = useState(false);
   const [allocationLookupResult, setAllocationLookupResult] = useState(null);
   const [allocationLookupLoading, setAllocationLookupLoading] = useState(false);
+  const [bulkImportFile, setBulkImportFile] = useState(null);
+  const [bulkImporting, setBulkImporting] = useState(false);
+  const [bulkImportResult, setBulkImportResult] = useState(null);
 
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const tesseractLoaderRef = useRef(null);
+  const bulkImportInputRef = useRef(null);
   const activeScannerArea = scannerPhase === 'tag' ? SCANNER_AREAS.tag : SCANNER_AREAS.rg;
   const scannerHasRequiredRg = Boolean(normalizeCodeInput(scannerDraft.rg_code));
 
@@ -446,7 +480,7 @@ const EquipmentPage = () => {
 
   useEffect(() => {
     setNewRefrigeratorsPage((prev) => ({ ...prev, offset: 0 }));
-  }, [overviewSearchDebounced, materialsFilters.sort]);
+  }, [nonAllocatedStatusFilter, overviewSearchDebounced, materialsFilters.sort]);
 
   useEffect(() => {
     setInventoryPage((prev) => ({ ...prev, offset: 0 }));
@@ -474,14 +508,22 @@ const EquipmentPage = () => {
       const params = {
         limit: PAGE_SIZE,
         offset: newRefrigeratorsPage.offset,
-        sort: materialsFilters.sort
+        sort: materialsFilters.sort,
+        status: nonAllocatedStatusFilter,
       };
       if (overviewSearchDebounced) {
         params.q = overviewSearchDebounced;
       }
-      const response = await api.get('/equipments/refrigerators/new', { params });
+      const response = await api.get('/equipments/refrigerators/non-allocated', { params });
       const payload = response?.data || {};
       setNewRefrigerators(Array.isArray(payload.items) ? payload.items : []);
+      setNonAllocatedDashboard({
+        total_nao_alocados: Number(payload?.dashboard?.total_nao_alocados || 0),
+        novo: Number(payload?.dashboard?.novo || 0),
+        disponivel: Number(payload?.dashboard?.disponivel || 0),
+        recap: Number(payload?.dashboard?.recap || 0),
+        sucata: Number(payload?.dashboard?.sucata || 0),
+      });
       setNewRefrigeratorsPage((prev) => ({
         ...prev,
         ...(payload.page || {}),
@@ -494,12 +536,19 @@ const EquipmentPage = () => {
       setError('');
     } catch (err) {
       setNewRefrigerators([]);
+      setNonAllocatedDashboard({
+        total_nao_alocados: 0,
+        novo: 0,
+        disponivel: 0,
+        recap: 0,
+        sucata: 0,
+      });
       setNewRefrigeratorsPage((prev) => ({ ...prev, total: 0, has_next: false, has_previous: prev.offset > 0 }));
-      setError('Erro ao carregar refrigeradores novos.');
+      setError('Erro ao carregar refrigeradores n\u00E3o alocados.');
     } finally {
       setLoadingNewRefrigerators(false);
     }
-  }, [materialsFilters.sort, newRefrigeratorsPage.offset, overviewSearchDebounced]);
+  }, [materialsFilters.sort, newRefrigeratorsPage.offset, nonAllocatedStatusFilter, overviewSearchDebounced]);
 
   const fetchInventoryMaterials = useCallback(async () => {
     setLoadingMaterials(true);
@@ -589,6 +638,12 @@ const EquipmentPage = () => {
 
   const materialTypeByValue = useMemo(
     () => MATERIAL_TYPE_OPTIONS.reduce((acc, item) => ({ ...acc, [item.value]: item.label }), {}),
+    []
+  );
+  const nonAllocatedStatusLabelByValue = useMemo(
+    () => NON_ALLOCATED_STATUS_OPTIONS
+      .filter((item) => item.value !== 'todos')
+      .reduce((acc, item) => ({ ...acc, [item.value]: item.label }), {}),
     []
   );
 
@@ -766,12 +821,12 @@ const EquipmentPage = () => {
       </Box>
       {selectedMonthDate && !availableMonthSet.has(selectedMonthDate.format('MM')) && (
         <Typography variant="caption" color="text.secondary">
-          O período selecionado não possui registros na base.
+          O per\u00EDodo selecionado n\u00E3o possui registros na base.
         </Typography>
       )}
       {availableMonthValues.length === 0 && (
         <Typography variant="caption" color="text.secondary">
-          Sem meses disponíveis para o ano selecionado.
+          Sem meses dispon\u00EDveis para o ano selecionado.
         </Typography>
       )}
     </Box>
@@ -781,6 +836,8 @@ const EquipmentPage = () => {
     total_cadastrados: 0,
     novos_cadastrados: 0,
     disponiveis_cadastrados: 0,
+    recap_cadastrados: 0,
+    sucata_cadastrados: 0,
     alocados_cadastrados: 0,
     alocados_020220_linhas: 0,
     alocados_020220_unidades: 0,
@@ -789,7 +846,7 @@ const EquipmentPage = () => {
 
   const screenOptions = [
     { value: 'dashboard', label: 'Painel' },
-    { value: 'new-refrigerators', label: 'Refrigeradores novos' },
+    { value: 'new-refrigerators', label: 'N\u00E3o alocados' },
     { value: 'materials', label: 'Geral' },
     ...(canManageEquipments ? [{ value: 'manage', label: 'Cadastrar' }] : [])
   ];
@@ -803,20 +860,85 @@ const EquipmentPage = () => {
     setEditingId(null);
   };
 
-  const refreshData = async () => {
+  const refreshData = useCallback(async () => {
     await Promise.all([
       fetchRefrigeratorsOverview(),
       fetchMaterialYearOptions(),
       fetchNewRefrigerators(),
       fetchInventoryMaterials(),
     ]);
+  }, [
+    fetchInventoryMaterials,
+    fetchMaterialYearOptions,
+    fetchNewRefrigerators,
+    fetchRefrigeratorsOverview,
+  ]);
+
+  const clearBulkImportSelection = useCallback(() => {
+    setBulkImportFile(null);
+    if (bulkImportInputRef.current) {
+      bulkImportInputRef.current.value = '';
+    }
+  }, []);
+
+  const handleBulkImportFileChange = (event) => {
+    const file = event?.target?.files?.[0] || null;
+    setBulkImportFile(file);
+    setBulkImportResult(null);
   };
+
+  const downloadBulkImportTemplate = useCallback(() => {
+    const blob = new Blob([BULK_IMPORT_TEMPLATE_CSV], { type: 'text/csv;charset=utf-8;' });
+    const url = window.URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = 'modelo_importacao_refrigeradores.csv';
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+    window.URL.revokeObjectURL(url);
+  }, []);
+
+  const handleBulkImportSubmit = useCallback(async () => {
+    if (!bulkImportFile) {
+      setError('Selecione um arquivo CSV para importar.');
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append('csv_file', bulkImportFile);
+
+    setBulkImporting(true);
+    try {
+      const response = await api.post('/equipments/refrigerators/import-csv', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+      const payload = response?.data || null;
+      setBulkImportResult(payload);
+      setSuccess(
+        `Importacao conclu\\u00EDda. Importados: ${Number(payload?.imported_count || 0)} | `
+        + `Duplicados por RG: ${Number(payload?.duplicated_by_rg || 0)} | `
+        + `Invalidos: ${Number(payload?.invalid_rows || 0)}`
+      );
+      setError('');
+      clearBulkImportSelection();
+      await refreshData();
+      setActiveScreen('new-refrigerators');
+    } catch (err) {
+      const detail = normalizeTextInput(err?.response?.data?.detail);
+      setError(detail || 'Nao foi possivel importar o CSV de refrigeradores.');
+    } finally {
+      setBulkImporting(false);
+    }
+  }, [bulkImportFile, clearBulkImportSelection, refreshData]);
 
   const fetchAllocationLookup = useCallback(async ({ rgCode, tagCode }) => {
     const normalizedRgCode = normalizeCodeInput(rgCode);
     const normalizedTagCode = normalizeCodeInput(tagCode);
     if (!normalizedRgCode && !normalizedTagCode) {
-      setError('Informe RG ou etiqueta para consultar as alocações.');
+      setError('Informe RG ou etiqueta para consultar as aloca\u00E7\u00F5es.');
       return;
     }
 
@@ -843,13 +965,13 @@ const EquipmentPage = () => {
       setError('');
       setSuccess(
         items.length > 0
-          ? `Consulta concluída. ${items.length} registro(s) alocado(s) encontrado(s).`
-          : 'Nenhuma alocação encontrada para os códigos informados.'
+          ? `Consulta conclu\u00EDda. ${items.length} registro(s) alocado(s) encontrado(s).`
+          : 'Nenhuma aloca\u00E7\u00E3o encontrada para os c\u00F3digos informados.'
       );
     } catch (err) {
       const detail = normalizeTextInput(err?.response?.data?.detail);
       setAllocationLookupResult(null);
-      setError(detail || 'Não foi possível consultar alocações por RG/Etiqueta.');
+      setError(detail || 'N\u00E3o foi poss\u00EDvel consultar aloca\u00E7\u00F5es por RG/Etiqueta.');
     } finally {
       setAllocationLookupLoading(false);
     }
@@ -885,13 +1007,13 @@ const EquipmentPage = () => {
           return;
         }
         tesseractLoaderRef.current = null;
-        reject(new Error('Biblioteca OCR não carregada.'));
+        reject(new Error('Biblioteca OCR n\u00E3o carregada.'));
       };
 
       const handleError = () => {
         cleanup();
         tesseractLoaderRef.current = null;
-        reject(new Error('Não foi possível carregar a biblioteca OCR.'));
+        reject(new Error('N\u00E3o foi poss\u00EDvel carregar a biblioteca OCR.'));
       };
 
       if (!script) {
@@ -954,11 +1076,6 @@ const EquipmentPage = () => {
       setError('Informe uma quantidade valida para o material.');
       return;
     }
-    if (isRefrigerator && payload.status === 'alocado' && !payload.client_name) {
-      setError('Informe o cliente quando o equipamento estiver alocado.');
-      return;
-    }
-
     setSaving(true);
     try {
       if (editingId) {
@@ -974,7 +1091,7 @@ const EquipmentPage = () => {
       setActiveScreen('new-refrigerators');
     } catch (err) {
       const detail = normalizeTextInput(err?.response?.data?.detail);
-      setError(detail || 'Não foi possível salvar o equipamento.');
+      setError(detail || 'N\u00E3o foi poss\u00EDvel salvar o equipamento.');
     } finally {
       setSaving(false);
     }
@@ -1006,7 +1123,7 @@ const EquipmentPage = () => {
       return;
     }
     if (!navigator.mediaDevices || typeof navigator.mediaDevices.getUserMedia !== 'function') {
-      setError('Câmera indisponível neste dispositivo ou navegador.');
+      setError('C\u00E2mera indispon\u00EDvel neste dispositivo ou navegador.');
       return;
     }
 
@@ -1016,7 +1133,7 @@ const EquipmentPage = () => {
       rg_code: normalizeCodeInput(form.rg_code),
       tag_code: normalizeCodeInput(form.tag_code)
     });
-    setScannerStep('Enquadre o RG no retângulo vermelho e toque em Validar RG.');
+    setScannerStep('Enquadre o RG no ret\u00E2ngulo vermelho e toque em Validar RG.');
     setScannerError('');
     setScannerOpen(true);
     setSuccess('');
@@ -1028,14 +1145,14 @@ const EquipmentPage = () => {
       return;
     }
     if (!navigator.mediaDevices || typeof navigator.mediaDevices.getUserMedia !== 'function') {
-      setError('Câmera indisponível neste dispositivo ou navegador.');
+      setError('C\u00E2mera indispon\u00EDvel neste dispositivo ou navegador.');
       return;
     }
 
     setScannerMode('allocation');
     setScannerPhase('rg');
     setScannerDraft({ rg_code: '', tag_code: '' });
-    setScannerStep('Enquadre o RG no retângulo vermelho e toque em Validar RG.');
+    setScannerStep('Enquadre o RG no ret\u00E2ngulo vermelho e toque em Validar RG.');
     setScannerError('');
     setScannerOpen(true);
     setSuccess('');
@@ -1061,13 +1178,13 @@ const EquipmentPage = () => {
         }
         streamRef.current = stream;
         if (!videoRef.current) {
-          throw new Error('Não foi possível iniciar a câmera.');
+          throw new Error('N\u00E3o foi poss\u00EDvel iniciar a c\u00E2mera.');
         }
         videoRef.current.srcObject = stream;
         await videoRef.current.play();
       } catch (err) {
         const message = normalizeTextInput(err?.message);
-        setScannerError(message || 'Não foi possível acessar a câmera.');
+        setScannerError(message || 'N\u00E3o foi poss\u00EDvel acessar a c\u00E2mera.');
       }
     };
 
@@ -1081,7 +1198,7 @@ const EquipmentPage = () => {
 
   const validateScannerStep = useCallback(async () => {
     if (!videoRef.current || videoRef.current.readyState < 2) {
-      setScannerError('A câmera ainda não está pronta. Aguarde e tente novamente.');
+      setScannerError('A c\u00E2mera ainda n\u00E3o est\u00E1 pronta. Aguarde e tente novamente.');
       return;
     }
 
@@ -1100,7 +1217,7 @@ const EquipmentPage = () => {
       fullCanvas.height = video.videoHeight || 720;
       const fullContext = fullCanvas.getContext('2d');
       if (!fullContext) {
-        throw new Error('Não foi possível processar a imagem da câmera.');
+        throw new Error('N\u00E3o foi poss\u00EDvel processar a imagem da c\u00E2mera.');
       }
       fullContext.drawImage(video, 0, 0, fullCanvas.width, fullCanvas.height);
 
@@ -1135,26 +1252,26 @@ const EquipmentPage = () => {
 
       if (phase === 'rg') {
         if (!code) {
-          throw new Error('Não foi possível identificar o RG. Ajuste o enquadramento e tente novamente.');
+          throw new Error('N\u00E3o foi poss\u00EDvel identificar o RG. Ajuste o enquadramento e tente novamente.');
         }
         setScannerDraft((prev) => ({ ...prev, rg_code: code }));
         setScannerPhase('tag');
-        setScannerStep('RG validado. Agora enquadre a etiqueta no retângulo amarelo e toque em Validar etiqueta.');
+        setScannerStep('RG validado. Agora enquadre a etiqueta no ret\u00E2ngulo amarelo e toque em Validar etiqueta.');
         return;
       }
 
       if (!code) {
-        throw new Error('Não foi possível identificar a etiqueta. Você pode tentar novamente ou tocar em Concluir.');
+        throw new Error('N\u00E3o foi poss\u00EDvel identificar a etiqueta. Voc\u00EA pode tentar novamente ou tocar em Concluir.');
       }
       setScannerDraft((prev) => ({ ...prev, tag_code: code }));
       setScannerStep(
         scannerMode === 'allocation'
-          ? 'Etiqueta validada. Toque em Concluir para consultar a alocação.'
-          : 'Etiqueta validada. Toque em Concluir para preencher o formulário.'
+          ? 'Etiqueta validada. Toque em Concluir para consultar a aloca\u00E7\u00E3o.'
+          : 'Etiqueta validada. Toque em Concluir para preencher o formul\u00E1rio.'
       );
     } catch (err) {
       const message = normalizeTextInput(err?.message);
-      setScannerError(message || 'Falha ao ler a etiqueta. Tente com melhor iluminação e foco.');
+      setScannerError(message || 'Falha ao ler a etiqueta. Tente com melhor ilumina\u00E7\u00E3o e foco.');
     } finally {
       setOcrBusy(false);
     }
@@ -1164,9 +1281,9 @@ const EquipmentPage = () => {
     const rgCode = normalizeCodeInput(scannerDraft.rg_code || form.rg_code);
     const tagCode = normalizeCodeInput(scannerDraft.tag_code || form.tag_code);
     if (!rgCode) {
-      setScannerError('RG é obrigatório. Valide o RG antes de concluir.');
+      setScannerError('RG \u00E9 obrigat\u00F3rio. Valide o RG antes de concluir.');
       setScannerPhase('rg');
-      setScannerStep('Enquadre o RG no retângulo vermelho e toque em Validar RG.');
+      setScannerStep('Enquadre o RG no ret\u00E2ngulo vermelho e toque em Validar RG.');
       return;
     }
 
@@ -1183,9 +1300,9 @@ const EquipmentPage = () => {
     }));
 
     if (tagCode) {
-      setSuccess(`Leitura concluída. RG: ${rgCode} | Etiqueta: ${tagCode}`);
+      setSuccess(`Leitura conclu\u00EDda. RG: ${rgCode} | Etiqueta: ${tagCode}`);
     } else {
-      setSuccess(`Leitura concluída. RG: ${rgCode}. Etiqueta não informada.`);
+      setSuccess(`Leitura conclu\u00EDda. RG: ${rgCode}. Etiqueta n\u00E3o informada.`);
     }
     closeScanner();
   }, [closeScanner, fetchAllocationLookup, form.rg_code, form.tag_code, scannerDraft.rg_code, scannerDraft.tag_code, scannerMode]);
@@ -1204,7 +1321,7 @@ const EquipmentPage = () => {
         <Box>
           <Typography variant="h5">Equipamentos</Typography>
           <Typography variant="body2" color="text.secondary">
-            Gestão de equipamentos com foco em refrigeradores novos e alocados na base 02.02.20.
+            Gest\u00E3o de equipamentos com foco em refrigeradores novos e alocados na base 02.02.20.
           </Typography>
         </Box>
 
@@ -1255,7 +1372,7 @@ const EquipmentPage = () => {
                 <Box
                   sx={{
                     display: 'grid',
-                    gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', xl: 'repeat(4, minmax(0, 1fr))' },
+                    gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', xl: 'repeat(6, minmax(0, 1fr))' },
                     gap: 1.5
                   }}
                 >
@@ -1273,8 +1390,20 @@ const EquipmentPage = () => {
                   </Card>
                   <Card sx={{ border: '1px solid var(--stroke)', boxShadow: 'none' }}>
                     <CardContent sx={{ display: 'grid', gap: 0.25 }}>
-                      <Typography variant="body2" color="text.secondary">Disponíveis cadastrados</Typography>
+                      <Typography variant="body2" color="text.secondary">Dispon\u00EDveis cadastrados</Typography>
                       <Typography variant="h5">{dashboard.disponiveis_cadastrados}</Typography>
+                    </CardContent>
+                  </Card>
+                  <Card sx={{ border: '1px solid var(--stroke)', boxShadow: 'none' }}>
+                    <CardContent sx={{ display: 'grid', gap: 0.25 }}>
+                      <Typography variant="body2" color="text.secondary">Para reforma (Recap)</Typography>
+                      <Typography variant="h5">{dashboard.recap_cadastrados}</Typography>
+                    </CardContent>
+                  </Card>
+                  <Card sx={{ border: '1px solid var(--stroke)', boxShadow: 'none' }}>
+                    <CardContent sx={{ display: 'grid', gap: 0.25 }}>
+                      <Typography variant="body2" color="text.secondary">Para descarte (Sucata)</Typography>
+                      <Typography variant="h5">{dashboard.sucata_cadastrados}</Typography>
                     </CardContent>
                   </Card>
                   <Card sx={{ border: '1px solid var(--stroke)', boxShadow: 'none' }}>
@@ -1293,10 +1422,10 @@ const EquipmentPage = () => {
 
           <Card sx={{ border: '1px solid var(--stroke)', boxShadow: 'var(--shadow-md)' }}>
             <CardContent sx={{ display: 'grid', gap: 1.25 }}>
-              <Typography variant="subtitle2">Acessos rápidos</Typography>
+              <Typography variant="subtitle2">Acessos r\u00E1pidos</Typography>
               <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} useFlexGap>
                 <Button variant="outlined" onClick={() => setActiveScreen('new-refrigerators')} fullWidth={isMobile}>
-                  Ver refrigeradores novos
+                  Ver n\u00E3o alocados
                 </Button>
                 <Button variant="outlined" onClick={() => setActiveScreen('materials')} fullWidth={isMobile}>
                   Ver materiais da base
@@ -1312,12 +1441,12 @@ const EquipmentPage = () => {
 
           <Card sx={{ border: '1px solid var(--stroke)', boxShadow: 'var(--shadow-md)' }}>
             <CardContent sx={{ display: 'grid', gap: 1.25 }}>
-              <Typography variant="subtitle2">Verificação por RG/Etiqueta</Typography>
+              <Typography variant="subtitle2">Verifica\u00E7\u00E3o por RG/Etiqueta</Typography>
               {allocationLookupLoading ? (
-                <Typography color="text.secondary">Consultando alocações...</Typography>
+                <Typography color="text.secondary">Consultando aloca\u00E7\u00F5es...</Typography>
               ) : !allocationLookupResult ? (
                 <Typography color="text.secondary">
-                  Use o botão &quot;Ler etiqueta&quot; para consultar os dados dos equipamentos alocados.
+                  Use o bot\u00E3o &quot;Ler etiqueta&quot; para consultar os dados dos equipamentos alocados.
                 </Typography>
               ) : (
                 <>
@@ -1326,21 +1455,21 @@ const EquipmentPage = () => {
                   </Typography>
                   {allocationLookupResult.items.length === 0 ? (
                     <Typography color="text.secondary">
-                      Nenhuma alocação encontrada para os códigos informados.
+                      Nenhuma aloca\u00E7\u00E3o encontrada para os c\u00F3digos informados.
                     </Typography>
                   ) : isMobile ? (
-                    <Box sx={{ display: 'grid', gap: 1 }}>
+                    <Box sx={SCROLLABLE_CARD_LIST_SX}>
                       {allocationLookupResult.items.map((item) => (
                         <Card key={item.inventory_item_id} sx={{ border: '1px solid var(--stroke)', boxShadow: 'none' }}>
                           <CardContent sx={{ display: 'grid', gap: 0.5, p: 1.25, '&:last-child': { pb: 1.25 } }}>
                             <Typography variant="subtitle2" sx={{ wordBreak: 'break-word' }}>
                               {item.model_name || '-'}
                             </Typography>
-                            <Typography variant="body2">Código do cliente: {item.client_code || '-'}</Typography>
+                            <Typography variant="body2">C\u00F3digo do cliente: {item.client_code || '-'}</Typography>
                             <Typography variant="body2">Fantasia: {item.nome_fantasia || '-'}</Typography>
                             <Typography variant="body2">Setor: {item.setor || '-'}</Typography>
                             <Typography variant="caption" color="text.secondary">
-                              Emissão do contrato: {item.invoice_issue_date || '-'}
+                              Emiss\u00E3o do contrato: {item.invoice_issue_date || '-'}
                             </Typography>
                           </CardContent>
                         </Card>
@@ -1351,11 +1480,11 @@ const EquipmentPage = () => {
                       <Table size="small">
                         <TableHead>
                           <TableRow>
-                            <TableCell>Código do cliente</TableCell>
+                            <TableCell>C\u00F3digo do cliente</TableCell>
                             <TableCell>Fantasia</TableCell>
                             <TableCell>Setor</TableCell>
-                            <TableCell sx={COMPACT_MODEL_CELL_SX}>Descrição do equipamento</TableCell>
-                            <TableCell>Emissão do contrato</TableCell>
+                            <TableCell sx={COMPACT_MODEL_CELL_SX}>Descri\u00E7\u00E3o do equipamento</TableCell>
+                            <TableCell>Emiss\u00E3o do contrato</TableCell>
                           </TableRow>
                         </TableHead>
                         <TableBody>
@@ -1453,7 +1582,6 @@ const EquipmentPage = () => {
                         setForm((prev) => ({
                           ...prev,
                           status: nextStatus,
-                          client_name: nextStatus === 'alocado' ? prev.client_name : ''
                         }));
                       }}
                       required
@@ -1512,17 +1640,7 @@ const EquipmentPage = () => {
 
               {form.category === 'refrigerador' && (
                 <TextField
-                  label="Cliente (quando alocado)"
-                  value={form.client_name}
-                  onChange={(event) => setForm((prev) => ({ ...prev, client_name: event.target.value }))}
-                  required={form.status === 'alocado'}
-                  disabled={form.status !== 'alocado'}
-                />
-              )}
-
-              {form.category === 'refrigerador' && (
-                <TextField
-                  label="Observação"
+                  label="Observa\u00E7\u00E3o"
                   multiline
                   minRows={2}
                   value={form.notes}
@@ -1532,15 +1650,97 @@ const EquipmentPage = () => {
 
               <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} useFlexGap>
                 <Button type="submit" variant="contained" disabled={saving} fullWidth={isMobile}>
-                  {saving ? 'Salvando...' : editingId ? 'Salvar alterações' : 'Cadastrar equipamento'}
+                  {saving ? 'Salvando...' : editingId ? 'Salvar altera\u00E7\u00F5es' : 'Cadastrar equipamento'}
                 </Button>
 
                 {editingId && (
                   <Button type="button" variant="outlined" onClick={resetForm} fullWidth={isMobile}>
-                    Cancelar edição
+                    Cancelar edi\u00E7\u00E3o
                   </Button>
                 )}
               </Stack>
+
+              <Box
+                sx={{
+                  mt: 1,
+                  pt: 2,
+                  borderTop: '1px solid var(--stroke)',
+                  display: 'grid',
+                  gap: 1.25,
+                }}
+              >
+                <Typography variant="subtitle1">Importacao em massa de refrigeradores</Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Formato do CSV: Tipo, Modelo, Marca, Voltagem, RG e Etiqueta.
+                </Typography>
+
+                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} useFlexGap>
+                  <Button
+                    variant="outlined"
+                    onClick={downloadBulkImportTemplate}
+                    fullWidth={isMobile}
+                  >
+                    Baixar modelo CSV
+                  </Button>
+                  <input
+                    ref={bulkImportInputRef}
+                    type="file"
+                    accept=".csv,text/csv"
+                    onChange={handleBulkImportFileChange}
+                    style={{ display: 'none' }}
+                  />
+                  <Button
+                    variant="outlined"
+                    onClick={() => bulkImportInputRef.current?.click()}
+                    fullWidth={isMobile}
+                  >
+                    Selecionar CSV
+                  </Button>
+                  <Button
+                    variant="contained"
+                    onClick={handleBulkImportSubmit}
+                    disabled={!bulkImportFile || bulkImporting}
+                    fullWidth={isMobile}
+                  >
+                    {bulkImporting ? 'Importando...' : 'Importar refrigeradores'}
+                  </Button>
+                  {bulkImportFile && (
+                    <Button
+                      variant="text"
+                      onClick={clearBulkImportSelection}
+                      disabled={bulkImporting}
+                      fullWidth={isMobile}
+                    >
+                      Limpar
+                    </Button>
+                  )}
+                </Stack>
+
+                {bulkImportFile && (
+                  <Typography variant="caption" color="text.secondary">
+                    Arquivo selecionado: {bulkImportFile.name}
+                  </Typography>
+                )}
+
+                {bulkImportResult && (
+                  <Alert severity="info" sx={{ mt: 0.5 }}>
+                    {`Total lido: ${Number(bulkImportResult.total_rows || 0)} | `}
+                    {`Importados: ${Number(bulkImportResult.imported_count || 0)} | `}
+                    {`Duplicados por RG: ${Number(bulkImportResult.duplicated_by_rg || 0)} | `}
+                    {`Duplicados no CSV: ${Number(bulkImportResult.duplicates_in_file || 0)} | `}
+                    {`Duplicados na base 02.02.20: ${Number(bulkImportResult.duplicates_in_020220 || 0)} | `}
+                    {`Duplicados no cadastro: ${Number(bulkImportResult.duplicates_in_cadastro || 0)} | `}
+                    {`Invalidos: ${Number(bulkImportResult.invalid_rows || 0)} | `}
+                    {`Ignorados (nao refrigerador): ${Number(bulkImportResult.ignored_non_refrigerator || 0)}`}
+                  </Alert>
+                )}
+
+                {Array.isArray(bulkImportResult?.errors) && bulkImportResult.errors.length > 0 && (
+                  <Alert severity="warning">
+                    {bulkImportResult.errors.slice(0, 10).join(' | ')}
+                  </Alert>
+                )}
+              </Box>
             </Box>
           </CardContent>
         </Card>
@@ -1572,7 +1772,7 @@ const EquipmentPage = () => {
                       onChange={(event) => setMaterialsFilters((prev) => ({ ...prev, q: event.target.value }))}
                     />
                     <TextField
-                      label="Mês/Ano"
+                      label="M\u00EAs/Ano"
                       value={selectedMonthYearValue}
                       placeholder="MM/AAAA"
                       onClick={openMonthPicker}
@@ -1601,7 +1801,7 @@ const EquipmentPage = () => {
                     />
                     {isMobile ? (
                       <Dialog open={monthPickerOpen} onClose={closeMonthPicker} fullWidth maxWidth="xs">
-                        <DialogTitle>Selecionar mês/ano</DialogTitle>
+                        <DialogTitle>Selecionar m\u00EAs/ano</DialogTitle>
                         <DialogContent>{monthPickerPanel}</DialogContent>
                         <DialogActions>
                           <Button onClick={closeMonthPicker}>Fechar</Button>
@@ -1632,7 +1832,7 @@ const EquipmentPage = () => {
                     </TextField>
                     <TextField
                       select
-                      label="Ordenação"
+                      label="Ordena\u00E7\u00E3o"
                       value={materialsFilters.sort}
                       onChange={(event) => setMaterialsFilters((prev) => ({ ...prev, sort: event.target.value }))}
                     >
@@ -1646,18 +1846,30 @@ const EquipmentPage = () => {
                   sx={{
                     display: 'grid',
                     gap: 1.5,
-                    gridTemplateColumns: { xs: '1fr', md: '2fr 1fr' }
+                    gridTemplateColumns: { xs: '1fr', md: '2fr 1fr 1fr' }
                   }}
                 >
                   <TextField
-                    label="Pesquisar refrigeradores novos cadastrados"
+                    label="Pesquisar refrigeradores n\u00E3o alocados"
                     placeholder="Modelo, marca, RG, etiqueta ou voltagem"
                     value={overviewSearch}
                     onChange={(event) => setOverviewSearch(event.target.value)}
                   />
                   <TextField
                     select
-                    label="Ordenação"
+                    label="Status"
+                    value={nonAllocatedStatusFilter}
+                    onChange={(event) => setNonAllocatedStatusFilter(event.target.value)}
+                  >
+                    {NON_ALLOCATED_STATUS_OPTIONS.map((item) => (
+                      <MenuItem key={item.value} value={item.value}>
+                        {item.label}
+                      </MenuItem>
+                    ))}
+                  </TextField>
+                  <TextField
+                    select
+                    label="Ordena\u00E7\u00E3o"
                     value={materialsFilters.sort}
                     onChange={(event) => setMaterialsFilters((prev) => ({ ...prev, sort: event.target.value }))}
                   >
@@ -1672,15 +1884,22 @@ const EquipmentPage = () => {
           {isNewRefrigeratorsScreen && (
             <Card sx={{ border: '1px solid var(--stroke)', boxShadow: 'var(--shadow-md)' }}>
               <CardContent sx={{ display: 'grid', gap: 1.25 }}>
-                <Typography variant="h6">Refrigeradores novos cadastrados</Typography>
-		              {loadingNewRefrigerators ? (
-		                <Typography color="text.secondary">Carregando novos cadastrados...</Typography>
-		              ) : newRefrigerators.length === 0 ? (
-	                <Typography color="text.secondary">Nenhum refrigerador novo encontrado.</Typography>
-	              ) : (
+                <Typography variant="h6">Refrigeradores n\u00E3o alocados</Typography>
+                <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', md: 'repeat(5, minmax(0, 1fr))' }, gap: 1 }}>
+                  <Chip size="small" label={`Total: ${nonAllocatedDashboard.total_nao_alocados}`} />
+                  <Chip size="small" color="info" label={`Novos: ${nonAllocatedDashboard.novo}`} />
+                  <Chip size="small" color="success" label={`Boa: ${nonAllocatedDashboard.disponivel}`} />
+                  <Chip size="small" color="warning" label={`Recap: ${nonAllocatedDashboard.recap}`} />
+                  <Chip size="small" color="error" label={`Sucata: ${nonAllocatedDashboard.sucata}`} />
+                </Box>
+			              {loadingNewRefrigerators ? (
+                                <Typography color="text.secondary">Carregando refrigeradores n\u00E3o alocados...</Typography>
+			              ) : newRefrigerators.length === 0 ? (
+                        <Typography color="text.secondary">Nenhum refrigerador n\u00E3o alocado encontrado.</Typography>
+		              ) : (
 	                <>
-	                  {isMobile ? (
-	                    <Box sx={{ display: 'grid', gap: 1 }}>
+                  {isMobile ? (
+                    <Box sx={SCROLLABLE_CARD_LIST_SX}>
 	                      {newRefrigerators.map((item) => (
 	                        <Card key={item.id} sx={{ border: '1px solid var(--stroke)', boxShadow: 'none' }}>
 	                          <CardContent sx={{ display: 'grid', gap: 0.5, p: 1.25, '&:last-child': { pb: 1.25 } }}>
@@ -1690,8 +1909,9 @@ const EquipmentPage = () => {
                             <Typography variant="body2">Marca: {item.brand || '-'}</Typography>
                             <Typography variant="body2">RG: {item.rg_code || '-'}</Typography>
                             <Typography variant="body2">Etiqueta: {item.tag_code || '-'}</Typography>
+                            <Typography variant="body2">Status: {nonAllocatedStatusLabelByValue[item.status] || item.status || '-'}</Typography>
                             <Typography variant="body2">
-                              Voltagem: {voltageByValue[item.voltage] || item.voltage || 'Não informado'}
+                              Voltagem: {voltageByValue[item.voltage] || item.voltage || 'N\u00E3o informado'}
                             </Typography>
                             <Typography variant="caption" color="text.secondary">
                               Cadastrado: {formatDateTime(item.created_at)}
@@ -1709,9 +1929,10 @@ const EquipmentPage = () => {
                             <TableCell>Marca</TableCell>
                             <TableCell>RG</TableCell>
                             <TableCell>Etiqueta</TableCell>
+                            <TableCell>Status</TableCell>
                             <TableCell>Voltagem</TableCell>
-	                            <TableCell>Cadastrado em</TableCell>
-	                          </TableRow>
+                            <TableCell>Cadastrado em</TableCell>
+                          </TableRow>
 	                        </TableHead>
 	                        <TableBody>
                           {newRefrigerators.map((item) => (
@@ -1720,7 +1941,8 @@ const EquipmentPage = () => {
                               <TableCell>{item.brand || '-'}</TableCell>
                               <TableCell>{item.rg_code}</TableCell>
                               <TableCell>{item.tag_code}</TableCell>
-                              <TableCell>{voltageByValue[item.voltage] || item.voltage || 'Não informado'}</TableCell>
+                              <TableCell>{nonAllocatedStatusLabelByValue[item.status] || item.status || '-'}</TableCell>
+                              <TableCell>{voltageByValue[item.voltage] || item.voltage || 'N\u00E3o informado'}</TableCell>
                               <TableCell>{formatDateTime(item.created_at)}</TableCell>
                             </TableRow>
                           ))}
@@ -1749,8 +1971,8 @@ const EquipmentPage = () => {
 	                <Typography color="text.secondary">Nenhum material encontrado para os filtros atuais.</Typography>
 	              ) : (
 	                <>
-	                  {isMobile ? (
-	                    <Box sx={{ display: 'grid', gap: 1 }}>
+                  {isMobile ? (
+                    <Box sx={SCROLLABLE_CARD_LIST_SX}>
 	                      {inventoryMaterials.map((item) => (
 	                        <Card key={item.inventory_item_id} sx={{ border: '1px solid var(--stroke)', boxShadow: 'none' }}>
 	                          <CardContent sx={{ display: 'grid', gap: 0.5, p: 1.25, '&:last-child': { pb: 1.25 } }}>
@@ -1761,12 +1983,12 @@ const EquipmentPage = () => {
                               {materialTypeByValue[item.item_type] || item.item_type || '-'}
                             </Typography>
                             <Typography variant="body2">Cliente: {item.nome_fantasia || '-'}</Typography>
-                            <Typography variant="body2">Código: {item.client_code || '-'}</Typography>
+                            <Typography variant="body2">C\u00F3digo: {item.client_code || '-'}</Typography>
                             <Typography variant="body2">RG: {item.rg_code || '-'}</Typography>
                             <Typography variant="body2">Qtd.: {item.quantity}</Typography>
                             <Typography variant="body2">Nota: {item.comodato_number || '-'}</Typography>
                             <Typography variant="caption" color="text.secondary">
-                              Emissão: {item.invoice_issue_date || '-'}
+                              Emiss\u00E3o: {item.invoice_issue_date || '-'}
                             </Typography>
 	                          </CardContent>
 	                        </Card>
@@ -1779,12 +2001,12 @@ const EquipmentPage = () => {
                           <TableRow>
                             <TableCell>Tipo</TableCell>
                             <TableCell>Cliente</TableCell>
-                            <TableCell>Código</TableCell>
+                            <TableCell>C\u00F3digo</TableCell>
                             <TableCell sx={COMPACT_MODEL_CELL_SX}>Material</TableCell>
                             <TableCell>RG</TableCell>
                             <TableCell>Qtd.</TableCell>
                             <TableCell>Nota</TableCell>
-                            <TableCell>Emissão</TableCell>
+                            <TableCell>Emiss\u00E3o</TableCell>
                           </TableRow>
 	                        </TableHead>
 	                        <TableBody>
@@ -1827,9 +2049,9 @@ const EquipmentPage = () => {
                 }}
               >
                 <Box>
-                  <Typography variant="subtitle2">Período atual: {selectedMonthYearValue || '-'}</Typography>
+                  <Typography variant="subtitle2">Per\u00EDodo atual: {selectedMonthYearValue || '-'}</Typography>
                   <Typography variant="caption" color="text.secondary">
-                    Use o seletor de mês/ano apenas quando quiser escolher uma data específica.
+                    Use o seletor de m\u00EAs/ano apenas quando quiser escolher uma data espec\u00EDfica.
                   </Typography>
                 </Box>
                 <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ width: { xs: '100%', sm: 'auto' } }}>
@@ -1847,7 +2069,7 @@ const EquipmentPage = () => {
                     disabled={!hasNextPeriod}
                     fullWidth={isMobile}
                   >
-                    Próximo
+                    Pr\u00F3ximo
                   </Button>
                 </Stack>
               </CardContent>
@@ -1858,10 +2080,10 @@ const EquipmentPage = () => {
 	      )}
 
       <Dialog open={scannerOpen} onClose={closeScanner} fullWidth maxWidth="sm" fullScreen={isMobile}>
-        <DialogTitle>{scannerMode === 'allocation' ? 'Leitura para verificação de alocação' : 'Leitura da etiqueta'}</DialogTitle>
+        <DialogTitle>{scannerMode === 'allocation' ? 'Leitura para verifica\u00E7\u00E3o de aloca\u00E7\u00E3o' : 'Leitura da etiqueta'}</DialogTitle>
         <DialogContent sx={{ display: 'grid', gap: 1.5 }}>
           <Typography variant="body2" color="text.secondary">
-            {scannerStep || 'Enquadre o RG no retângulo vermelho e toque em Validar RG.'}
+            {scannerStep || 'Enquadre o RG no ret\u00E2ngulo vermelho e toque em Validar RG.'}
           </Typography>
 
           <Box
@@ -1920,8 +2142,8 @@ const EquipmentPage = () => {
 
           <Typography variant="caption" color="text.secondary">
             {scannerPhase === 'rg'
-              ? 'RG obrigatório: valide no retângulo vermelho.'
-              : 'Etiqueta opcional: valide no retângulo amarelo ou toque em Concluir para pular.'}
+              ? 'RG \u00E9 obrigat\u00F3rio: valide no ret\u00E2ngulo vermelho.'
+              : 'Etiqueta opcional: valide no ret\u00E2ngulo amarelo ou toque em Concluir para pular.'}
           </Typography>
 
           <Typography variant="caption" color="text.secondary">
@@ -1955,3 +2177,4 @@ const EquipmentPage = () => {
 };
 
 export default EquipmentPage;
+

@@ -29,8 +29,33 @@ const Sidebar = () => {
     'pickups.orders_history',
     'pickups.withdrawals_history',
   ]);
+  const canAccessRequests = hasAnyPermission([
+    'deliveries.manage',
+    'pickups.create_order',
+    'pickups.import_base',
+    'pickups.orders_history',
+    'pickups.withdrawals_history',
+    'equipments.view',
+    'equipments.manage',
+  ]);
   const canAccessProductivity = true;
   const canAccessOperations = canManageDeliveries || hasPickupAreaAccess;
+  const defaultProductivityRoute = '/produtividade/tarefas';
+  const defaultOperationsRoute = (() => {
+    if (canManageDeliveries) {
+      return '/operacoes/entregas/historico';
+    }
+    if (hasAnyPermission(['pickups.orders_history', 'pickups.withdrawals_history'])) {
+      return '/operacoes/ordens/central';
+    }
+    if (hasPermission('pickups.create_order')) {
+      return '/operacoes/ordens/nova';
+    }
+    if (hasPermission('pickups.import_base')) {
+      return '/operacoes/ordens/base';
+    }
+    return '/dashboard';
+  })();
 
   const [users, setUsers] = useState([]);
   const [userMenuAnchor, setUserMenuAnchor] = useState(null);
@@ -171,7 +196,7 @@ const Sidebar = () => {
 
         {canAccessProductivity && (
           <ListItemButton
-            onClick={() => navigate('/produtividade')}
+            onClick={() => navigate(defaultProductivityRoute)}
             selected={isProductivityActive}
             sx={navItemSx}
           >
@@ -181,7 +206,7 @@ const Sidebar = () => {
 
         {canAccessOperations && (
           <ListItemButton
-            onClick={() => navigate('/operacoes')}
+            onClick={() => navigate(defaultOperationsRoute)}
             selected={isOperationsActive}
             sx={navItemSx}
           >
@@ -196,6 +221,16 @@ const Sidebar = () => {
             sx={navItemSx}
           >
             <ListItemText primary='Equipamento' />
+          </ListItemButton>
+        )}
+
+        {canAccessRequests && (
+          <ListItemButton
+            onClick={() => navigate('/requests')}
+            selected={isActive('/requests')}
+            sx={navItemSx}
+          >
+            <ListItemText primary='Solicitações' />
           </ListItemButton>
         )}
       </List>

@@ -151,6 +151,12 @@ def ensure_pickup_catalog_order_columns():
             conn.execute(text("ALTER TABLE pickup_catalog_orders ADD COLUMN status_updated_at TIMESTAMP"))
         if "status_updated_by" not in columns:
             conn.execute(text("ALTER TABLE pickup_catalog_orders ADD COLUMN status_updated_by VARCHAR"))
+        if "email_request_status" not in columns:
+            conn.execute(text("ALTER TABLE pickup_catalog_orders ADD COLUMN email_request_status VARCHAR DEFAULT ''"))
+        if "email_request_updated_at" not in columns:
+            conn.execute(text("ALTER TABLE pickup_catalog_orders ADD COLUMN email_request_updated_at TIMESTAMP"))
+        if "email_request_updated_by" not in columns:
+            conn.execute(text("ALTER TABLE pickup_catalog_orders ADD COLUMN email_request_updated_by VARCHAR"))
         conn.execute(
             text(
                 "UPDATE pickup_catalog_orders "
@@ -183,6 +189,34 @@ def ensure_pickup_catalog_order_columns():
                 "WHERE status_updated_by IS NULL"
             )
         )
+        conn.execute(
+            text(
+                "UPDATE pickup_catalog_orders "
+                "SET email_request_status = '' "
+                "WHERE email_request_status IS NULL"
+            )
+        )
+        conn.execute(
+            text(
+                "UPDATE pickup_catalog_orders "
+                "SET email_request_updated_by = '' "
+                "WHERE email_request_updated_by IS NULL"
+            )
+        )
+        conn.execute(
+            text(
+                "UPDATE pickup_catalog_orders "
+                "SET email_request_status = 'pending' "
+                "WHERE status = 'concluida' AND TRIM(COALESCE(email_request_status, '')) = ''"
+            )
+        )
+        conn.execute(
+            text(
+                "UPDATE pickup_catalog_orders "
+                "SET email_request_status = '' "
+                "WHERE status <> 'concluida' AND TRIM(COALESCE(email_request_status, '')) <> ''"
+            )
+        )
 
 
 def ensure_pickup_catalog_order_item_columns():
@@ -193,11 +227,20 @@ def ensure_pickup_catalog_order_item_columns():
     with engine.begin() as conn:
         if "comodato_number" not in columns:
             conn.execute(text("ALTER TABLE pickup_catalog_order_items ADD COLUMN comodato_number VARCHAR"))
+        if "refrigerator_condition" not in columns:
+            conn.execute(text("ALTER TABLE pickup_catalog_order_items ADD COLUMN refrigerator_condition VARCHAR"))
         conn.execute(
             text(
                 "UPDATE pickup_catalog_order_items "
                 "SET comodato_number = '' "
                 "WHERE comodato_number IS NULL"
+            )
+        )
+        conn.execute(
+            text(
+                "UPDATE pickup_catalog_order_items "
+                "SET refrigerator_condition = '' "
+                "WHERE refrigerator_condition IS NULL"
             )
         )
 

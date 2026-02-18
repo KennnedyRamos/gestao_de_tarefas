@@ -49,6 +49,8 @@ class EquipmentSummaryItem(BaseModel):
     total: int
     novo: int
     disponivel: int
+    recap: int = 0
+    sucata: int = 0
     alocado: int
 
 
@@ -61,6 +63,8 @@ class EquipmentSummaryOut(BaseModel):
     total: int
     novo: int
     disponivel: int
+    recap: int = 0
+    sucata: int = 0
     alocado: int
     categories: list[EquipmentSummaryItem]
     clients: list[EquipmentClientSummaryItem]
@@ -70,6 +74,8 @@ class EquipmentRefrigeratorDashboardOut(BaseModel):
     total_cadastrados: int
     novos_cadastrados: int
     disponiveis_cadastrados: int
+    recap_cadastrados: int = 0
+    sucata_cadastrados: int = 0
     alocados_cadastrados: int
     alocados_020220_linhas: int
     alocados_020220_unidades: int
@@ -105,12 +111,26 @@ class EquipmentRefrigeratorsOverviewOut(BaseModel):
     alocados_020220: list[EquipmentAllocatedRefrigeratorItemOut]
 
 
+class EquipmentNonAllocatedDashboardOut(BaseModel):
+    total_nao_alocados: int
+    novo: int
+    disponivel: int
+    recap: int
+    sucata: int
+
+
 class EquipmentPageMetaOut(BaseModel):
     limit: int
     offset: int
     total: int
     has_next: bool
     has_previous: bool
+
+
+class EquipmentNonAllocatedListOut(BaseModel):
+    dashboard: EquipmentNonAllocatedDashboardOut
+    items: list[EquipmentNewRefrigeratorItemOut]
+    page: EquipmentPageMetaOut
 
 
 class EquipmentNewRefrigeratorListOut(BaseModel):
@@ -134,6 +154,18 @@ class EquipmentInventoryMaterialItemOut(BaseModel):
 class EquipmentInventoryMaterialListOut(BaseModel):
     items: list[EquipmentInventoryMaterialItemOut]
     page: EquipmentPageMetaOut
+
+
+class EquipmentBulkImportResultOut(BaseModel):
+    total_rows: int
+    imported_count: int
+    duplicated_by_rg: int
+    duplicates_in_file: int
+    duplicates_in_020220: int
+    duplicates_in_cadastro: int
+    invalid_rows: int
+    ignored_non_refrigerator: int
+    errors: list[str] = Field(default_factory=list)
 
 
 class EquipmentAllocationLookupItemOut(BaseModel):

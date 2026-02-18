@@ -18,6 +18,7 @@ import {
   TableBody,
   TableCell,
   TableHead,
+  TableContainer,
   TableRow,
   TextField,
   Typography,
@@ -36,9 +37,11 @@ const togglePermission = (currentPermissions, permissionCode) => {
   }
   return [...currentPermissions, permissionCode].sort((a, b) => a.localeCompare(b));
 };
+const USERS_PAGE_SIZE = 25;
 
 const Users = () => {
   const [users, setUsers] = useState([]);
+  const [usersPage, setUsersPage] = useState(1);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -68,6 +71,7 @@ const Users = () => {
     try {
       const response = await api.get('/users');
       setUsers(Array.isArray(response.data) ? response.data : []);
+      setUsersPage(1);
       setError('');
     } catch (err) {
       setError('Acesso negado ou erro ao carregar usuários.');
@@ -196,6 +200,24 @@ const Users = () => {
     return list.map((code) => permissionsByCode[code] || permissionLabel(code)).join(', ');
   };
 
+  const totalUsers = users.length;
+  const totalUserPages = Math.max(1, Math.ceil(totalUsers / USERS_PAGE_SIZE));
+  const currentUsersPage = Math.min(usersPage, totalUserPages);
+  const usersStart = (currentUsersPage - 1) * USERS_PAGE_SIZE;
+  const usersEnd = usersStart + USERS_PAGE_SIZE;
+  const pagedUsers = useMemo(
+    () => users.slice(usersStart, usersEnd),
+    [users, usersEnd, usersStart]
+  );
+  const usersFrom = totalUsers === 0 ? 0 : usersStart + 1;
+  const usersTo = Math.min(usersEnd, totalUsers);
+
+  useEffect(() => {
+    if (usersPage > totalUserPages) {
+      setUsersPage(totalUserPages);
+    }
+  }, [usersPage, totalUserPages]);
+
   return (
     <Box sx={{ p: 3 }}>
       <Typography variant='h5' sx={{ mb: 2 }}>Usuários</Typography>
@@ -283,10 +305,14 @@ const Users = () => {
           border: '1px solid var(--stroke)',
           borderRadius: 'var(--radius-lg)',
           boxShadow: 'var(--shadow-md)',
-          overflow: 'hidden'
+          overflow: 'hidden',
+          display: 'grid',
+          gap: 1,
+          p: 1.5
         }}
       >
-        <Table size='small'>
+        <TableContainer sx={{ maxHeight: { xs: '60vh', md: 560 }, overflowY: 'auto', borderRadius: 1 }}>
+          <Table size='small' stickyHeader>
           <TableHead>
             <TableRow>
               <TableCell>Nome</TableCell>
@@ -297,7 +323,7 @@ const Users = () => {
             </TableRow>
           </TableHead>
           <TableBody>
-            {users.map((user) => (
+            {pagedUsers.map((user) => (
               <TableRow key={user.id}>
                 <TableCell>{user.name}</TableCell>
                 <TableCell>{user.email}</TableCell>
@@ -322,7 +348,39 @@ const Users = () => {
               </TableRow>
             )}
           </TableBody>
-        </Table>
+          </Table>
+        </TableContainer>
+        <Box
+          sx={{
+            display: 'flex',
+            alignItems: { xs: 'stretch', sm: 'center' },
+            justifyContent: 'space-between',
+            flexDirection: { xs: 'column', sm: 'row' },
+            gap: 1
+          }}
+        >
+          <Typography variant='caption' color='text.secondary'>
+            {`Mostrando ${usersFrom}-${usersTo} de ${totalUsers} | Página ${currentUsersPage} de ${totalUserPages}`}
+          </Typography>
+          <Box sx={{ display: 'flex', gap: 1 }}>
+            <Button
+              variant='outlined'
+              size='small'
+              disabled={currentUsersPage <= 1}
+              onClick={() => setUsersPage((prev) => Math.max(1, prev - 1))}
+            >
+              Anterior
+            </Button>
+            <Button
+              variant='outlined'
+              size='small'
+              disabled={currentUsersPage >= totalUserPages}
+              onClick={() => setUsersPage((prev) => Math.min(totalUserPages, prev + 1))}
+            >
+              Próximo
+            </Button>
+          </Box>
+        </Box>
       </Box>
 
       <Dialog open={Boolean(accessUser)} onClose={handleCloseAccess} maxWidth='sm' fullWidth>

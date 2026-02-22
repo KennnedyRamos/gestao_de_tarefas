@@ -460,8 +460,11 @@ const EquipmentPage = () => {
   const [scannerDraft, setScannerDraft] = useState({ rg_code: '', tag_code: '' });
   const [scannerPending, setScannerPending] = useState({ rg_code: '', tag_code: '' });
   const [scannerAwaitingConfirmation, setScannerAwaitingConfirmation] = useState(false);
+  const [scannerTagAttemptConsumed, setScannerTagAttemptConsumed] = useState(false);
   const [scannerPreview, setScannerPreview] = useState({ rg_code: '', tag_code: '', raw_text: '' });
   const [ocrBusy, setOcrBusy] = useState(false);
+  const [scannerRealtimeLookup, setScannerRealtimeLookup] = useState(null);
+  const [scannerRealtimeLookupLoading, setScannerRealtimeLookupLoading] = useState(false);
   const [allocationLookupResult, setAllocationLookupResult] = useState(null);
   const [allocationLookupLoading, setAllocationLookupLoading] = useState(false);
   const [bulkImportFile, setBulkImportFile] = useState(null);
@@ -473,6 +476,8 @@ const EquipmentPage = () => {
   const scannerLoopTimeoutRef = useRef(null);
   const scannerDraftRef = useRef({ rg_code: '', tag_code: '' });
   const ocrBusyRef = useRef(false);
+  const scannerRealtimeLookupRequestRef = useRef(0);
+  const scannerRealtimeLookupLastRgRef = useRef('');
   const tesseractLoaderRef = useRef(null);
   const bulkImportInputRef = useRef(null);
   const activeScannerArea = scannerPhase === 'tag' ? SCANNER_AREAS.tag : SCANNER_AREAS.rg;
@@ -1058,6 +1063,64 @@ const EquipmentPage = () => {
     }
   }, []);
 
+  const fetchAllocationLookupRealtime = useCallback(async (rgCode) => {
+    const normalizedRgCode = normalizeCodeInput(rgCode);
+    if (!normalizedRgCode) {
+      return;
+    }
+    if (scannerRealtimeLookupLastRgRef.current === normalizedRgCode) {
+      return;
+    }
+
+    scannerRealtimeLookupLastRgRef.current = normalizedRgCode;
+    const requestId = scannerRealtimeLookupRequestRef.current + 1;
+    scannerRealtimeLookupRequestRef.current = requestId;
+    setScannerRealtimeLookupLoading(true);
+
+    try {
+      const response = await api.get('/equipments/allocations/lookup', {
+        params: { rg_code: normalizedRgCode }
+      });
+      if (requestId !== scannerRealtimeLookupRequestRef.current) {
+        return;
+      }
+
+      const payload = response?.data || {};
+      const items = Array.isArray(payload?.items) ? payload.items : [];
+      const realtimePayload = {
+        rg_code: normalizeCodeInput(payload?.rg_code || normalizedRgCode),
+        tag_code: normalizeCodeInput(payload?.tag_code || ''),
+        total: Number(payload?.total || items.length || 0),
+        items
+      };
+
+      setScannerRealtimeLookup(realtimePayload);
+      setAllocationLookupResult(realtimePayload);
+      setScannerError('');
+      setScannerStep(
+        items.length > 0
+          ? `RG ${realtimePayload.rg_code} encontrado na base 02.02.20.`
+          : `RG ${realtimePayload.rg_code} lido. Equipamento não encontrado na base 02.02.20.`
+      );
+    } catch (err) {
+      if (requestId !== scannerRealtimeLookupRequestRef.current) {
+        return;
+      }
+      const detail = normalizeTextInput(err?.response?.data?.detail);
+      setScannerRealtimeLookup({
+        rg_code: normalizedRgCode,
+        tag_code: '',
+        total: 0,
+        items: []
+      });
+      setScannerError(detail || 'Não foi possível consultar a alocação em tempo real.');
+    } finally {
+      if (requestId === scannerRealtimeLookupRequestRef.current) {
+        setScannerRealtimeLookupLoading(false);
+      }
+    }
+  }, []);
+
   const loadTesseract = useCallback(async () => {
     if (typeof window === 'undefined') {
       throw new Error('Navegador sem suporte para OCR.');
@@ -1205,10 +1268,15 @@ const EquipmentPage = () => {
     setScannerDraft({ rg_code: '', tag_code: '' });
     setScannerPending({ rg_code: '', tag_code: '' });
     setScannerAwaitingConfirmation(false);
+    setScannerTagAttemptConsumed(false);
     scannerDraftRef.current = { rg_code: '', tag_code: '' };
     setScannerPreview({ rg_code: '', tag_code: '', raw_text: '' });
     setOcrBusy(false);
+    setScannerRealtimeLookup(null);
+    setScannerRealtimeLookupLoading(false);
     ocrBusyRef.current = false;
+    scannerRealtimeLookupRequestRef.current += 1;
+    scannerRealtimeLookupLastRgRef.current = '';
     stopScanner();
   }, [stopScanner]);
 
@@ -1231,6 +1299,7 @@ const EquipmentPage = () => {
     setScannerDraft(initialDraft);
     setScannerPending({ rg_code: '', tag_code: '' });
     setScannerAwaitingConfirmation(false);
+    setScannerTagAttemptConsumed(false);
     scannerDraftRef.current = initialDraft;
     setScannerPreview({ ...initialDraft, raw_text: '' });
     setScannerStep('Aponte a câmera para o RG. A leitura será automática.');
@@ -1254,8 +1323,13 @@ const EquipmentPage = () => {
     setScannerDraft({ rg_code: '', tag_code: '' });
     setScannerPending({ rg_code: '', tag_code: '' });
     setScannerAwaitingConfirmation(false);
+    setScannerTagAttemptConsumed(false);
     scannerDraftRef.current = { rg_code: '', tag_code: '' };
     setScannerPreview({ rg_code: '', tag_code: '', raw_text: '' });
+    setScannerRealtimeLookup(null);
+    setScannerRealtimeLookupLoading(false);
+    scannerRealtimeLookupRequestRef.current += 1;
+    scannerRealtimeLookupLastRgRef.current = '';
     setScannerStep('Aponte a câmera para o RG. A leitura será automática.');
     setScannerError('');
     setScannerOpen(true);
@@ -1383,6 +1457,21 @@ const EquipmentPage = () => {
     const normalizedTag = normalizeCodeInput(tagCode);
 
     if (phase === 'rg' && normalizedRg) {
+      if (scannerMode === 'allocation') {
+        const nextDraft = {
+          ...(scannerDraftRef.current || { rg_code: '', tag_code: '' }),
+          rg_code: normalizedRg
+        };
+        scannerDraftRef.current = nextDraft;
+        setScannerDraft(nextDraft);
+        setScannerPending((prev) => ({ ...prev, rg_code: normalizedRg }));
+        setScannerAwaitingConfirmation(false);
+        setScannerError('');
+        setScannerStep(`RG identificado: ${normalizedRg}. Consultando em tempo real na base 02.02.20...`);
+        fetchAllocationLookupRealtime(normalizedRg);
+        return true;
+      }
+
       setScannerPending((prev) => ({ ...prev, rg_code: normalizedRg }));
       setScannerAwaitingConfirmation(true);
       setScannerError('');
@@ -1403,7 +1492,7 @@ const EquipmentPage = () => {
     }
 
     return false;
-  }, [scannerMode]);
+  }, [fetchAllocationLookupRealtime, scannerMode]);
 
   useEffect(() => {
     if (!scannerOpen) {
@@ -1418,13 +1507,39 @@ const EquipmentPage = () => {
       }
 
       if (scannerAwaitingConfirmation) {
-        if (!cancelled) {
-          scannerLoopTimeoutRef.current = window.setTimeout(loop, SCANNER_AUTO_INTERVAL_MS);
-        }
         return;
       }
 
       const phase = scannerPhase === 'tag' ? 'tag' : 'rg';
+
+      if (scannerMode === 'form' && phase === 'tag') {
+        if (scannerTagAttemptConsumed) {
+          return;
+        }
+
+        setScannerTagAttemptConsumed(true);
+        const tagResult = await readScannerFrame({
+          phase: 'tag',
+          quick: true,
+          silent: true
+        });
+        if (tagResult?.code) {
+          handleScannerDetectionResult({
+            phase: 'tag',
+            rgCode: tagResult.rgCode,
+            tagCode: tagResult.tagCode
+          });
+          return;
+        }
+
+        if (!cancelled) {
+          setScannerAwaitingConfirmation(true);
+          setScannerError('Etiqueta não identificada nesta tentativa. Clique em "Tentar novamente" ou em "Próximo".');
+          setScannerStep('Tentativa automática da etiqueta concluída.');
+        }
+        return;
+      }
+
       const result = await readScannerFrame({
         phase,
         quick: true,
@@ -1449,7 +1564,16 @@ const EquipmentPage = () => {
       cancelled = true;
       clearScannerLoop();
     };
-  }, [clearScannerLoop, handleScannerDetectionResult, readScannerFrame, scannerAwaitingConfirmation, scannerOpen, scannerPhase]);
+  }, [
+    clearScannerLoop,
+    handleScannerDetectionResult,
+    readScannerFrame,
+    scannerAwaitingConfirmation,
+    scannerMode,
+    scannerOpen,
+    scannerPhase,
+    scannerTagAttemptConsumed,
+  ]);
 
   const triggerScannerReadNow = useCallback(async () => {
     const phase = scannerPhase === 'tag' ? 'tag' : 'rg';
@@ -1481,6 +1605,7 @@ const EquipmentPage = () => {
   const retryScannerDetection = useCallback(() => {
     setScannerError('');
     setScannerAwaitingConfirmation(false);
+    setScannerTagAttemptConsumed(false);
     if (scannerPhase === 'tag') {
       setScannerPending((prev) => ({ ...prev, tag_code: '' }));
       setScannerStep('Aponte a câmera para a etiqueta. A leitura será automática.');
@@ -1528,6 +1653,7 @@ const EquipmentPage = () => {
         : { ...prev, rg_code: rgCode }
     ));
     setScannerPhase('tag');
+    setScannerTagAttemptConsumed(false);
     setScannerStep(`RG confirmado: ${rgCode}. Agora identifique a etiqueta ou clique em "Próximo".`);
   }, [closeScanner, fetchAllocationLookup, form.rg_code, scannerMode, scannerPending.rg_code, scannerPreview.rg_code]);
 
@@ -2470,18 +2596,73 @@ const EquipmentPage = () => {
           {ocrBusy && <LinearProgress />}
 
           {scannerError && <Alert severity="warning">{scannerError}</Alert>}
+
+          {scannerMode === 'allocation' && (
+            <Card sx={{ border: '1px solid var(--stroke)', boxShadow: 'none' }}>
+              <CardContent sx={{ display: 'grid', gap: 1 }}>
+                <Typography variant="subtitle2">Resultado em tempo real (02.02.20)</Typography>
+                {!scannerRealtimeLookup && !scannerRealtimeLookupLoading && (
+                  <Typography variant="body2" color="text.secondary">
+                    Aguardando leitura do RG...
+                  </Typography>
+                )}
+                {scannerRealtimeLookupLoading && (
+                  <Typography variant="body2" color="text.secondary">
+                    Consultando alocação do RG {scannerPending.rg_code || scannerPreview.rg_code || '-'}...
+                  </Typography>
+                )}
+                {!scannerRealtimeLookupLoading && scannerRealtimeLookup && (
+                  <>
+                    <Typography variant="caption" color="text.secondary">
+                      RG consultado: {scannerRealtimeLookup.rg_code || '-'}
+                    </Typography>
+                    {Array.isArray(scannerRealtimeLookup.items) && scannerRealtimeLookup.items.length > 0 ? (
+                      <Box sx={{ display: 'grid', gap: 0.75, maxHeight: 180, overflowY: 'auto' }}>
+                        {scannerRealtimeLookup.items.map((item) => (
+                          <Box
+                            key={item.inventory_item_id}
+                            sx={{
+                              p: 1,
+                              borderRadius: 1,
+                              border: '1px solid var(--stroke)',
+                              bgcolor: 'var(--surface-soft)'
+                            }}
+                          >
+                            <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                              {item.model_name || '-'}
+                            </Typography>
+                            <Typography variant="caption" display="block" color="text.secondary">
+                              Código do cliente: {item.client_code || '-'}
+                            </Typography>
+                            <Typography variant="caption" display="block" color="text.secondary">
+                              Nome: {item.nome_fantasia || '-'}
+                            </Typography>
+                            <Typography variant="caption" display="block" color="text.secondary">
+                              Setor: {item.setor || '-'}
+                            </Typography>
+                          </Box>
+                        ))}
+                      </Box>
+                    ) : (
+                      <Alert severity="info">Equipamento não encontrado na base 02.02.20 para o RG informado.</Alert>
+                    )}
+                  </>
+                )}
+              </CardContent>
+            </Card>
+          )}
         </DialogContent>
 
         <DialogActions sx={{ flexDirection: isMobile ? 'column-reverse' : 'row', gap: 1 }}>
           <Button onClick={closeScanner} fullWidth={isMobile}>Fechar</Button>
-          {!scannerAwaitingConfirmation && (
+          {!scannerAwaitingConfirmation && !(scannerMode === 'form' && scannerPhase === 'tag') && (
             <Button variant="outlined" onClick={triggerScannerReadNow} disabled={ocrBusy} fullWidth={isMobile}>
               {ocrBusy ? 'Processando...' : 'Tentar leitura agora'}
             </Button>
           )}
           {scannerAwaitingConfirmation && (
             <Button variant="outlined" onClick={retryScannerDetection} disabled={ocrBusy} fullWidth={isMobile}>
-              Verificar novamente
+              Tentar novamente
             </Button>
           )}
           {scannerAwaitingConfirmation && scannerPhase === 'rg' && (

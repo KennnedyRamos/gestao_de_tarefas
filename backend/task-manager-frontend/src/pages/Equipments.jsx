@@ -10,14 +10,12 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
-  FormControlLabel,
   IconButton,
   InputAdornment,
   LinearProgress,
   MenuItem,
   Popover,
   Stack,
-  Switch,
   Tab,
   Tabs,
   Table,
@@ -460,8 +458,9 @@ const EquipmentPage = () => {
   const [scannerPhase, setScannerPhase] = useState('rg');
   const [scannerMode, setScannerMode] = useState('form');
   const [scannerDraft, setScannerDraft] = useState({ rg_code: '', tag_code: '' });
+  const [scannerPending, setScannerPending] = useState({ rg_code: '', tag_code: '' });
+  const [scannerAwaitingConfirmation, setScannerAwaitingConfirmation] = useState(false);
   const [scannerPreview, setScannerPreview] = useState({ rg_code: '', tag_code: '', raw_text: '' });
-  const [scannerAutoTagEnabled, setScannerAutoTagEnabled] = useState(false);
   const [ocrBusy, setOcrBusy] = useState(false);
   const [allocationLookupResult, setAllocationLookupResult] = useState(null);
   const [allocationLookupLoading, setAllocationLookupLoading] = useState(false);
@@ -477,7 +476,7 @@ const EquipmentPage = () => {
   const tesseractLoaderRef = useRef(null);
   const bulkImportInputRef = useRef(null);
   const activeScannerArea = scannerPhase === 'tag' ? SCANNER_AREAS.tag : SCANNER_AREAS.rg;
-  const scannerHasRequiredRg = Boolean(normalizeCodeInput(scannerDraft.rg_code));
+  const scannerHasRequiredRg = Boolean(normalizeCodeInput(scannerDraft.rg_code || scannerPending.rg_code));
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -1048,7 +1047,7 @@ const EquipmentPage = () => {
       setSuccess(
         items.length > 0
           ? `Consulta concluída. ${items.length} registro(s) alocado(s) encontrado(s).`
-          : 'Nenhuma alocação encontrada para os códigos informados.'
+          : 'Equipamento não encontrado na base 02.02.20 para o RG informado.'
       );
     } catch (err) {
       const detail = normalizeTextInput(err?.response?.data?.detail);
@@ -1204,15 +1203,16 @@ const EquipmentPage = () => {
     setScannerPhase('rg');
     setScannerMode('form');
     setScannerDraft({ rg_code: '', tag_code: '' });
+    setScannerPending({ rg_code: '', tag_code: '' });
+    setScannerAwaitingConfirmation(false);
     scannerDraftRef.current = { rg_code: '', tag_code: '' };
     setScannerPreview({ rg_code: '', tag_code: '', raw_text: '' });
-    setScannerAutoTagEnabled(false);
     setOcrBusy(false);
     ocrBusyRef.current = false;
     stopScanner();
   }, [stopScanner]);
 
-    const openFullLabelScanner = useCallback(() => {
+  const openFullLabelScanner = useCallback(() => {
     if (!canManageEquipments) {
       return;
     }
@@ -1229,10 +1229,11 @@ const EquipmentPage = () => {
     setScannerMode('form');
     setScannerPhase('rg');
     setScannerDraft(initialDraft);
+    setScannerPending({ rg_code: '', tag_code: '' });
+    setScannerAwaitingConfirmation(false);
     scannerDraftRef.current = initialDraft;
     setScannerPreview({ ...initialDraft, raw_text: '' });
-    setScannerAutoTagEnabled(false);
-    setScannerStep('Leitura automática ativa. Aponte a câmera para o RG.');
+    setScannerStep('Aponte a câmera para o RG. A leitura será automática.');
     setScannerError('');
     setScannerOpen(true);
     setSuccess('');
@@ -1251,10 +1252,11 @@ const EquipmentPage = () => {
     setScannerMode('allocation');
     setScannerPhase('rg');
     setScannerDraft({ rg_code: '', tag_code: '' });
+    setScannerPending({ rg_code: '', tag_code: '' });
+    setScannerAwaitingConfirmation(false);
     scannerDraftRef.current = { rg_code: '', tag_code: '' };
     setScannerPreview({ rg_code: '', tag_code: '', raw_text: '' });
-    setScannerAutoTagEnabled(false);
-    setScannerStep('Leitura automática ativa. Aponte a câmera para o RG da etiqueta.');
+    setScannerStep('Aponte a câmera para o RG. A leitura será automática.');
     setScannerError('');
     setScannerOpen(true);
     setSuccess('');
@@ -1376,61 +1378,32 @@ const EquipmentPage = () => {
     }
   }, [loadTesseract]);
 
-  const applyScannerDetection = useCallback(({ rgCode, tagCode, source = 'auto' }) => {
+  const handleScannerDetectionResult = useCallback(({ phase, rgCode, tagCode }) => {
     const normalizedRg = normalizeCodeInput(rgCode);
     const normalizedTag = normalizeCodeInput(tagCode);
-    const shouldApplyTag = scannerAutoTagEnabled || source === 'manual';
-    if (normalizedRg || (shouldApplyTag && normalizedTag)) {
+
+    if (phase === 'rg' && normalizedRg) {
+      setScannerPending((prev) => ({ ...prev, rg_code: normalizedRg }));
+      setScannerAwaitingConfirmation(true);
       setScannerError('');
+      setScannerStep(
+        scannerMode === 'allocation'
+          ? `RG identificado: ${normalizedRg}. Confirme para consultar na base 02.02.20 ou verifique novamente.`
+          : `RG identificado: ${normalizedRg}. Confirme para preencher ou verifique novamente.`
+      );
+      return true;
     }
 
-    const currentDraft = scannerDraftRef.current || { rg_code: '', tag_code: '' };
-    let nextDraft = currentDraft;
-    let changed = false;
-
-    if (normalizedRg && normalizedRg !== nextDraft.rg_code) {
-      nextDraft = { ...nextDraft, rg_code: normalizedRg };
-      changed = true;
-      if (scannerMode === 'form') {
-        setForm((prev) => (
-          prev.rg_code === normalizedRg
-            ? prev
-            : { ...prev, rg_code: normalizedRg }
-        ));
-      }
+    if (phase === 'tag' && normalizedTag) {
+      setScannerPending((prev) => ({ ...prev, tag_code: normalizedTag }));
+      setScannerAwaitingConfirmation(true);
+      setScannerError('');
+      setScannerStep(`Etiqueta identificada: ${normalizedTag}. Confirme ou verifique novamente.`);
+      return true;
     }
 
-    if (shouldApplyTag && normalizedTag && normalizedTag !== nextDraft.tag_code) {
-      nextDraft = { ...nextDraft, tag_code: normalizedTag };
-      changed = true;
-      if (scannerMode === 'form') {
-        setForm((prev) => (
-          prev.tag_code === normalizedTag
-            ? prev
-            : { ...prev, tag_code: normalizedTag }
-        ));
-      }
-    }
-
-    if (changed) {
-      scannerDraftRef.current = nextDraft;
-      setScannerDraft(nextDraft);
-    }
-
-    if (normalizedRg && scannerAutoTagEnabled && !normalizedTag) {
-      setScannerPhase('tag');
-      setScannerStep(`RG identificado automaticamente: ${normalizedRg}. Continue para a etiqueta.`);
-      return;
-    }
-    if (normalizedRg && !scannerAutoTagEnabled) {
-      setScannerPhase('rg');
-      setScannerStep(`RG identificado automaticamente: ${normalizedRg}.`);
-    }
-    if (shouldApplyTag && normalizedTag) {
-      setScannerPhase('tag');
-      setScannerStep(`Etiqueta identificada automaticamente: ${normalizedTag}.`);
-    }
-  }, [scannerAutoTagEnabled, scannerMode]);
+    return false;
+  }, [scannerMode]);
 
   useEffect(() => {
     if (!scannerOpen) {
@@ -1443,21 +1416,25 @@ const EquipmentPage = () => {
       if (cancelled) {
         return;
       }
-      const currentDraft = scannerDraftRef.current || { rg_code: '', tag_code: '' };
-      const hasRequiredRg = Boolean(normalizeCodeInput(currentDraft.rg_code));
-      const phase = hasRequiredRg && scannerAutoTagEnabled ? 'tag' : 'rg';
-      setScannerPhase(phase);
 
+      if (scannerAwaitingConfirmation) {
+        if (!cancelled) {
+          scannerLoopTimeoutRef.current = window.setTimeout(loop, SCANNER_AUTO_INTERVAL_MS);
+        }
+        return;
+      }
+
+      const phase = scannerPhase === 'tag' ? 'tag' : 'rg';
       const result = await readScannerFrame({
         phase,
         quick: true,
         silent: true
       });
       if (result) {
-        applyScannerDetection({
+        handleScannerDetectionResult({
+          phase,
           rgCode: result.rgCode,
-          tagCode: result.tagCode,
-          source: 'auto'
+          tagCode: result.tagCode
         });
       }
 
@@ -1472,14 +1449,10 @@ const EquipmentPage = () => {
       cancelled = true;
       clearScannerLoop();
     };
-  }, [applyScannerDetection, clearScannerLoop, readScannerFrame, scannerAutoTagEnabled, scannerOpen]);
+  }, [clearScannerLoop, handleScannerDetectionResult, readScannerFrame, scannerAwaitingConfirmation, scannerOpen, scannerPhase]);
 
   const triggerScannerReadNow = useCallback(async () => {
-    const currentDraft = scannerDraftRef.current || { rg_code: '', tag_code: '' };
-    const hasRequiredRg = Boolean(normalizeCodeInput(currentDraft.rg_code));
-    const phase = hasRequiredRg && scannerAutoTagEnabled ? 'tag' : 'rg';
-    setScannerPhase(phase);
-
+    const phase = scannerPhase === 'tag' ? 'tag' : 'rg';
     const result = await readScannerFrame({
       phase,
       quick: false,
@@ -1498,27 +1471,77 @@ const EquipmentPage = () => {
       return;
     }
 
-    setScannerError('');
-    applyScannerDetection({
+    handleScannerDetectionResult({
+      phase,
       rgCode: result.rgCode,
-      tagCode: result.tagCode,
-      source: 'manual'
+      tagCode: result.tagCode
     });
-  }, [applyScannerDetection, readScannerFrame, scannerAutoTagEnabled]);
+  }, [handleScannerDetectionResult, readScannerFrame, scannerPhase]);
 
-  const concludeScannerReading = useCallback(async () => {
-    const rgCode = normalizeCodeInput(scannerDraftRef.current?.rg_code || form.rg_code);
-    const tagCode = normalizeCodeInput(scannerDraftRef.current?.tag_code || form.tag_code);
+  const retryScannerDetection = useCallback(() => {
+    setScannerError('');
+    setScannerAwaitingConfirmation(false);
+    if (scannerPhase === 'tag') {
+      setScannerPending((prev) => ({ ...prev, tag_code: '' }));
+      setScannerStep('Aponte a câmera para a etiqueta. A leitura será automática.');
+      return;
+    }
+    setScannerPending((prev) => ({ ...prev, rg_code: '' }));
+    setScannerStep('Aponte a câmera para o RG. A leitura será automática.');
+  }, [scannerPhase]);
+
+  const confirmScannerRg = useCallback(async () => {
+    const rgCode = normalizeCodeInput(
+      scannerPending.rg_code
+      || scannerPreview.rg_code
+      || scannerDraftRef.current?.rg_code
+      || form.rg_code
+    );
     if (!rgCode) {
-      setScannerError('RG é obrigatório. Aguarde a leitura automática ou tente novamente.');
-      setScannerPhase('rg');
-      setScannerStep('Leitura automática ativa. Aponte a câmera para o RG.');
+      setScannerError('Nenhum RG válido foi identificado. Verifique novamente.');
       return;
     }
 
+    const nextDraft = {
+      ...(scannerDraftRef.current || { rg_code: '', tag_code: '' }),
+      rg_code: rgCode
+    };
+    scannerDraftRef.current = nextDraft;
+    setScannerDraft(nextDraft);
+    setScannerAwaitingConfirmation(false);
+    setScannerError('');
+
     if (scannerMode === 'allocation') {
       closeScanner();
-      await fetchAllocationLookup({ rgCode, tagCode });
+      await fetchAllocationLookup({ rgCode, tagCode: '' });
+      return;
+    }
+
+    setScannerPending((prev) => ({
+      ...prev,
+      rg_code: rgCode,
+      tag_code: '',
+    }));
+    setForm((prev) => (
+      prev.rg_code === rgCode
+        ? prev
+        : { ...prev, rg_code: rgCode }
+    ));
+    setScannerPhase('tag');
+    setScannerStep(`RG confirmado: ${rgCode}. Agora identifique a etiqueta ou clique em "Próximo".`);
+  }, [closeScanner, fetchAllocationLookup, form.rg_code, scannerMode, scannerPending.rg_code, scannerPreview.rg_code]);
+
+  const confirmScannerTag = useCallback(() => {
+    const rgCode = normalizeCodeInput(scannerDraftRef.current?.rg_code || form.rg_code);
+    if (!rgCode) {
+      setScannerError('RG é obrigatório. Confirme o RG antes da etiqueta.');
+      setScannerPhase('rg');
+      return;
+    }
+
+    const tagCode = normalizeCodeInput(scannerPending.tag_code || scannerPreview.tag_code);
+    if (!tagCode) {
+      setScannerError('Nenhuma etiqueta válida foi identificada. Verifique novamente ou clique em "Próximo".');
       return;
     }
 
@@ -1527,14 +1550,25 @@ const EquipmentPage = () => {
       rg_code: rgCode,
       tag_code: tagCode
     }));
-
-    if (tagCode) {
-      setSuccess(`Leitura concluída. RG: ${rgCode} | Etiqueta: ${tagCode}`);
-    } else {
-      setSuccess(`Leitura concluída. RG: ${rgCode}. Etiqueta não informada.`);
-    }
+    setSuccess(`Leitura concluída. RG: ${rgCode} | Etiqueta: ${tagCode}`);
     closeScanner();
-    }, [closeScanner, fetchAllocationLookup, form.rg_code, form.tag_code, scannerMode]);
+  }, [closeScanner, form.rg_code, scannerPending.tag_code, scannerPreview.tag_code]);
+
+  const skipScannerTagStep = useCallback(() => {
+    const rgCode = normalizeCodeInput(scannerDraftRef.current?.rg_code || form.rg_code);
+    if (!rgCode) {
+      setScannerError('RG é obrigatório. Confirme o RG antes de avançar.');
+      setScannerPhase('rg');
+      return;
+    }
+
+    setForm((prev) => ({
+      ...prev,
+      rg_code: rgCode
+    }));
+    setSuccess(`Leitura concluída. RG: ${rgCode}. Etiqueta não informada.`);
+    closeScanner();
+  }, [closeScanner, form.rg_code]);
 
   return (
     <Box sx={{ p: { xs: 2, md: 3 }, display: 'grid', gap: 2.5 }}>
@@ -1684,7 +1718,7 @@ const EquipmentPage = () => {
                   </Typography>
                   {allocationLookupResult.items.length === 0 ? (
                     <Typography color="text.secondary">
-                      Nenhuma alocação encontrada para os códigos informados.
+                      Equipamento não encontrado na base 02.02.20 para o RG informado.
                     </Typography>
                   ) : isMobile ? (
                     <Box sx={SCROLLABLE_CARD_LIST_SX}>
@@ -1863,7 +1897,7 @@ const EquipmentPage = () => {
                   onClick={openFullLabelScanner}
                   sx={{ width: { xs: '100%', sm: 'auto' } }}
                 >
-                  Escanear RG automático
+                  Escanear
                 </Button>
               )}
 
@@ -2343,21 +2377,11 @@ const EquipmentPage = () => {
       )}
 
       <Dialog open={scannerOpen} onClose={closeScanner} fullWidth maxWidth="sm" fullScreen={isMobile}>
-        <DialogTitle>{scannerMode === 'allocation' ? 'Leitura automática para verificação de alocação' : 'Leitura automática da etiqueta'}</DialogTitle>
+        <DialogTitle>{scannerMode === 'allocation' ? 'Escanear RG para verificar alocação' : 'Escanear equipamento'}</DialogTitle>
         <DialogContent sx={{ display: 'grid', gap: 1.5 }}>
           <Typography variant="body2" color="text.secondary">
-            {scannerStep || 'Leitura automática ativa. Aponte a câmera para o RG.'}
+            {scannerStep || 'Aponte a câmera para o RG. A leitura será automática.'}
           </Typography>
-          <FormControlLabel
-            control={(
-              <Switch
-                checked={scannerAutoTagEnabled}
-                onChange={(event) => setScannerAutoTagEnabled(event.target.checked)}
-              />
-            )}
-            label="Escanear etiqueta também (opcional)"
-            sx={{ mt: -0.5 }}
-          />
 
           <Box
             sx={{
@@ -2415,12 +2439,15 @@ const EquipmentPage = () => {
 
           <Typography variant="caption" color="text.secondary">
             {scannerPhase === 'rg'
-              ? 'RG obrigatório: leitura automática no retângulo vermelho.'
-              : 'Etiqueta opcional: leitura automática no retângulo amarelo.'}
+              ? 'RG: leitura automática no retângulo vermelho.'
+              : 'Etiqueta (opcional): leitura automática no retângulo amarelo.'}
           </Typography>
 
           <Typography variant="caption" color="text.secondary">
-            Leitura atual: RG {scannerDraft.rg_code || '-'} | Etiqueta {scannerDraft.tag_code || '-'}
+            Confirmado: RG {scannerDraft.rg_code || '-'} | Etiqueta {scannerDraft.tag_code || '-'}
+          </Typography>
+          <Typography variant="caption" color="text.secondary">
+            Detectado: RG {scannerPending.rg_code || scannerPreview.rg_code || '-'} | Etiqueta {scannerPending.tag_code || scannerPreview.tag_code || '-'}
           </Typography>
           <Typography variant="caption" color="text.secondary">
             Prévia OCR: RG {scannerPreview.rg_code || '-'} | Etiqueta {scannerPreview.tag_code || '-'}
@@ -2447,17 +2474,46 @@ const EquipmentPage = () => {
 
         <DialogActions sx={{ flexDirection: isMobile ? 'column-reverse' : 'row', gap: 1 }}>
           <Button onClick={closeScanner} fullWidth={isMobile}>Fechar</Button>
-          <Button variant="outlined" onClick={triggerScannerReadNow} disabled={ocrBusy} fullWidth={isMobile}>
-            {ocrBusy ? 'Processando...' : 'Forçar leitura agora'}
-          </Button>
-          <Button
-            variant="contained"
-            onClick={concludeScannerReading}
-            disabled={ocrBusy || !scannerHasRequiredRg}
-            fullWidth={isMobile}
-          >
-            {scannerMode === 'allocation' ? 'Consultar alocação' : 'Usar leitura'}
-          </Button>
+          {!scannerAwaitingConfirmation && (
+            <Button variant="outlined" onClick={triggerScannerReadNow} disabled={ocrBusy} fullWidth={isMobile}>
+              {ocrBusy ? 'Processando...' : 'Tentar leitura agora'}
+            </Button>
+          )}
+          {scannerAwaitingConfirmation && (
+            <Button variant="outlined" onClick={retryScannerDetection} disabled={ocrBusy} fullWidth={isMobile}>
+              Verificar novamente
+            </Button>
+          )}
+          {scannerAwaitingConfirmation && scannerPhase === 'rg' && (
+            <Button
+              variant="contained"
+              onClick={confirmScannerRg}
+              disabled={ocrBusy || !normalizeCodeInput(scannerPending.rg_code || scannerPreview.rg_code)}
+              fullWidth={isMobile}
+            >
+              Confirmar RG
+            </Button>
+          )}
+          {scannerMode === 'form' && scannerPhase === 'tag' && (
+            <Button
+              variant="outlined"
+              onClick={skipScannerTagStep}
+              disabled={ocrBusy || !scannerHasRequiredRg}
+              fullWidth={isMobile}
+            >
+              Próximo
+            </Button>
+          )}
+          {scannerAwaitingConfirmation && scannerMode === 'form' && scannerPhase === 'tag' && (
+            <Button
+              variant="contained"
+              onClick={confirmScannerTag}
+              disabled={ocrBusy || !normalizeCodeInput(scannerPending.tag_code || scannerPreview.tag_code)}
+              fullWidth={isMobile}
+            >
+              Confirmar etiqueta
+            </Button>
+          )}
         </DialogActions>
       </Dialog>
     </Box>

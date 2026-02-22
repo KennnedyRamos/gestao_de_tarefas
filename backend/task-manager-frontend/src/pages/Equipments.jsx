@@ -1102,6 +1102,11 @@ const EquipmentPage = () => {
           ? `RG ${realtimePayload.rg_code} encontrado na base 02.02.20.`
           : `RG ${realtimePayload.rg_code} lido. Equipamento não encontrado na base 02.02.20.`
       );
+      setScannerAwaitingConfirmation(true);
+      if (scannerLoopTimeoutRef.current) {
+        window.clearTimeout(scannerLoopTimeoutRef.current);
+        scannerLoopTimeoutRef.current = null;
+      }
     } catch (err) {
       if (requestId !== scannerRealtimeLookupRequestRef.current) {
         return;
@@ -1114,6 +1119,11 @@ const EquipmentPage = () => {
         items: []
       });
       setScannerError(detail || 'Não foi possível consultar a alocação em tempo real.');
+      setScannerAwaitingConfirmation(true);
+      if (scannerLoopTimeoutRef.current) {
+        window.clearTimeout(scannerLoopTimeoutRef.current);
+        scannerLoopTimeoutRef.current = null;
+      }
     } finally {
       if (requestId === scannerRealtimeLookupRequestRef.current) {
         setScannerRealtimeLookupLoading(false);
@@ -1606,6 +1616,12 @@ const EquipmentPage = () => {
     setScannerError('');
     setScannerAwaitingConfirmation(false);
     setScannerTagAttemptConsumed(false);
+    if (scannerMode === 'allocation') {
+      scannerRealtimeLookupLastRgRef.current = '';
+      scannerRealtimeLookupRequestRef.current += 1;
+      setScannerRealtimeLookup(null);
+      setScannerRealtimeLookupLoading(false);
+    }
     if (scannerPhase === 'tag') {
       setScannerPending((prev) => ({ ...prev, tag_code: '' }));
       setScannerStep('Aponte a câmera para a etiqueta. A leitura será automática.');
@@ -1613,7 +1629,7 @@ const EquipmentPage = () => {
     }
     setScannerPending((prev) => ({ ...prev, rg_code: '' }));
     setScannerStep('Aponte a câmera para o RG. A leitura será automática.');
-  }, [scannerPhase]);
+  }, [scannerMode, scannerPhase]);
 
   const confirmScannerRg = useCallback(async () => {
     const rgCode = normalizeCodeInput(
@@ -2665,7 +2681,7 @@ const EquipmentPage = () => {
               Tentar novamente
             </Button>
           )}
-          {scannerAwaitingConfirmation && scannerPhase === 'rg' && (
+          {scannerAwaitingConfirmation && scannerMode === 'form' && scannerPhase === 'rg' && (
             <Button
               variant="contained"
               onClick={confirmScannerRg}

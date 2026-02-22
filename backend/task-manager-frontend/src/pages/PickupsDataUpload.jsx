@@ -141,7 +141,7 @@ const PickupsDataUpload = () => {
 
           <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
             <Button type="submit" variant="contained" disabled={uploading}>
-              {uploading ? 'Atualizando...' : 'Atualizar banco'}
+              {uploading ? 'Atualizando...' : 'Atualizar base'}
             </Button>
             <Button type="button" variant="outlined" disabled={uploading} onClick={loadStatus}>
               Atualizar status

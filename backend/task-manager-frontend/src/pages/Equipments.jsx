@@ -10,11 +10,14 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
+  FormControlLabel,
   IconButton,
   InputAdornment,
+  LinearProgress,
   MenuItem,
   Popover,
   Stack,
+  Switch,
   Tab,
   Tabs,
   Table,
@@ -32,6 +35,7 @@ import CameraAltIcon from '@mui/icons-material/CameraAlt';
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
+import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import dayjs from 'dayjs';
 
 import api from '../services/api';
@@ -76,8 +80,7 @@ const STATUS_OPTIONS = [
 
 const NON_ALLOCATED_STATUS_OPTIONS = [
   { value: 'todos', label: 'Todos os status' },
-  { value: 'novo', label: 'Novo' },
-  { value: 'disponivel', label: 'Disponível' },
+  { value: 'disponivel', label: 'Disponível (inclui novos)' },
   { value: 'recap', label: 'Recap' },
   { value: 'sucata', label: 'Sucata' },
 ];
@@ -106,6 +109,7 @@ const EMPTY_FORM = {
 
 const TESSERACT_CDN_URL = 'https://unpkg.com/tesseract.js@5/dist/tesseract.min.js';
 const PAGE_SIZE = 25;
+const SCANNER_AUTO_INTERVAL_MS = 900;
 const BULK_IMPORT_TEMPLATE_CSV = [
   'Tipo,Modelo,Marca,Voltagem,RG,Etiqueta',
   'refrigerador,PORTA DE VIDRO,BRAHMA,220v,2253088657624-9,8657624',
@@ -161,6 +165,13 @@ const COMPACT_MODEL_CELL_SX = {
 
 const normalizeCodeInput = (value) => String(value || '').trim().toUpperCase();
 const normalizeTextInput = (value) => String(value || '').trim();
+const normalizeNonAllocatedStatus = (value) => {
+  const normalized = normalizeTextInput(value).toLowerCase();
+  if (normalized === 'novo' || normalized === 'disponivel') {
+    return 'disponivel';
+  }
+  return normalized;
+};
 
 const normalizeQuantityInput = (value) => {
   const digits = String(value || '').replace(/\D+/g, '');
@@ -439,6 +450,7 @@ const EquipmentPage = () => {
   const [editingId, setEditingId] = useState(null);
   const [loadingOverview, setLoadingOverview] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [deletingEquipmentId, setDeletingEquipmentId] = useState(null);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
@@ -448,6 +460,8 @@ const EquipmentPage = () => {
   const [scannerPhase, setScannerPhase] = useState('rg');
   const [scannerMode, setScannerMode] = useState('form');
   const [scannerDraft, setScannerDraft] = useState({ rg_code: '', tag_code: '' });
+  const [scannerPreview, setScannerPreview] = useState({ rg_code: '', tag_code: '', raw_text: '' });
+  const [scannerAutoTagEnabled, setScannerAutoTagEnabled] = useState(false);
   const [ocrBusy, setOcrBusy] = useState(false);
   const [allocationLookupResult, setAllocationLookupResult] = useState(null);
   const [allocationLookupLoading, setAllocationLookupLoading] = useState(false);
@@ -457,6 +471,9 @@ const EquipmentPage = () => {
 
   const videoRef = useRef(null);
   const streamRef = useRef(null);
+  const scannerLoopTimeoutRef = useRef(null);
+  const scannerDraftRef = useRef({ rg_code: '', tag_code: '' });
+  const ocrBusyRef = useRef(false);
   const tesseractLoaderRef = useRef(null);
   const bulkImportInputRef = useRef(null);
   const activeScannerArea = scannerPhase === 'tag' ? SCANNER_AREAS.tag : SCANNER_AREAS.rg;
@@ -475,6 +492,10 @@ const EquipmentPage = () => {
     }, 320);
     return () => window.clearTimeout(timer);
   }, [materialsFilters.q]);
+
+  useEffect(() => {
+    scannerDraftRef.current = scannerDraft;
+  }, [scannerDraft]);
 
   useEffect(() => {
     if (!canManageEquipments && activeScreen === 'manage') {
@@ -645,11 +666,15 @@ const EquipmentPage = () => {
     []
   );
   const nonAllocatedStatusLabelByValue = useMemo(
-    () => NON_ALLOCATED_STATUS_OPTIONS
-      .filter((item) => item.value !== 'todos')
-      .reduce((acc, item) => ({ ...acc, [item.value]: item.label }), {}),
+    () => ({
+      novo: 'Disponível',
+      disponivel: 'Disponível',
+      recap: 'Recap',
+      sucata: 'Sucata',
+    }),
     []
   );
+  const nonAllocatedAvailableCount = Number(nonAllocatedDashboard.novo || 0) + Number(nonAllocatedDashboard.disponivel || 0);
 
   const monthPickerOpen = Boolean(monthPickerAnchorEl);
   const numericYears = useMemo(
@@ -864,14 +889,67 @@ const EquipmentPage = () => {
     setEditingId(null);
   };
 
-  const refreshData = useCallback(async () => {
+  const handleDeleteNonAllocatedEquipment = useCallback(async (item) => {
+    if (!canManageEquipments || !item?.id) {
+      return;
+    }
+
+    const modelLabel = normalizeTextInput(item.model_name) || `ID ${item.id}`;
+    const rgLabel = normalizeCodeInput(item.rg_code || '');
+    const confirmationText = rgLabel
+      ? `Deseja excluir o equipamento "${modelLabel}" (RG ${rgLabel})? Esta ação não pode ser desfeita.`
+      : `Deseja excluir o equipamento "${modelLabel}"? Esta ação não pode ser desfeita.`;
+    if (!window.confirm(confirmationText)) {
+      return;
+    }
+
+    setDeletingEquipmentId(Number(item.id));
+    setError('');
+    setSuccess('');
+    try {
+      await api.delete(`/equipments/${item.id}`);
+      setSuccess(`Equipamento "${modelLabel}" excluído com sucesso.`);
+      await Promise.all([
+        fetchNewRefrigerators(),
+        fetchRefrigeratorsOverview(),
+      ]);
+    } catch (err) {
+      const detail = normalizeTextInput(err?.response?.data?.detail);
+      setError(detail || 'Não foi possível excluir o equipamento selecionado.');
+    } finally {
+      setDeletingEquipmentId(null);
+    }
+  }, [canManageEquipments, fetchNewRefrigerators, fetchRefrigeratorsOverview]);
+
+  const syncRefrigeratorsAllocationStatus = useCallback(async () => {
+    if (!canManageEquipments) {
+      return null;
+    }
+    try {
+      const response = await api.post('/equipments/refrigerators/sync-allocation-status');
+      return response?.data || null;
+    } catch (err) {
+      const detail = normalizeTextInput(err?.response?.data?.detail);
+      setError(detail || 'Não foi possível sincronizar alocações com a base 02.02.20.');
+      return null;
+    }
+  }, [canManageEquipments]);
+
+  const refreshData = useCallback(async ({ notifySync = false } = {}) => {
+    const syncPayload = await syncRefrigeratorsAllocationStatus();
     await Promise.all([
       fetchRefrigeratorsOverview(),
       fetchMaterialYearOptions(),
       fetchNewRefrigerators(),
       fetchInventoryMaterials(),
     ]);
+    if (notifySync && Number(syncPayload?.updated_count || 0) > 0) {
+      setSuccess(
+        `Atualização concluída. ${Number(syncPayload.updated_count)} equipamento(s) marcado(s) como alocado(s).`
+      );
+    }
   }, [
+    syncRefrigeratorsAllocationStatus,
     fetchInventoryMaterials,
     fetchMaterialYearOptions,
     fetchNewRefrigerators,
@@ -923,7 +1001,7 @@ const EquipmentPage = () => {
       setBulkImportResult(payload);
       setSuccess(
         `Importação concluída. Importados: ${Number(payload?.imported_count || 0)} | `
-        + `Duplicados por RG: ${Number(payload?.duplicated_by_rg || 0)} | `
+        + `Duplicados por código (RG/Etiqueta): ${Number(payload?.duplicated_by_rg || 0)} | `
         + `Inválidos: ${Number(payload?.invalid_rows || 0)}`
       );
       setError('');
@@ -1101,7 +1179,15 @@ const EquipmentPage = () => {
     }
   };
 
+  const clearScannerLoop = useCallback(() => {
+    if (scannerLoopTimeoutRef.current) {
+      window.clearTimeout(scannerLoopTimeoutRef.current);
+      scannerLoopTimeoutRef.current = null;
+    }
+  }, []);
+
   const stopScanner = useCallback(() => {
+    clearScannerLoop();
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
@@ -1109,7 +1195,7 @@ const EquipmentPage = () => {
     if (videoRef.current) {
       videoRef.current.srcObject = null;
     }
-  }, []);
+  }, [clearScannerLoop]);
 
   const closeScanner = useCallback(() => {
     setScannerOpen(false);
@@ -1118,11 +1204,15 @@ const EquipmentPage = () => {
     setScannerPhase('rg');
     setScannerMode('form');
     setScannerDraft({ rg_code: '', tag_code: '' });
+    scannerDraftRef.current = { rg_code: '', tag_code: '' };
+    setScannerPreview({ rg_code: '', tag_code: '', raw_text: '' });
+    setScannerAutoTagEnabled(false);
     setOcrBusy(false);
+    ocrBusyRef.current = false;
     stopScanner();
   }, [stopScanner]);
 
-  const openFullLabelScanner = useCallback(() => {
+    const openFullLabelScanner = useCallback(() => {
     if (!canManageEquipments) {
       return;
     }
@@ -1131,13 +1221,18 @@ const EquipmentPage = () => {
       return;
     }
 
-    setScannerMode('form');
-    setScannerPhase('rg');
-    setScannerDraft({
+    const initialDraft = {
       rg_code: normalizeCodeInput(form.rg_code),
       tag_code: normalizeCodeInput(form.tag_code)
-    });
-    setScannerStep('Enquadre o RG no retângulo vermelho e toque em Validar RG.');
+    };
+
+    setScannerMode('form');
+    setScannerPhase('rg');
+    setScannerDraft(initialDraft);
+    scannerDraftRef.current = initialDraft;
+    setScannerPreview({ ...initialDraft, raw_text: '' });
+    setScannerAutoTagEnabled(false);
+    setScannerStep('Leitura automática ativa. Aponte a câmera para o RG.');
     setScannerError('');
     setScannerOpen(true);
     setSuccess('');
@@ -1156,7 +1251,10 @@ const EquipmentPage = () => {
     setScannerMode('allocation');
     setScannerPhase('rg');
     setScannerDraft({ rg_code: '', tag_code: '' });
-    setScannerStep('Enquadre o RG no retângulo vermelho e toque em Validar RG.');
+    scannerDraftRef.current = { rg_code: '', tag_code: '' };
+    setScannerPreview({ rg_code: '', tag_code: '', raw_text: '' });
+    setScannerAutoTagEnabled(false);
+    setScannerStep('Leitura automática ativa. Aponte a câmera para o RG da etiqueta.');
     setScannerError('');
     setScannerOpen(true);
     setSuccess('');
@@ -1200,20 +1298,26 @@ const EquipmentPage = () => {
     };
   }, [scannerOpen, stopScanner]);
 
-  const validateScannerStep = useCallback(async () => {
+  const readScannerFrame = useCallback(async ({ phase = 'rg', quick = true, silent = true } = {}) => {
     if (!videoRef.current || videoRef.current.readyState < 2) {
-      setScannerError('A câmera ainda não está pronta. Aguarde e tente novamente.');
-      return;
+      if (!silent) {
+        setScannerError('A câmera ainda não está pronta. Aguarde e tente novamente.');
+      }
+      return null;
+    }
+    if (ocrBusyRef.current) {
+      return null;
     }
 
-    const phase = scannerPhase === 'tag' ? 'tag' : 'rg';
-    const area = SCANNER_AREAS[phase];
-    const phaseLabel = phase === 'rg' ? 'RG' : 'etiqueta';
+    const area = phase === 'tag' ? SCANNER_AREAS.tag : SCANNER_AREAS.rg;
+    const phaseLabel = phase === 'tag' ? 'etiqueta' : 'RG';
 
     try {
+      ocrBusyRef.current = true;
       setOcrBusy(true);
-      setScannerError('');
-      setScannerStep(`Capturando ${phaseLabel}...`);
+      if (!silent) {
+        setScannerStep(`Lendo ${phaseLabel}...`);
+      }
 
       const video = videoRef.current;
       const fullCanvas = document.createElement('canvas');
@@ -1227,67 +1331,188 @@ const EquipmentPage = () => {
 
       const cropCanvas = buildScannerCropCanvas(fullCanvas, area);
       const Tesseract = await loadTesseract();
-      setScannerStep(`Lendo ${phaseLabel} (OCR)...`);
-      const result = await Tesseract.recognize(cropCanvas, 'por+eng', {
-        logger: (message) => {
-          if (message?.status === 'recognizing text' && typeof message?.progress === 'number') {
-            const progress = Math.round(message.progress * 100);
-            setScannerStep(`Lendo ${phaseLabel} (OCR)... ${progress}%`);
-          }
-        }
-      });
+      const firstPass = await Tesseract.recognize(cropCanvas, 'por+eng');
+      let rawText = firstPass?.data?.text || '';
+      let extracted = extractCodesFromLabelText(rawText);
 
-      const firstPassText = result?.data?.text || '';
-      let extracted = extractCodesFromLabelText(firstPassText);
-      let code = phase === 'rg'
-        ? normalizeCodeInput(extracted.rgCode)
-        : normalizeCodeInput(extracted.tagCode);
+      let rgCode = normalizeCodeInput(extracted.rgCode);
+      let tagCode = normalizeCodeInput(extracted.tagCode);
+      let code = phase === 'tag' ? tagCode : rgCode;
 
-      if (!code) {
-        setScannerStep(`Refinando leitura de ${phaseLabel}...`);
+      if (!code && !quick) {
         const enhancedCanvas = buildEnhancedCanvas(cropCanvas);
-        const secondResult = await Tesseract.recognize(enhancedCanvas, 'por+eng');
-        const secondPassText = secondResult?.data?.text || '';
-        extracted = extractCodesFromLabelText(secondPassText);
-        code = phase === 'rg'
-          ? normalizeCodeInput(extracted.rgCode)
-          : normalizeCodeInput(extracted.tagCode);
+        const secondPass = await Tesseract.recognize(enhancedCanvas, 'por+eng');
+        rawText = secondPass?.data?.text || rawText;
+        extracted = extractCodesFromLabelText(rawText);
+        rgCode = normalizeCodeInput(extracted.rgCode);
+        tagCode = normalizeCodeInput(extracted.tagCode);
+        code = phase === 'tag' ? tagCode : rgCode;
       }
 
-      if (phase === 'rg') {
-        if (!code) {
-          throw new Error('Não foi possível identificar o RG. Ajuste o enquadramento e tente novamente.');
-        }
-        setScannerDraft((prev) => ({ ...prev, rg_code: code }));
-        setScannerPhase('tag');
-        setScannerStep('RG validado. Agora enquadre a etiqueta no retângulo amarelo e toque em Validar etiqueta.');
-        return;
+      const compactRawText = normalizeTextInput(rawText).replace(/\s+/g, ' ').slice(0, 140);
+      if (compactRawText || rgCode || tagCode) {
+        setScannerPreview((prev) => ({
+          rg_code: rgCode || prev.rg_code,
+          tag_code: tagCode || prev.tag_code,
+          raw_text: compactRawText || prev.raw_text
+        }));
       }
 
-      if (!code) {
-        throw new Error('Não foi possível identificar a etiqueta. Você pode tentar novamente ou tocar em Concluir.');
-      }
-      setScannerDraft((prev) => ({ ...prev, tag_code: code }));
-      setScannerStep(
-        scannerMode === 'allocation'
-          ? 'Etiqueta validada. Toque em Concluir para consultar a alocação.'
-          : 'Etiqueta validada. Toque em Concluir para preencher o formulário.'
-      );
+      return {
+        phase,
+        code,
+        rgCode,
+        tagCode
+      };
     } catch (err) {
-      const message = normalizeTextInput(err?.message);
-      setScannerError(message || 'Falha ao ler a etiqueta. Tente com melhor iluminação e foco.');
+      if (!silent) {
+        const message = normalizeTextInput(err?.message);
+        setScannerError(message || 'Falha ao processar a leitura da câmera.');
+      }
+      return null;
     } finally {
+      ocrBusyRef.current = false;
       setOcrBusy(false);
     }
-  }, [loadTesseract, scannerMode, scannerPhase]);
+  }, [loadTesseract]);
+
+  const applyScannerDetection = useCallback(({ rgCode, tagCode, source = 'auto' }) => {
+    const normalizedRg = normalizeCodeInput(rgCode);
+    const normalizedTag = normalizeCodeInput(tagCode);
+    const shouldApplyTag = scannerAutoTagEnabled || source === 'manual';
+    if (normalizedRg || (shouldApplyTag && normalizedTag)) {
+      setScannerError('');
+    }
+
+    const currentDraft = scannerDraftRef.current || { rg_code: '', tag_code: '' };
+    let nextDraft = currentDraft;
+    let changed = false;
+
+    if (normalizedRg && normalizedRg !== nextDraft.rg_code) {
+      nextDraft = { ...nextDraft, rg_code: normalizedRg };
+      changed = true;
+      if (scannerMode === 'form') {
+        setForm((prev) => (
+          prev.rg_code === normalizedRg
+            ? prev
+            : { ...prev, rg_code: normalizedRg }
+        ));
+      }
+    }
+
+    if (shouldApplyTag && normalizedTag && normalizedTag !== nextDraft.tag_code) {
+      nextDraft = { ...nextDraft, tag_code: normalizedTag };
+      changed = true;
+      if (scannerMode === 'form') {
+        setForm((prev) => (
+          prev.tag_code === normalizedTag
+            ? prev
+            : { ...prev, tag_code: normalizedTag }
+        ));
+      }
+    }
+
+    if (changed) {
+      scannerDraftRef.current = nextDraft;
+      setScannerDraft(nextDraft);
+    }
+
+    if (normalizedRg && scannerAutoTagEnabled && !normalizedTag) {
+      setScannerPhase('tag');
+      setScannerStep(`RG identificado automaticamente: ${normalizedRg}. Continue para a etiqueta.`);
+      return;
+    }
+    if (normalizedRg && !scannerAutoTagEnabled) {
+      setScannerPhase('rg');
+      setScannerStep(`RG identificado automaticamente: ${normalizedRg}.`);
+    }
+    if (shouldApplyTag && normalizedTag) {
+      setScannerPhase('tag');
+      setScannerStep(`Etiqueta identificada automaticamente: ${normalizedTag}.`);
+    }
+  }, [scannerAutoTagEnabled, scannerMode]);
+
+  useEffect(() => {
+    if (!scannerOpen) {
+      clearScannerLoop();
+      return undefined;
+    }
+
+    let cancelled = false;
+    const loop = async () => {
+      if (cancelled) {
+        return;
+      }
+      const currentDraft = scannerDraftRef.current || { rg_code: '', tag_code: '' };
+      const hasRequiredRg = Boolean(normalizeCodeInput(currentDraft.rg_code));
+      const phase = hasRequiredRg && scannerAutoTagEnabled ? 'tag' : 'rg';
+      setScannerPhase(phase);
+
+      const result = await readScannerFrame({
+        phase,
+        quick: true,
+        silent: true
+      });
+      if (result) {
+        applyScannerDetection({
+          rgCode: result.rgCode,
+          tagCode: result.tagCode,
+          source: 'auto'
+        });
+      }
+
+      if (!cancelled) {
+        scannerLoopTimeoutRef.current = window.setTimeout(loop, SCANNER_AUTO_INTERVAL_MS);
+      }
+    };
+
+    loop();
+
+    return () => {
+      cancelled = true;
+      clearScannerLoop();
+    };
+  }, [applyScannerDetection, clearScannerLoop, readScannerFrame, scannerAutoTagEnabled, scannerOpen]);
+
+  const triggerScannerReadNow = useCallback(async () => {
+    const currentDraft = scannerDraftRef.current || { rg_code: '', tag_code: '' };
+    const hasRequiredRg = Boolean(normalizeCodeInput(currentDraft.rg_code));
+    const phase = hasRequiredRg && scannerAutoTagEnabled ? 'tag' : 'rg';
+    setScannerPhase(phase);
+
+    const result = await readScannerFrame({
+      phase,
+      quick: false,
+      silent: false
+    });
+    if (!result) {
+      return;
+    }
+
+    if (!result.code) {
+      setScannerError(
+        phase === 'rg'
+          ? 'Não foi possível identificar o RG nesta tentativa.'
+          : 'Não foi possível identificar a etiqueta nesta tentativa.'
+      );
+      return;
+    }
+
+    setScannerError('');
+    applyScannerDetection({
+      rgCode: result.rgCode,
+      tagCode: result.tagCode,
+      source: 'manual'
+    });
+  }, [applyScannerDetection, readScannerFrame, scannerAutoTagEnabled]);
 
   const concludeScannerReading = useCallback(async () => {
-    const rgCode = normalizeCodeInput(scannerDraft.rg_code || form.rg_code);
-    const tagCode = normalizeCodeInput(scannerDraft.tag_code || form.tag_code);
+    const rgCode = normalizeCodeInput(scannerDraftRef.current?.rg_code || form.rg_code);
+    const tagCode = normalizeCodeInput(scannerDraftRef.current?.tag_code || form.tag_code);
     if (!rgCode) {
-      setScannerError('RG é obrigatório. Valide o RG antes de concluir.');
+      setScannerError('RG é obrigatório. Aguarde a leitura automática ou tente novamente.');
       setScannerPhase('rg');
-      setScannerStep('Enquadre o RG no retângulo vermelho e toque em Validar RG.');
+      setScannerStep('Leitura automática ativa. Aponte a câmera para o RG.');
       return;
     }
 
@@ -1309,7 +1534,7 @@ const EquipmentPage = () => {
       setSuccess(`Leitura concluída. RG: ${rgCode}. Etiqueta não informada.`);
     }
     closeScanner();
-  }, [closeScanner, fetchAllocationLookup, form.rg_code, form.tag_code, scannerDraft.rg_code, scannerDraft.tag_code, scannerMode]);
+    }, [closeScanner, fetchAllocationLookup, form.rg_code, form.tag_code, scannerMode]);
 
   return (
     <Box sx={{ p: { xs: 2, md: 3 }, display: 'grid', gap: 2.5 }}>
@@ -1340,7 +1565,7 @@ const EquipmentPage = () => {
               onClick={openAllocationLookupScanner}
               sx={{ width: { xs: '100%', sm: 'auto' } }}
             >
-              Ler etiqueta
+              Escanear RG
             </Button>
           </Stack>
         )}
@@ -1450,7 +1675,7 @@ const EquipmentPage = () => {
                 <Typography color="text.secondary">Consultando alocações...</Typography>
               ) : !allocationLookupResult ? (
                 <Typography color="text.secondary">
-                  Use o botão &quot;Ler etiqueta&quot; para consultar os dados dos equipamentos alocados.
+                  Use o botão &quot;Escanear RG&quot; para consultar os dados dos equipamentos alocados.
                 </Typography>
               ) : (
                 <>
@@ -1638,7 +1863,7 @@ const EquipmentPage = () => {
                   onClick={openFullLabelScanner}
                   sx={{ width: { xs: '100%', sm: 'auto' } }}
                 >
-                  Ler etiqueta completa
+                  Escanear RG automático
                 </Button>
               )}
 
@@ -1730,7 +1955,7 @@ const EquipmentPage = () => {
                   <Alert severity="info" sx={{ mt: 0.5 }}>
                     {`Total lido: ${Number(bulkImportResult.total_rows || 0)} | `}
                     {`Importados: ${Number(bulkImportResult.imported_count || 0)} | `}
-                    {`Duplicados por RG: ${Number(bulkImportResult.duplicated_by_rg || 0)} | `}
+                    {`Duplicados por código (RG/Etiqueta): ${Number(bulkImportResult.duplicated_by_rg || 0)} | `}
                     {`Duplicados no CSV: ${Number(bulkImportResult.duplicates_in_file || 0)} | `}
                     {`Duplicados na base 02.02.20: ${Number(bulkImportResult.duplicates_in_020220 || 0)} | `}
                     {`Duplicados no cadastro: ${Number(bulkImportResult.duplicates_in_cadastro || 0)} | `}
@@ -1756,9 +1981,9 @@ const EquipmentPage = () => {
             <CardContent sx={{ display: 'grid', gap: 1.5 }}>
               <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 1, flexWrap: 'wrap' }}>
                 <Typography variant="h6">
-                  {isMaterialsScreen ? 'Filtros de materiais da base 02.02.20' : 'Filtros de refrigeradores novos'}
+                  {isMaterialsScreen ? 'Filtros de materiais da base 02.02.20' : 'Filtros de refrigeradores disponíveis'}
                 </Typography>
-                <Button variant="outlined" onClick={refreshData} fullWidth={isMobile}>Atualizar dados</Button>
+                <Button variant="outlined" onClick={() => refreshData({ notifySync: true })} fullWidth={isMobile}>Atualizar dados</Button>
               </Box>
               {isMaterialsScreen ? (
                 <>
@@ -1854,7 +2079,7 @@ const EquipmentPage = () => {
                   }}
                 >
                   <TextField
-                    label="Pesquisar refrigeradores não alocados"
+                    label="Pesquisar refrigeradores disponíveis"
                     placeholder="Modelo, marca, RG, etiqueta ou voltagem"
                     value={overviewSearch}
                     onChange={(event) => setOverviewSearch(event.target.value)}
@@ -1888,41 +2113,57 @@ const EquipmentPage = () => {
           {isNewRefrigeratorsScreen && (
             <Card sx={{ border: '1px solid var(--stroke)', boxShadow: 'var(--shadow-md)' }}>
               <CardContent sx={{ display: 'grid', gap: 1.25 }}>
-                <Typography variant="h6">Refrigeradores não alocados</Typography>
+                <Typography variant="h6">Refrigeradores disponíveis (não alocados)</Typography>
                 <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', md: 'repeat(5, minmax(0, 1fr))' }, gap: 1 }}>
                   <Chip size="small" label={`Total: ${nonAllocatedDashboard.total_nao_alocados}`} />
-                  <Chip size="small" color="info" label={`Novos: ${nonAllocatedDashboard.novo}`} />
-                  <Chip size="small" color="success" label={`Disponíveis: ${nonAllocatedDashboard.disponivel}`} />
+                  <Chip size="small" color="success" label={`Disponíveis: ${nonAllocatedAvailableCount}`} />
                   <Chip size="small" color="warning" label={`Recap: ${nonAllocatedDashboard.recap}`} />
                   <Chip size="small" color="error" label={`Sucata: ${nonAllocatedDashboard.sucata}`} />
                 </Box>
                 {loadingNewRefrigerators ? (
                   <Typography color="text.secondary">Carregando refrigeradores não alocados...</Typography>
                 ) : newRefrigerators.length === 0 ? (
-                  <Typography color="text.secondary">Nenhum refrigerador não alocado encontrado.</Typography>
+                  <Typography color="text.secondary">Nenhum refrigerador disponível encontrado.</Typography>
                 ) : (
                   <>
                     {isMobile ? (
                       <Box sx={SCROLLABLE_CARD_LIST_SX}>
-                        {newRefrigerators.map((item) => (
-                          <Card key={item.id} sx={{ border: '1px solid var(--stroke)', boxShadow: 'none' }}>
-                            <CardContent sx={{ display: 'grid', gap: 0.5, p: 1.25, '&:last-child': { pb: 1.25 } }}>
-                              <Typography variant="subtitle2" sx={{ wordBreak: 'break-word' }}>
-                                {item.model_name || '-'}
-                              </Typography>
-                              <Typography variant="body2">Marca: {item.brand || '-'}</Typography>
-                              <Typography variant="body2">RG: {item.rg_code || '-'}</Typography>
-                              <Typography variant="body2">Etiqueta: {item.tag_code || '-'}</Typography>
-                              <Typography variant="body2">Status: {nonAllocatedStatusLabelByValue[item.status] || item.status || '-'}</Typography>
-                              <Typography variant="body2">
-                                Voltagem: {voltageByValue[item.voltage] || item.voltage || 'Não informado'}
-                              </Typography>
-                              <Typography variant="caption" color="text.secondary">
-                                Cadastrado: {formatDateTime(item.created_at)}
-                              </Typography>
-                            </CardContent>
-                          </Card>
-                        ))}
+                        {newRefrigerators.map((item) => {
+                          const normalizedStatus = normalizeNonAllocatedStatus(item.status);
+                          const statusLabel = nonAllocatedStatusLabelByValue[normalizedStatus] || item.status || '-';
+                          return (
+                            <Card key={item.id} sx={{ border: '1px solid var(--stroke)', boxShadow: 'none' }}>
+                              <CardContent sx={{ display: 'grid', gap: 0.5, p: 1.25, '&:last-child': { pb: 1.25 } }}>
+                                <Typography variant="subtitle2" sx={{ wordBreak: 'break-word' }}>
+                                  {item.model_name || '-'}
+                                </Typography>
+                                <Typography variant="body2">Marca: {item.brand || '-'}</Typography>
+                                <Typography variant="body2">RG: {item.rg_code || '-'}</Typography>
+                                <Typography variant="body2">Etiqueta: {item.tag_code || '-'}</Typography>
+                                <Typography variant="body2">Status: {statusLabel}</Typography>
+                                <Typography variant="body2">
+                                  Voltagem: {voltageByValue[item.voltage] || item.voltage || 'Não informado'}
+                                </Typography>
+                                <Typography variant="caption" color="text.secondary">
+                                  Cadastrado: {formatDateTime(item.created_at)}
+                                </Typography>
+                                {canManageEquipments && (
+                                  <Button
+                                    color="error"
+                                    variant="outlined"
+                                    size="small"
+                                    startIcon={<DeleteOutlineIcon fontSize="small" />}
+                                    onClick={() => handleDeleteNonAllocatedEquipment(item)}
+                                    disabled={deletingEquipmentId === Number(item.id)}
+                                    sx={{ mt: 0.5 }}
+                                  >
+                                    {deletingEquipmentId === Number(item.id) ? 'Excluindo...' : 'Excluir'}
+                                  </Button>
+                                )}
+                              </CardContent>
+                            </Card>
+                          );
+                        })}
                       </Box>
                     ) : (
                       <TableContainer sx={TABLE_CONTAINER_SX}>
@@ -1936,20 +2177,39 @@ const EquipmentPage = () => {
                               <TableCell>Status</TableCell>
                               <TableCell>Voltagem</TableCell>
                               <TableCell>Cadastrado em</TableCell>
+                              {canManageEquipments && <TableCell align="right">Ações</TableCell>}
                             </TableRow>
                           </TableHead>
                           <TableBody>
-                            {newRefrigerators.map((item) => (
-                              <TableRow key={item.id}>
-                                <TableCell sx={COMPACT_MODEL_CELL_SX}>{item.model_name}</TableCell>
-                                <TableCell>{item.brand || '-'}</TableCell>
-                                <TableCell>{item.rg_code}</TableCell>
-                                <TableCell>{item.tag_code}</TableCell>
-                                <TableCell>{nonAllocatedStatusLabelByValue[item.status] || item.status || '-'}</TableCell>
-                                <TableCell>{voltageByValue[item.voltage] || item.voltage || 'Não informado'}</TableCell>
-                                <TableCell>{formatDateTime(item.created_at)}</TableCell>
-                              </TableRow>
-                            ))}
+                            {newRefrigerators.map((item) => {
+                              const normalizedStatus = normalizeNonAllocatedStatus(item.status);
+                              const statusLabel = nonAllocatedStatusLabelByValue[normalizedStatus] || item.status || '-';
+                              return (
+                                <TableRow key={item.id}>
+                                  <TableCell sx={COMPACT_MODEL_CELL_SX}>{item.model_name}</TableCell>
+                                  <TableCell>{item.brand || '-'}</TableCell>
+                                  <TableCell>{item.rg_code}</TableCell>
+                                  <TableCell>{item.tag_code}</TableCell>
+                                  <TableCell>{statusLabel}</TableCell>
+                                  <TableCell>{voltageByValue[item.voltage] || item.voltage || 'Não informado'}</TableCell>
+                                  <TableCell>{formatDateTime(item.created_at)}</TableCell>
+                                  {canManageEquipments && (
+                                    <TableCell align="right">
+                                      <Button
+                                        color="error"
+                                        variant="outlined"
+                                        size="small"
+                                        startIcon={<DeleteOutlineIcon fontSize="small" />}
+                                        onClick={() => handleDeleteNonAllocatedEquipment(item)}
+                                        disabled={deletingEquipmentId === Number(item.id)}
+                                      >
+                                        {deletingEquipmentId === Number(item.id) ? 'Excluindo...' : 'Excluir'}
+                                      </Button>
+                                    </TableCell>
+                                  )}
+                                </TableRow>
+                              );
+                            })}
                           </TableBody>
                         </Table>
                       </TableContainer>
@@ -2083,11 +2343,21 @@ const EquipmentPage = () => {
       )}
 
       <Dialog open={scannerOpen} onClose={closeScanner} fullWidth maxWidth="sm" fullScreen={isMobile}>
-        <DialogTitle>{scannerMode === 'allocation' ? 'Leitura para verificação de alocação' : 'Leitura da etiqueta'}</DialogTitle>
+        <DialogTitle>{scannerMode === 'allocation' ? 'Leitura automática para verificação de alocação' : 'Leitura automática da etiqueta'}</DialogTitle>
         <DialogContent sx={{ display: 'grid', gap: 1.5 }}>
           <Typography variant="body2" color="text.secondary">
-            {scannerStep || 'Enquadre o RG no retângulo vermelho e toque em Validar RG.'}
+            {scannerStep || 'Leitura automática ativa. Aponte a câmera para o RG.'}
           </Typography>
+          <FormControlLabel
+            control={(
+              <Switch
+                checked={scannerAutoTagEnabled}
+                onChange={(event) => setScannerAutoTagEnabled(event.target.checked)}
+              />
+            )}
+            label="Escanear etiqueta também (opcional)"
+            sx={{ mt: -0.5 }}
+          />
 
           <Box
             sx={{
@@ -2145,25 +2415,40 @@ const EquipmentPage = () => {
 
           <Typography variant="caption" color="text.secondary">
             {scannerPhase === 'rg'
-              ? 'RG é obrigatório: valide no retângulo vermelho.'
-              : 'Etiqueta opcional: valide no retângulo amarelo ou toque em Concluir para pular.'}
+              ? 'RG obrigatório: leitura automática no retângulo vermelho.'
+              : 'Etiqueta opcional: leitura automática no retângulo amarelo.'}
           </Typography>
 
           <Typography variant="caption" color="text.secondary">
             Leitura atual: RG {scannerDraft.rg_code || '-'} | Etiqueta {scannerDraft.tag_code || '-'}
           </Typography>
+          <Typography variant="caption" color="text.secondary">
+            Prévia OCR: RG {scannerPreview.rg_code || '-'} | Etiqueta {scannerPreview.tag_code || '-'}
+          </Typography>
+          {scannerPreview.raw_text && (
+            <Typography
+              variant="caption"
+              sx={{
+                color: 'text.secondary',
+                fontFamily: 'var(--font-mono)',
+                p: 0.75,
+                borderRadius: 1,
+                border: '1px dashed var(--stroke)',
+                bgcolor: 'var(--surface-soft)'
+              }}
+            >
+              {scannerPreview.raw_text}
+            </Typography>
+          )}
+          {ocrBusy && <LinearProgress />}
 
           {scannerError && <Alert severity="warning">{scannerError}</Alert>}
         </DialogContent>
 
         <DialogActions sx={{ flexDirection: isMobile ? 'column-reverse' : 'row', gap: 1 }}>
           <Button onClick={closeScanner} fullWidth={isMobile}>Fechar</Button>
-          <Button variant="outlined" onClick={validateScannerStep} disabled={ocrBusy} fullWidth={isMobile}>
-            {ocrBusy
-              ? 'Processando...'
-              : scannerPhase === 'rg'
-                ? 'Validar RG'
-                : 'Validar etiqueta'}
+          <Button variant="outlined" onClick={triggerScannerReadNow} disabled={ocrBusy} fullWidth={isMobile}>
+            {ocrBusy ? 'Processando...' : 'Forçar leitura agora'}
           </Button>
           <Button
             variant="contained"
@@ -2171,7 +2456,7 @@ const EquipmentPage = () => {
             disabled={ocrBusy || !scannerHasRequiredRg}
             fullWidth={isMobile}
           >
-            Concluir
+            {scannerMode === 'allocation' ? 'Consultar alocação' : 'Usar leitura'}
           </Button>
         </DialogActions>
       </Dialog>
@@ -2180,3 +2465,5 @@ const EquipmentPage = () => {
 };
 
 export default EquipmentPage;
+
+

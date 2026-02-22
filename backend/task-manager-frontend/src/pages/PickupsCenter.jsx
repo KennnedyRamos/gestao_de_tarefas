@@ -39,7 +39,7 @@ const STATUS_OPTIONS = [
 ];
 
 const REFRIGERATOR_CONDITION_OPTIONS = [
-  { value: 'boa', label: 'Boa (disponivel)' },
+  { value: 'boa', label: 'Boa (disponível)' },
   { value: 'recap', label: 'Recap (reforma)' },
   { value: 'sucata', label: 'Sucata (descarte)' }
 ];
@@ -298,7 +298,7 @@ const PickupsCenter = ({ initialView = 'orders' }) => {
       && hasRefrigerator
       && !REFRIGERATOR_CONDITION_OPTIONS.some((option) => option.value === refrigeratorCondition)
     ) {
-      setError('Selecione a condicao do refrigerador (Boa, Recap ou Sucata) antes de concluir.');
+      setError('Selecione a condição do refrigerador (Boa, Recap ou Sucata) antes de concluir.');
       return;
     }
 
@@ -342,7 +342,7 @@ const PickupsCenter = ({ initialView = 'orders' }) => {
       && hasRefrigeratorInSelection
       && !REFRIGERATOR_CONDITION_OPTIONS.some((option) => option.value === normalizedBulkCondition)
     ) {
-      setError('Selecione a condicao do refrigerador (Boa, Recap ou Sucata) para concluir em lote.');
+      setError('Selecione a condição do refrigerador (Boa, Recap ou Sucata) para concluir em lote.');
       return;
     }
 
@@ -534,7 +534,7 @@ const PickupsCenter = ({ initialView = 'orders' }) => {
               bulkStatus !== 'concluida'
                 ? 'Defina status Conclu\\u00EDda para aplicar.'
                 : selectionHasRefrigerator
-                  ? 'Obrigatoria para ordens com refrigerador.'
+                  ? 'Obrigatória para ordens com refrigerador.'
                   : 'Selecione ao menos uma ordem com refrigerador.'
             }
           >

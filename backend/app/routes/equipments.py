@@ -24,6 +24,7 @@ from app.schemas.equipment import (
     EquipmentAllocatedRefrigeratorItemOut,
     EquipmentAllocationLookupItemOut,
     EquipmentAllocationLookupOut,
+    EquipmentAllocationSyncOut,
     EquipmentBulkImportResultOut,
     EquipmentCreate,
     EquipmentInventoryMaterialItemOut,
@@ -400,6 +401,51 @@ def _build_code_lookup_tokens(value: Optional[str]) -> set[str]:
     return {token for token in tokens if token}
 
 
+def _build_equipment_lookup_tokens(rg_code: Optional[str], tag_code: Optional[str]) -> set[str]:
+    tokens: set[str] = set()
+    tokens.update(_build_code_lookup_tokens(rg_code))
+    tokens.update(_build_code_lookup_tokens(tag_code))
+    return tokens
+
+
+def _refrigerator_allocated_tokens_from_020220(db: Session) -> set[str]:
+    inventory_rows = _apply_inventory_base_filter(
+        db.query(
+            PickupCatalogInventoryItem.item_type.label("item_type"),
+            PickupCatalogInventoryItem.description.label("description"),
+            PickupCatalogInventoryItem.rg.label("rg_code"),
+        ),
+        db=db,
+    ).all()
+
+    allocated_tokens: set[str] = set()
+    for row in inventory_rows:
+        item_type_value = normalize_spaces(row.item_type)
+        mapped_type = _material_type_bucket(item_type_value)
+        if mapped_type != "refrigerador":
+            inferred = _material_type_bucket(classify_item_type(normalize_spaces(row.description)))
+            if inferred != "refrigerador":
+                continue
+        allocated_tokens.update(_build_code_lookup_tokens(row.rg_code))
+
+    return allocated_tokens
+
+
+def _is_refrigerator_allocated_in_020220(
+    db: Session,
+    rg_code: Optional[str],
+    tag_code: Optional[str],
+    *,
+    allocated_tokens: Optional[set[str]] = None,
+) -> bool:
+    equipment_tokens = _build_equipment_lookup_tokens(rg_code, tag_code)
+    if not equipment_tokens:
+        return False
+
+    tokens = allocated_tokens if allocated_tokens is not None else _refrigerator_allocated_tokens_from_020220(db)
+    return bool(tokens.intersection(equipment_tokens))
+
+
 def _build_page_meta(limit: int, offset: int, total: int) -> EquipmentPageMetaOut:
     return EquipmentPageMetaOut(
         limit=limit,
@@ -767,30 +813,12 @@ def list_available_refrigerators_for_comodato(
     rows = query.order_by(Equipment.created_at.desc(), Equipment.id.desc()).all()
     if not rows:
         return []
-
-    inventory_rows = _apply_inventory_base_filter(
-        db.query(
-            PickupCatalogInventoryItem.item_type.label("item_type"),
-            PickupCatalogInventoryItem.description.label("description"),
-            PickupCatalogInventoryItem.rg.label("rg_code"),
-        ),
-        db=db,
-    ).all()
-
-    allocated_rg_tokens: set[str] = set()
-    for row in inventory_rows:
-        item_type_value = normalize_spaces(row.item_type)
-        mapped_type = _material_type_bucket(item_type_value)
-        if mapped_type != "refrigerador":
-            inferred = _material_type_bucket(classify_item_type(normalize_spaces(row.description)))
-            if inferred != "refrigerador":
-                continue
-        allocated_rg_tokens.update(_build_code_lookup_tokens(row.rg_code))
+    allocated_tokens_020220 = _refrigerator_allocated_tokens_from_020220(db)
 
     filtered_rows: list[Equipment] = []
     for row in rows:
-        rg_tokens = _build_code_lookup_tokens(row.rg_code)
-        if rg_tokens and allocated_rg_tokens.intersection(rg_tokens):
+        equipment_tokens = _build_equipment_lookup_tokens(row.rg_code, row.tag_code)
+        if equipment_tokens and allocated_tokens_020220.intersection(equipment_tokens):
             continue
         filtered_rows.append(row)
 
@@ -841,7 +869,9 @@ def list_non_allocated_refrigerators(
         Equipment.category == "refrigerador",
         Equipment.status != "alocado",
     )
-    if normalized_status != "todos":
+    if normalized_status == "disponivel":
+        query = query.filter(Equipment.status.in_(["novo", "disponivel"]))
+    elif normalized_status != "todos":
         query = query.filter(Equipment.status == normalized_status)
     if search:
         pattern = f"%{search}%"
@@ -857,31 +887,13 @@ def list_non_allocated_refrigerators(
         )
 
     rows = query.order_by(Equipment.created_at.desc(), Equipment.id.desc()).all()
-
-    inventory_rows = _apply_inventory_base_filter(
-        db.query(
-            PickupCatalogInventoryItem.item_type.label("item_type"),
-            PickupCatalogInventoryItem.description.label("description"),
-            PickupCatalogInventoryItem.rg.label("rg_code"),
-        ),
-        db=db,
-    ).all()
-
-    allocated_rg_tokens: set[str] = set()
-    for row in inventory_rows:
-        item_type_value = normalize_spaces(row.item_type)
-        mapped_type = _material_type_bucket(item_type_value)
-        if mapped_type != "refrigerador":
-            inferred = _material_type_bucket(classify_item_type(normalize_spaces(row.description)))
-            if inferred != "refrigerador":
-                continue
-        allocated_rg_tokens.update(_build_code_lookup_tokens(row.rg_code))
+    allocated_tokens_020220 = _refrigerator_allocated_tokens_from_020220(db)
 
     counters = {"novo": 0, "disponivel": 0, "recap": 0, "sucata": 0}
     filtered_rows: list[Equipment] = []
     for row in rows:
-        rg_tokens = _build_code_lookup_tokens(row.rg_code)
-        if rg_tokens and allocated_rg_tokens.intersection(rg_tokens):
+        equipment_tokens = _build_equipment_lookup_tokens(row.rg_code, row.tag_code)
+        if equipment_tokens and allocated_tokens_020220.intersection(equipment_tokens):
             continue
         status_value = normalize_lookup_text(row.status)
         if status_value in counters:
@@ -918,6 +930,63 @@ def list_non_allocated_refrigerators(
         ),
         items=items,
         page=_build_page_meta(limit=limit, offset=offset, total=total),
+    )
+
+
+@router.post("/refrigerators/sync-allocation-status", response_model=EquipmentAllocationSyncOut)
+def sync_refrigerators_allocation_status(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_equipments_manager),
+):
+    rows = (
+        db.query(Equipment)
+        .filter(
+            Equipment.category == "refrigerador",
+            Equipment.status.in_(["novo", "disponivel"]),
+        )
+        .all()
+    )
+    scanned_count = len(rows)
+    if scanned_count == 0:
+        return EquipmentAllocationSyncOut(
+            scanned_count=0,
+            matched_020220_count=0,
+            updated_count=0,
+            updated_ids=[],
+        )
+
+    allocated_tokens_020220 = _refrigerator_allocated_tokens_from_020220(db)
+    if not allocated_tokens_020220:
+        return EquipmentAllocationSyncOut(
+            scanned_count=scanned_count,
+            matched_020220_count=0,
+            updated_count=0,
+            updated_ids=[],
+        )
+
+    updated_ids: list[int] = []
+    matched_count = 0
+    for row in rows:
+        if not _is_refrigerator_allocated_in_020220(
+            db,
+            rg_code=row.rg_code,
+            tag_code=row.tag_code,
+            allocated_tokens=allocated_tokens_020220,
+        ):
+            continue
+        matched_count += 1
+        row.status = "alocado"
+        row.client_name = normalize_optional_text(row.client_name)
+        updated_ids.append(int(row.id))
+
+    if updated_ids:
+        db.commit()
+
+    return EquipmentAllocationSyncOut(
+        scanned_count=scanned_count,
+        matched_020220_count=matched_count,
+        updated_count=len(updated_ids),
+        updated_ids=updated_ids,
     )
 
 
@@ -1071,20 +1140,21 @@ def lookup_allocated_material(
     if not normalized_rg_code and not normalized_tag_code:
         raise HTTPException(status_code=422, detail="Informe RG ou etiqueta para consulta.")
 
-    equipment_from_tag = None
-    if normalized_tag_code:
+    resolved_rg_code = normalized_rg_code
+    resolved_tag_code = normalized_tag_code
+
+    if resolved_tag_code:
         equipment_from_tag = (
             db.query(Equipment.rg_code, Equipment.tag_code)
-            .filter(func.upper(func.coalesce(Equipment.tag_code, "")) == normalized_tag_code)
+            .filter(func.upper(func.coalesce(Equipment.tag_code, "")) == resolved_tag_code)
             .order_by(Equipment.id.desc())
             .first()
         )
+        if equipment_from_tag:
+            if not resolved_rg_code:
+                resolved_rg_code = normalize_optional_code(equipment_from_tag.rg_code) or ""
 
-    resolved_rg_code = normalized_rg_code
-    if not resolved_rg_code and equipment_from_tag:
-        resolved_rg_code = normalize_optional_code(equipment_from_tag.rg_code) or ""
-
-    if not normalized_tag_code and resolved_rg_code:
+    if not resolved_tag_code and resolved_rg_code:
         equipment_from_rg = (
             db.query(Equipment.tag_code)
             .filter(func.upper(func.coalesce(Equipment.rg_code, "")) == resolved_rg_code)
@@ -1092,21 +1162,15 @@ def lookup_allocated_material(
             .first()
         )
         if equipment_from_rg:
-            normalized_tag_code = normalize_optional_code(equipment_from_rg.tag_code) or ""
+            resolved_tag_code = normalize_optional_code(equipment_from_rg.tag_code) or ""
 
-    if not resolved_rg_code:
-        return EquipmentAllocationLookupOut(
-            rg_code="",
-            tag_code=normalized_tag_code,
-            total=0,
-            items=[],
-        )
-
-    target_tokens = _build_code_lookup_tokens(resolved_rg_code)
+    output_rg_code = resolved_rg_code or normalized_rg_code
+    output_tag_code = resolved_tag_code or normalized_tag_code
+    target_tokens = _build_equipment_lookup_tokens(output_rg_code, output_tag_code)
     if not target_tokens:
         return EquipmentAllocationLookupOut(
-            rg_code=resolved_rg_code,
-            tag_code=normalized_tag_code,
+            rg_code=output_rg_code,
+            tag_code=output_tag_code,
             total=0,
             items=[],
         )
@@ -1144,7 +1208,7 @@ def lookup_allocated_material(
         EquipmentAllocationLookupItemOut(
             inventory_item_id=int(row.inventory_item_id),
             rg_code=normalize_spaces(row.rg_code),
-            tag_code=normalized_tag_code,
+            tag_code=output_tag_code,
             client_code=normalize_spaces(row.client_code),
             nome_fantasia=normalize_spaces(row.nome_fantasia),
             setor=normalize_spaces(row.setor),
@@ -1155,8 +1219,8 @@ def lookup_allocated_material(
     ]
 
     return EquipmentAllocationLookupOut(
-        rg_code=resolved_rg_code,
-        tag_code=normalized_tag_code,
+        rg_code=output_rg_code,
+        tag_code=output_tag_code,
         total=len(items),
         items=items,
     )
@@ -1187,13 +1251,7 @@ async def import_refrigerators_csv(
         if normalized_tag:
             existing_tag_codes.add(normalized_tag)
 
-    base_inventory_rg_tokens: set[str] = set()
-    base_inventory_rows = _apply_inventory_base_filter(
-        db.query(PickupCatalogInventoryItem.rg.label("rg_code")),
-        db=db,
-    ).all()
-    for row in base_inventory_rows:
-        base_inventory_rg_tokens.update(_build_code_lookup_tokens(row.rg_code))
+    base_inventory_tokens = _refrigerator_allocated_tokens_from_020220(db)
 
     total_rows = 0
     imported_count = 0
@@ -1256,6 +1314,7 @@ async def import_refrigerators_csv(
             if len(errors) < 30:
                 errors.append(f"Linha {index}: RG invalido.")
             continue
+        equipment_tokens = _build_equipment_lookup_tokens(rg_code, tag_code)
 
         if any(token in seen_import_rg_tokens for token in rg_tokens):
             duplicates_in_file += 1
@@ -1267,7 +1326,7 @@ async def import_refrigerators_csv(
             duplicated_by_rg += 1
             continue
 
-        if any(token in base_inventory_rg_tokens for token in rg_tokens):
+        if any(token in base_inventory_tokens for token in equipment_tokens):
             duplicates_in_020220 += 1
             duplicated_by_rg += 1
             continue
@@ -1356,6 +1415,18 @@ def create_equipment(
         client_name = None
 
     ensure_unique_codes(db, rg_code=rg_code, tag_code=tag_code)
+    if (
+        is_refrigerator
+        and resolved_status in {"novo", "disponivel"}
+        and _is_refrigerator_allocated_in_020220(db, rg_code=rg_code, tag_code=tag_code)
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Equipamento ja consta alocado na base 02.02.20 para o RG ou etiqueta informados. "
+                "Nao e permitido cadastrar como disponivel."
+            ),
+        )
 
     row = Equipment(
         category=resolved_category,
@@ -1428,6 +1499,27 @@ def update_equipment(
         next_client_name = None
 
     ensure_unique_codes(db, rg_code=next_rg_code, tag_code=next_tag_code, current_id=row.id)
+    should_validate_020220 = (
+        next_is_refrigerator
+        and next_status in {"novo", "disponivel"}
+        and (
+            normalize_optional_code(row.rg_code) != normalize_optional_code(next_rg_code)
+            or normalize_optional_code(row.tag_code) != normalize_optional_code(next_tag_code)
+            or normalize_lookup_text(row.status) != normalize_lookup_text(next_status)
+        )
+    )
+    if should_validate_020220 and _is_refrigerator_allocated_in_020220(
+        db,
+        rg_code=next_rg_code,
+        tag_code=next_tag_code,
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Equipamento ja consta alocado na base 02.02.20 para o RG ou etiqueta informados. "
+                "Nao e permitido salvar como disponivel."
+            ),
+        )
 
     row.category = next_category
     row.model_name = next_model_name

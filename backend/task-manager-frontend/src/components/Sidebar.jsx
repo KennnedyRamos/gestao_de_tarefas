@@ -220,7 +220,7 @@ const Sidebar = () => {
             selected={isActive('/equipments')}
             sx={navItemSx}
           >
-            <ListItemText primary='Equipamento' />
+            <ListItemText primary='Equipamentos' />
           </ListItemButton>
         )}
 

@@ -184,3 +184,10 @@ class EquipmentAllocationLookupOut(BaseModel):
     tag_code: str
     total: int
     items: list[EquipmentAllocationLookupItemOut]
+
+
+class EquipmentAllocationSyncOut(BaseModel):
+    scanned_count: int
+    matched_020220_count: int
+    updated_count: int
+    updated_ids: list[int] = Field(default_factory=list)

@@ -34,7 +34,7 @@ const ORDERS_SCROLL_SX = {
 
 const STATUS_OPTIONS = [
   { value: 'pendente', label: 'Pendente', color: 'warning' },
-  { value: 'concluida', label: 'Conclu\u00EDda', color: 'success' },
+  { value: 'concluida', label: 'Concluída', color: 'success' },
   { value: 'cancelada', label: 'Cancelada', color: 'error' }
 ];
 
@@ -82,15 +82,15 @@ const PickupsCenter = ({ initialView = 'orders' }) => {
     if (canOrdersHistory) {
       views.push({
         value: 'orders',
-        label: 'Vis\u00E3o de ordens',
+        label: 'Visão de ordens',
         helper: 'Lista consolidada das ordens geradas'
       });
     }
     if (canWithdrawalsHistory) {
       views.push({
         value: 'withdrawals',
-        label: 'Gest\u00E3o de retiradas',
-        helper: 'Atualiza\u00E7\u00E3o de status individual e em lote'
+        label: 'Gestão de retiradas',
+        helper: 'Atualização de status individual e em lote'
       });
     }
     return views;
@@ -376,7 +376,7 @@ const PickupsCenter = ({ initialView = 'orders' }) => {
   };
 
   const handleDeleteOrder = async (orderId, orderNumber) => {
-    if (!window.confirm('Deseja excluir esta ordem cancelada? Esta a\u00E7\u00E3o n\u00E3o pode ser desfeita.')) {
+    if (!window.confirm('Deseja excluir esta ordem cancelada? Esta ação não pode ser desfeita.')) {
       return;
     }
 
@@ -393,7 +393,7 @@ const PickupsCenter = ({ initialView = 'orders' }) => {
         query: searchDebounced,
         status: effectiveStatusFilter,
       });
-      setSuccess(`Ordem ${safeText(orderNumber) || `RET-${orderId}`} exclu\u00EDda com sucesso.`);
+      setSuccess(`Ordem ${safeText(orderNumber) || `RET-${orderId}`} excluída com sucesso.`);
     } catch (err) {
       const detail = err?.response?.data?.detail;
       setError(typeof detail === 'string' ? detail : 'Erro ao excluir ordem cancelada.');
@@ -472,7 +472,7 @@ const PickupsCenter = ({ initialView = 'orders' }) => {
       <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
         <Chip label={`Carregadas: ${summary.total}`} />
         <Chip color="warning" label={`Pendentes: ${summary.pendente}`} />
-        <Chip color="success" label={`Conclu\u00EDdas: ${summary.concluida}`} />
+        <Chip color="success" label={`Concluídas: ${summary.concluida}`} />
         <Chip color="error" label={`Canceladas: ${summary.cancelada}`} />
       </Box>
 
@@ -514,7 +514,7 @@ const PickupsCenter = ({ initialView = 'orders' }) => {
           </TextField>
 
           <TextField
-            label="Observa\u00E7\u00E3o do status (opcional)"
+            label="Observação do status (opcional)"
             value={bulkStatusNote}
             onChange={(event) => setBulkStatusNote(event.target.value)}
             size="small"
@@ -524,7 +524,7 @@ const PickupsCenter = ({ initialView = 'orders' }) => {
 
           <TextField
             select
-            label="Condi\u00E7\u00E3o do refrigerador"
+            label="Condição do refrigerador"
             value={bulkRefrigeratorCondition}
             onChange={(event) => setBulkRefrigeratorCondition(event.target.value)}
             size="small"
@@ -594,7 +594,7 @@ const PickupsCenter = ({ initialView = 'orders' }) => {
                 </Box>
 
                 <Typography variant="body2" color="text.secondary">
-                  C\u00F3digo do cliente: {item.clientCode || '-'}
+                  Código do cliente: {item.clientCode || '-'}
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
                   Nome fantasia: {item.fantasyName || '-'}
@@ -613,14 +613,14 @@ const PickupsCenter = ({ initialView = 'orders' }) => {
                   <>
                     {(item.statusUpdatedAtLabel || item.statusUpdatedBy) && (
                       <Typography variant="caption" color="text.secondary">
-                        \u00DAltima atualiza\u00E7\u00E3o: {item.statusUpdatedAtLabel || '-'}
+                        Última atualização: {item.statusUpdatedAtLabel || '-'}
                         {item.statusUpdatedBy ? ` por ${item.statusUpdatedBy}` : ''}
                       </Typography>
                     )}
 
                     {item.statusNote && (
                       <Typography variant="caption" color="text.secondary">
-                        Observa\u00E7\u00E3o do status: {item.statusNote}
+                        Observação do status: {item.statusNote}
                       </Typography>
                     )}
 
@@ -643,7 +643,7 @@ const PickupsCenter = ({ initialView = 'orders' }) => {
                       {item.hasRefrigerator && (
                         <TextField
                           select
-                          label="Condi\u00E7\u00E3o do refrigerador"
+                          label="Condição do refrigerador"
                           value={statusConditionByOrder[item.id] || ''}
                           onChange={(event) => setStatusConditionByOrder((prev) => ({
                             ...prev,
@@ -652,7 +652,7 @@ const PickupsCenter = ({ initialView = 'orders' }) => {
                           size="small"
                           sx={{ width: { xs: '100%', sm: 260 }, maxWidth: '100%' }}
                           disabled={updatingOrderId === item.id || bulkUpdating}
-                          helperText="Selecione antes de marcar a retirada como Conclu\u00EDda."
+                          helperText="Selecione antes de marcar a retirada como Concluída."
                         >
                           <MenuItem value="">Selecione</MenuItem>
                           {REFRIGERATOR_CONDITION_OPTIONS.map((option) => (

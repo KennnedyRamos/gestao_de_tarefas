@@ -5,6 +5,7 @@ import {
   Button,
   Card,
   CardContent,
+  Chip,
   IconButton,
   TextField,
   Typography
@@ -16,6 +17,55 @@ import { useNavigate } from 'react-router-dom';
 import api from '../services/api';
 
 const PAGE_SIZE = 25;
+const STATUS_LABELS = {
+  pending: 'Pendente',
+  pendente: 'Pendente',
+  completed: 'Concluída',
+  concluida: 'Concluída',
+  cancelada: 'Cancelada',
+  canceled: 'Cancelada',
+};
+
+const toText = (value) => String(value ?? '').trim();
+
+const parseDescriptionDetails = (value) => {
+  const raw = toText(value);
+  const parsed = {
+    clientCode: '',
+    fantasyName: '',
+    descriptionLabel: raw,
+  };
+
+  if (!raw.includes('|')) {
+    return parsed;
+  }
+
+  raw.split('|').forEach((chunk) => {
+    const part = toText(chunk);
+    const normalized = part.toLowerCase();
+    if (normalized.startsWith('código do cliente:') || normalized.startsWith('codigo do cliente:') || normalized.startsWith('código:') || normalized.startsWith('codigo:')) {
+      parsed.clientCode = toText(part.split(':').slice(1).join(':'));
+      return;
+    }
+    if (normalized.startsWith('fantasia:') || normalized.startsWith('nome fantasia:')) {
+      parsed.fantasyName = toText(part.split(':').slice(1).join(':'));
+      return;
+    }
+    if (normalized.startsWith('descrição:') || normalized.startsWith('descricao:')) {
+      parsed.descriptionLabel = toText(part.split(':').slice(1).join(':'));
+    }
+  });
+
+  return parsed;
+};
+
+const parseDeliveryStatus = (value) => {
+  const normalized = toText(value).toLowerCase();
+  if (!normalized) {
+    return 'Registrada';
+  }
+  return STATUS_LABELS[normalized] || toText(value);
+};
 
 const DeliveriesHistory = () => {
   const navigate = useNavigate();
@@ -47,11 +97,18 @@ const DeliveriesHistory = () => {
     try {
       setLoading(true);
       const response = await api.get('/deliveries');
-      setDeliveries(response.data || []);
+      const payload = response?.data;
+      const list = Array.isArray(payload)
+        ? payload
+        : Array.isArray(payload?.items)
+          ? payload.items
+          : [];
+      setDeliveries(list);
       setPage(1);
       setError('');
     } catch (err) {
-      setError('Erro ao carregar o hist\u00f3rico de entregas.');
+      setError('Erro ao carregar o histórico de entregas.');
+      setDeliveries([]);
     } finally {
       setLoading(false);
     }
@@ -73,15 +130,35 @@ const DeliveriesHistory = () => {
     }
   };
 
-  const formattedDeliveries = deliveries.map((item) => {
-    const dateLabel = item.delivery_date ? dayjs(item.delivery_date).format('DD/MM/YYYY') : '-';
-    const timeLabel = item.delivery_time ? String(item.delivery_time).slice(0, 5) : 'Sem hor\u00e1rio';
+  const formattedDeliveries = deliveries.map((item, index) => {
+    const source = item && typeof item === 'object' ? item : {};
+    const fallbackDescription = toText(source.description || source.descricao || source.summary_line || source.summary);
+    const parsedDescription = parseDescriptionDetails(fallbackDescription);
+    const deliveryDate = source.delivery_date || source.data_entrega || source.date || source.created_at;
+    const parsedDate = deliveryDate ? dayjs(deliveryDate) : null;
+    const dateLabel = parsedDate && parsedDate.isValid() ? parsedDate.format('DD/MM/YYYY') : '-';
+    const rawTime = source.delivery_time || source.horario_entrega || source.time || '';
+    const timeLabel = rawTime ? toText(rawTime).slice(0, 5) : 'Sem horário';
+    const idValue = source.id ?? source.delivery_id ?? source.code ?? source.codigo_entrega ?? '';
+    const idLabel = toText(idValue) ? `Entrega #${toText(idValue)}` : `Entrega ${index + 1}`;
+    const clientCode = toText(source.client_code || source.codigo_cliente || source.codigo || parsedDescription.clientCode);
+    const fantasyName = toText(source.nome_fantasia || source.fantasy_name || source.fantasia || parsedDescription.fantasyName);
+    const descriptionLabel = toText(source.delivery_description || parsedDescription.descriptionLabel || fallbackDescription);
+    const statusLabel = parseDeliveryStatus(source.status || source.delivery_status);
+    const itemKey = toText(idValue) ? String(idValue) : `delivery-${index}`;
+
     return {
-      ...item,
+      ...source,
+      itemKey,
+      idLabel,
+      clientCode,
+      fantasyName,
+      descriptionLabel,
+      statusLabel,
       dateLabel,
       timeLabel,
-      pdfOneHref: toAbsoluteUrl(item.pdf_one_url),
-      pdfTwoHref: toAbsoluteUrl(item.pdf_two_url)
+      pdfOneHref: toAbsoluteUrl(source.pdf_one_url || source.pdfOneUrl),
+      pdfTwoHref: toAbsoluteUrl(source.pdf_two_url || source.pdfTwoUrl)
     };
   });
 
@@ -90,8 +167,16 @@ const DeliveriesHistory = () => {
     if (!normalizedSearch) {
       return true;
     }
-    const descriptionValue = (item.description || '').toLowerCase();
-    return descriptionValue.includes(normalizedSearch);
+    const searchable = [
+      item.idLabel,
+      item.clientCode,
+      item.fantasyName,
+      item.descriptionLabel,
+      item.statusLabel,
+    ]
+      .join(' ')
+      .toLowerCase();
+    return searchable.includes(normalizedSearch);
   });
   const totalPages = Math.max(1, Math.ceil(filteredDeliveries.length / PAGE_SIZE));
   const currentPage = Math.min(page, totalPages);
@@ -113,7 +198,7 @@ const DeliveriesHistory = () => {
   return (
     <Box sx={{ p: 3, display: 'grid', gap: 2 }}>
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
-        <Typography variant="h5">Hist\u00f3rico de entregas</Typography>
+        <Typography variant="h5">Histórico de entregas</Typography>
         <Button variant="contained" onClick={() => navigate('/operacoes/entregas/nova')}>
           Nova entrega
         </Button>
@@ -122,7 +207,7 @@ const DeliveriesHistory = () => {
       {error && <Alert severity="error">{error}</Alert>}
 
       <TextField
-        label="Pesquisar por c\u00f3digo ou fantasia"
+        label="Pesquisar por código ou fantasia"
         placeholder="Ex.: 12345 ou Nome Fantasia"
         value={searchQuery}
         onChange={(e) => setSearchQuery(e.target.value)}
@@ -135,8 +220,8 @@ const DeliveriesHistory = () => {
       ) : filteredDeliveries.length === 0 ? (
         <Typography color="text.secondary">
           {formattedDeliveries.length === 0
-            ? 'Nenhuma entrega registrada.'
-            : 'Nenhuma entrega encontrada para essa pesquisa.'}
+            ? 'Nenhum registro encontrado.'
+            : 'Nenhum registro encontrado para essa pesquisa.'}
         </Typography>
       ) : (
         <>
@@ -151,50 +236,66 @@ const DeliveriesHistory = () => {
           >
             {pagedDeliveries.map((item, index) => (
               <Card
-                key={item.id}
+                key={item.itemKey}
                 className="stagger-item"
                 style={{ '--stagger-delay': `${index * 40}ms` }}
                 sx={{
                   border: '1px solid var(--stroke)',
-                  boxShadow: 'var(--shadow-md)'
+                  boxShadow: 'var(--shadow-md)',
+                  backgroundColor: 'var(--surface)',
+                  position: 'relative',
+                  zIndex: 1,
                 }}
               >
                 <CardContent sx={{ display: 'grid', gap: 1 }}>
                   <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 1 }}>
-                    <Typography variant="subtitle1" sx={{ overflowWrap: 'anywhere' }}>
-                      Entrega #{item.id}
+                    <Typography variant="subtitle1" sx={{ overflowWrap: 'anywhere', color: 'var(--ink)', fontWeight: 600 }}>
+                      {item.idLabel}
                     </Typography>
-                    <IconButton aria-label="Excluir entrega" onClick={() => handleDelete(item.id)}>
-                      <DeleteIcon fontSize="small" />
-                    </IconButton>
+                    <Chip size="small" label={item.statusLabel} sx={{ color: 'var(--ink)', backgroundColor: 'var(--surface-warm)' }} />
                   </Box>
-                  <Typography variant="body2" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>
-                    {item.description}
+                  <Typography variant="body2" sx={{ color: 'var(--ink)', overflowWrap: 'anywhere' }}>
+                    Código: {item.clientCode || '-'}
                   </Typography>
-                  <Typography variant="caption" color="text.secondary">
+                  <Typography variant="body2" sx={{ color: 'var(--ink)', overflowWrap: 'anywhere' }}>
+                    Fantasia: {item.fantasyName || '-'}
+                  </Typography>
+                  <Typography variant="body2" sx={{ color: 'var(--muted)', overflowWrap: 'anywhere' }}>
+                    Descrição: {item.descriptionLabel || '-'}
+                  </Typography>
+                  <Typography variant="caption" sx={{ color: 'var(--muted)' }}>
                     Data: {item.dateLabel} - {item.timeLabel}
                   </Typography>
-                  <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                    <Button
-                      size="small"
-                      variant="outlined"
-                      href={item.pdfOneHref || undefined}
-                      target="_blank"
-                      rel="noreferrer"
-                      disabled={!item.pdfOneHref}
+                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, flexWrap: 'wrap' }}>
+                    <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        href={item.pdfOneHref || undefined}
+                        target="_blank"
+                        rel="noreferrer"
+                        disabled={!item.pdfOneHref}
+                      >
+                        Abrir NF
+                      </Button>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        href={item.pdfTwoHref || undefined}
+                        target="_blank"
+                        rel="noreferrer"
+                        disabled={!item.pdfTwoHref}
+                      >
+                        Abrir contrato
+                      </Button>
+                    </Box>
+                    <IconButton
+                      aria-label="Excluir entrega"
+                      onClick={() => handleDelete(item.id)}
+                      disabled={!item.id}
                     >
-                      Abrir NF
-                    </Button>
-                    <Button
-                      size="small"
-                      variant="outlined"
-                      href={item.pdfTwoHref || undefined}
-                      target="_blank"
-                      rel="noreferrer"
-                      disabled={!item.pdfTwoHref}
-                    >
-                      Abrir contrato
-                    </Button>
+                      <DeleteIcon fontSize="small" />
+                    </IconButton>
                   </Box>
                 </CardContent>
               </Card>
@@ -210,7 +311,7 @@ const DeliveriesHistory = () => {
             }}
           >
             <Typography variant="caption" color="text.secondary">
-              {`Mostrando ${pageFrom}-${pageTo} de ${filteredDeliveries.length} | P\u00e1gina ${currentPage} de ${totalPages}`}
+              {`Mostrando ${pageFrom}-${pageTo} de ${filteredDeliveries.length} | Página ${currentPage} de ${totalPages}`}
             </Typography>
             <Box sx={{ display: 'flex', gap: 1 }}>
               <Button
@@ -227,7 +328,7 @@ const DeliveriesHistory = () => {
                 disabled={currentPage >= totalPages}
                 onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))}
               >
-                Pr\u00f3ximo
+                Próximo
               </Button>
             </Box>
           </Box>

@@ -22,14 +22,16 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import api from '../services/api';
 import { hasPermission } from '../utils/auth';
 
-const PAGE_SIZE = 25;
+const PAGE_SIZE = 10;
 const safeText = (value) => String(value || '').trim();
 const ORDERS_SCROLL_SX = {
   display: 'grid',
   gap: 1.25,
-  maxHeight: { xs: '60vh', md: '68vh' },
-  overflowY: 'auto',
-  pr: { xs: 0, sm: 0.25 },
+};
+const WRAP_TEXT_SX = {
+  whiteSpace: 'normal',
+  wordBreak: 'break-word',
+  overflowWrap: 'anywhere',
 };
 
 const STATUS_OPTIONS = [
@@ -102,9 +104,8 @@ const PickupsCenter = ({ initialView = 'orders' }) => {
   const [searchDebounced, setSearchDebounced] = useState('');
   const [statusFilter, setStatusFilter] = useState('todos');
   const [loading, setLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [hasMore, setHasMore] = useState(false);
-  const [offset, setOffset] = useState(0);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [hasNextPage, setHasNextPage] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [updatingOrderId, setUpdatingOrderId] = useState(null);
@@ -136,21 +137,19 @@ const PickupsCenter = ({ initialView = 'orders' }) => {
     setSelectedOrderIds([]);
     setSuccess('');
     setError('');
+    setCurrentPage(1);
   }, [activeView]);
 
   const effectiveStatusFilter = activeView === 'withdrawals' ? statusFilter : 'todos';
 
-  const loadOrders = useCallback(async ({ reset = false, currentOffset = 0, query = '', status = 'todos' }) => {
+  const loadOrders = useCallback(async ({ page = 1, query = '', status = 'todos' }) => {
     try {
-      if (reset) {
-        setLoading(true);
-      } else {
-        setLoadingMore(true);
-      }
+      setLoading(true);
+      const safePage = Math.max(1, Number(page) || 1);
 
       const params = {
         limit: PAGE_SIZE,
-        offset: currentOffset,
+        offset: (safePage - 1) * PAGE_SIZE,
       };
 
       if (query) {
@@ -163,38 +162,27 @@ const PickupsCenter = ({ initialView = 'orders' }) => {
       const response = await api.get('/pickup-catalog/orders', { params });
       const loadedOrders = Array.isArray(response.data) ? response.data : [];
 
-      setOrders((prev) => (reset ? loadedOrders : [...prev, ...loadedOrders]));
-      setOffset(currentOffset + loadedOrders.length);
-      setHasMore(loadedOrders.length === PAGE_SIZE);
-      if (reset) {
-        setSelectedOrderIds([]);
-      }
+      setOrders(loadedOrders);
+      setHasNextPage(loadedOrders.length === PAGE_SIZE);
+      setSelectedOrderIds([]);
       setError('');
     } catch (err) {
       setError('Erro ao carregar a central de retiradas.');
-      if (reset) {
-        setOrders([]);
-        setOffset(0);
-        setHasMore(false);
-        setSelectedOrderIds([]);
-      }
+      setOrders([]);
+      setHasNextPage(false);
+      setSelectedOrderIds([]);
     } finally {
-      if (reset) {
-        setLoading(false);
-      } else {
-        setLoadingMore(false);
-      }
+      setLoading(false);
     }
   }, []);
 
   useEffect(() => {
     loadOrders({
-      reset: true,
-      currentOffset: 0,
+      page: currentPage,
       query: searchDebounced,
       status: effectiveStatusFilter,
     });
-  }, [loadOrders, searchDebounced, effectiveStatusFilter]);
+  }, [currentPage, effectiveStatusFilter, loadOrders, searchDebounced]);
 
   const formattedOrders = useMemo(
     () => orders.map((item) => {
@@ -388,8 +376,7 @@ const PickupsCenter = ({ initialView = 'orders' }) => {
       await api.delete(`/pickup-catalog/orders/${orderId}`);
       setSelectedOrderIds((prev) => prev.filter((id) => id !== orderId));
       await loadOrders({
-        reset: true,
-        currentOffset: 0,
+        page: currentPage,
         query: searchDebounced,
         status: effectiveStatusFilter,
       });
@@ -446,7 +433,10 @@ const PickupsCenter = ({ initialView = 'orders' }) => {
           label="Pesquisar por número da ordem, código ou nome fantasia"
           placeholder="Ex.: RET-20260214-000010, 10099 ou Nome Fantasia"
           value={searchQuery}
-          onChange={(event) => setSearchQuery(event.target.value)}
+          onChange={(event) => {
+            setSearchQuery(event.target.value);
+            setCurrentPage(1);
+          }}
           size="small"
           fullWidth
         />
@@ -455,7 +445,10 @@ const PickupsCenter = ({ initialView = 'orders' }) => {
             select
             label="Filtrar por status"
             value={statusFilter}
-            onChange={(event) => setStatusFilter(event.target.value)}
+            onChange={(event) => {
+              setStatusFilter(event.target.value);
+              setCurrentPage(1);
+            }}
             size="small"
             fullWidth
           >
@@ -577,7 +570,7 @@ const PickupsCenter = ({ initialView = 'orders' }) => {
             >
               <CardContent sx={{ display: 'grid', gap: 0.75 }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, flexWrap: 'wrap' }}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, minWidth: 0, flex: 1 }}>
                     {activeView === 'withdrawals' && (
                       <Checkbox
                         size="small"
@@ -586,40 +579,40 @@ const PickupsCenter = ({ initialView = 'orders' }) => {
                         disabled={bulkUpdating}
                       />
                     )}
-                    <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+                    <Typography variant="subtitle1" sx={{ fontWeight: 600, ...WRAP_TEXT_SX }}>
                       Ordem: {item.orderNumber || `RET-${item.id}`}
                     </Typography>
                   </Box>
                   <Chip size="small" color={statusColor(item.status)} label={statusLabel(item.status)} />
                 </Box>
 
-                <Typography variant="body2" color="text.secondary">
+                <Typography variant="body2" color="text.secondary" sx={WRAP_TEXT_SX}>
                   Código do cliente: {item.clientCode || '-'}
                 </Typography>
-                <Typography variant="body2" color="text.secondary">
+                <Typography variant="body2" color="text.secondary" sx={WRAP_TEXT_SX}>
                   Nome fantasia: {item.fantasyName || '-'}
                 </Typography>
-                <Typography variant="body2" color="text.secondary">
+                <Typography variant="body2" color="text.secondary" sx={WRAP_TEXT_SX}>
                   Data da retirada: {item.withdrawalDate || '-'}
                 </Typography>
-                <Typography variant="body2" color="text.secondary">
+                <Typography variant="body2" color="text.secondary" sx={WRAP_TEXT_SX}>
                   Resumo: {item.summaryLine || 'Sem itens informados.'}
                 </Typography>
-                <Typography variant="caption" color="text.secondary">
+                <Typography variant="caption" color="text.secondary" sx={WRAP_TEXT_SX}>
                   Gerado em: {item.createdAtLabel}
                 </Typography>
 
                 {activeView === 'withdrawals' && (
                   <>
                     {(item.statusUpdatedAtLabel || item.statusUpdatedBy) && (
-                      <Typography variant="caption" color="text.secondary">
+                      <Typography variant="caption" color="text.secondary" sx={WRAP_TEXT_SX}>
                         Última atualização: {item.statusUpdatedAtLabel || '-'}
                         {item.statusUpdatedBy ? ` por ${item.statusUpdatedBy}` : ''}
                       </Typography>
                     )}
 
                     {item.statusNote && (
-                      <Typography variant="caption" color="text.secondary">
+                      <Typography variant="caption" color="text.secondary" sx={WRAP_TEXT_SX}>
                         Observação do status: {item.statusNote}
                       </Typography>
                     )}
@@ -687,22 +680,36 @@ const PickupsCenter = ({ initialView = 'orders' }) => {
             ))}
           </Box>
 
-          {hasMore && (
-            <Box sx={{ display: 'flex', justifyContent: 'center', pt: 0.5 }}>
+          <Box
+            sx={{
+              display: 'flex',
+              alignItems: { xs: 'stretch', sm: 'center' },
+              justifyContent: 'space-between',
+              flexDirection: { xs: 'column', sm: 'row' },
+              gap: 1,
+              pt: 0.5
+            }}
+          >
+            <Typography variant="caption" color="text.secondary">
+              {`Página ${currentPage} | Exibindo até ${PAGE_SIZE} ordens`}
+            </Typography>
+            <Box sx={{ display: 'flex', gap: 1 }}>
               <Button
                 variant="outlined"
-                onClick={() => loadOrders({
-                  reset: false,
-                  currentOffset: offset,
-                  query: searchDebounced,
-                  status: effectiveStatusFilter,
-                })}
-                disabled={loadingMore || bulkUpdating || Boolean(deletingOrderId)}
+                onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
+                disabled={loading || currentPage <= 1 || bulkUpdating || Boolean(deletingOrderId)}
               >
-                {loadingMore ? 'Carregando...' : 'Carregar mais'}
+                Anterior
+              </Button>
+              <Button
+                variant="outlined"
+                onClick={() => setCurrentPage((prev) => prev + 1)}
+                disabled={loading || !hasNextPage || bulkUpdating || Boolean(deletingOrderId)}
+              >
+                Próxima
               </Button>
             </Box>
-          )}
+          </Box>
         </>
       )}
     </Box>

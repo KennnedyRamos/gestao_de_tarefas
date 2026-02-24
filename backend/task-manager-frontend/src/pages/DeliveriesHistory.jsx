@@ -51,7 +51,7 @@ const DeliveriesHistory = () => {
       setPage(1);
       setError('');
     } catch (err) {
-      setError('Erro ao carregar o histórico de entregas.');
+      setError('Erro ao carregar o hist\u00f3rico de entregas.');
     } finally {
       setLoading(false);
     }
@@ -75,7 +75,7 @@ const DeliveriesHistory = () => {
 
   const formattedDeliveries = deliveries.map((item) => {
     const dateLabel = item.delivery_date ? dayjs(item.delivery_date).format('DD/MM/YYYY') : '-';
-    const timeLabel = item.delivery_time ? String(item.delivery_time).slice(0, 5) : 'Sem horário';
+    const timeLabel = item.delivery_time ? String(item.delivery_time).slice(0, 5) : 'Sem hor\u00e1rio';
     return {
       ...item,
       dateLabel,
@@ -113,7 +113,7 @@ const DeliveriesHistory = () => {
   return (
     <Box sx={{ p: 3, display: 'grid', gap: 2 }}>
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
-        <Typography variant="h5">Histórico de entregas</Typography>
+        <Typography variant="h5">Hist\u00f3rico de entregas</Typography>
         <Button variant="contained" onClick={() => navigate('/operacoes/entregas/nova')}>
           Nova entrega
         </Button>
@@ -122,7 +122,7 @@ const DeliveriesHistory = () => {
       {error && <Alert severity="error">{error}</Alert>}
 
       <TextField
-        label="Pesquisar por código ou fantasia"
+        label="Pesquisar por c\u00f3digo ou fantasia"
         placeholder="Ex.: 12345 ou Nome Fantasia"
         value={searchQuery}
         onChange={(e) => setSearchQuery(e.target.value)}
@@ -160,13 +160,15 @@ const DeliveriesHistory = () => {
                 }}
               >
                 <CardContent sx={{ display: 'grid', gap: 1 }}>
-                  <Box sx={{ display: 'flex', alignItems: 'start', justifyContent: 'space-between', gap: 1 }}>
-                    <Typography variant="subtitle1">Entrega #{item.id}</Typography>
+                  <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 1 }}>
+                    <Typography variant="subtitle1" sx={{ overflowWrap: 'anywhere' }}>
+                      Entrega #{item.id}
+                    </Typography>
                     <IconButton aria-label="Excluir entrega" onClick={() => handleDelete(item.id)}>
                       <DeleteIcon fontSize="small" />
                     </IconButton>
                   </Box>
-                  <Typography variant="body2" color="text.secondary">
+                  <Typography variant="body2" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>
                     {item.description}
                   </Typography>
                   <Typography variant="caption" color="text.secondary">
@@ -176,18 +178,20 @@ const DeliveriesHistory = () => {
                     <Button
                       size="small"
                       variant="outlined"
-                      href={item.pdfOneHref}
+                      href={item.pdfOneHref || undefined}
                       target="_blank"
                       rel="noreferrer"
+                      disabled={!item.pdfOneHref}
                     >
                       Abrir NF
                     </Button>
                     <Button
                       size="small"
                       variant="outlined"
-                      href={item.pdfTwoHref}
+                      href={item.pdfTwoHref || undefined}
                       target="_blank"
                       rel="noreferrer"
+                      disabled={!item.pdfTwoHref}
                     >
                       Abrir contrato
                     </Button>
@@ -206,7 +210,7 @@ const DeliveriesHistory = () => {
             }}
           >
             <Typography variant="caption" color="text.secondary">
-              {`Mostrando ${pageFrom}-${pageTo} de ${filteredDeliveries.length} | Página ${currentPage} de ${totalPages}`}
+              {`Mostrando ${pageFrom}-${pageTo} de ${filteredDeliveries.length} | P\u00e1gina ${currentPage} de ${totalPages}`}
             </Typography>
             <Box sx={{ display: 'flex', gap: 1 }}>
               <Button
@@ -223,7 +227,7 @@ const DeliveriesHistory = () => {
                 disabled={currentPage >= totalPages}
                 onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))}
               >
-                Próximo
+                Pr\u00f3ximo
               </Button>
             </Box>
           </Box>

@@ -113,7 +113,7 @@ def supabase_storage_request(
     except URLError as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Falha de conexão com Supabase Storage: {exc.reason}",
+            detail=f"Falha de conex\u00e3o com Supabase Storage: {exc.reason}",
         ) from exc
 
 
@@ -356,11 +356,11 @@ def build_upload_url(relative_path: str, request: Optional[FastAPIRequest] = Non
 def open_delivery_file(path: str):
     raw_path = safe_text(path)
     if not raw_path:
-        raise HTTPException(status_code=404, detail="Arquivo não encontrado.")
+        raise HTTPException(status_code=404, detail="Arquivo n\u00e3o encontrado.")
 
     resolved_url = build_upload_url(raw_path, request=None)
     if not resolved_url:
-        raise HTTPException(status_code=404, detail="Arquivo não encontrado.")
+        raise HTTPException(status_code=404, detail="Arquivo n\u00e3o encontrado.")
 
     if resolved_url.startswith("http://") or resolved_url.startswith("https://"):
         return RedirectResponse(url=resolved_url, status_code=status.HTTP_307_TEMPORARY_REDIRECT)
@@ -380,10 +380,10 @@ def open_delivery_file(path: str):
     try:
         target_path.relative_to(base_dir)
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail="Arquivo não encontrado.") from exc
+        raise HTTPException(status_code=404, detail="Arquivo n\u00e3o encontrado.") from exc
 
     if not target_path.exists() or not target_path.is_file():
-        raise HTTPException(status_code=404, detail="Arquivo não encontrado.")
+        raise HTTPException(status_code=404, detail="Arquivo n\u00e3o encontrado.")
 
     return FileResponse(
         path=str(target_path),
@@ -396,7 +396,7 @@ def parse_date(value: str) -> date:
     try:
         return date.fromisoformat(value)
     except ValueError as exc:
-        raise HTTPException(status_code=422, detail="Data inválida. Use YYYY-MM-DD.") from exc
+        raise HTTPException(status_code=422, detail="Data inv\u00e1lida. Use YYYY-MM-DD.") from exc
 
 
 def parse_time(value: Optional[str]) -> Optional[time]:
@@ -405,7 +405,7 @@ def parse_time(value: Optional[str]) -> Optional[time]:
     try:
         return datetime.strptime(value, "%H:%M").time()
     except ValueError as exc:
-        raise HTTPException(status_code=422, detail="Horário inválido. Use HH:MM.") from exc
+        raise HTTPException(status_code=422, detail="Hor\u00e1rio inv\u00e1lido. Use HH:MM.") from exc
 
 
 def ensure_pdf(upload: UploadFile, field_label: str) -> None:
@@ -479,7 +479,7 @@ def remove_upload(relative_path: Optional[str]) -> None:
                 service_role_key=config["service_role_key"],
             )
             if response_status not in {200, 204, 404}:
-                # Não bloqueia o fluxo de exclusão de entrega por falha pontual no storage.
+                # Nao bloqueia o fluxo de exclusao de entrega por falha pontual no storage.
                 return
         except HTTPException:
             return
@@ -594,7 +594,7 @@ def delete_delivery(
 ):
     delivery = db.query(Delivery).filter(Delivery.id == delivery_id).first()
     if not delivery:
-        raise HTTPException(status_code=404, detail="Entrega não encontrada")
+        raise HTTPException(status_code=404, detail="Entrega n\u00e3o encontrada")
     pdf_one_path = delivery.pdf_one_path
     pdf_two_path = delivery.pdf_two_path
     db.delete(delivery)
@@ -602,3 +602,4 @@ def delete_delivery(
     remove_upload(pdf_one_path)
     remove_upload(pdf_two_path)
     return None
+

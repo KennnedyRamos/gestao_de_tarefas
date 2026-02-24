@@ -23,13 +23,15 @@ import api from '../services/api';
 import { hasPermission } from '../utils/auth';
 
 const PAGE_SIZE = 10;
+const API_PAGE_FETCH_SIZE = PAGE_SIZE + 1;
 const safeText = (value) => String(value || '').trim();
 const ORDERS_SCROLL_SX = {
   display: 'grid',
   gap: 1.25,
+  overflowX: 'hidden',
 };
 const WRAP_TEXT_SX = {
-  whiteSpace: 'normal',
+  whiteSpace: 'pre-wrap',
   wordBreak: 'break-word',
   overflowWrap: 'anywhere',
 };
@@ -148,7 +150,7 @@ const PickupsCenter = ({ initialView = 'orders' }) => {
       const safePage = Math.max(1, Number(page) || 1);
 
       const params = {
-        limit: PAGE_SIZE,
+        limit: API_PAGE_FETCH_SIZE,
         offset: (safePage - 1) * PAGE_SIZE,
       };
 
@@ -161,9 +163,10 @@ const PickupsCenter = ({ initialView = 'orders' }) => {
 
       const response = await api.get('/pickup-catalog/orders', { params });
       const loadedOrders = Array.isArray(response.data) ? response.data : [];
+      const pageOrders = loadedOrders.slice(0, PAGE_SIZE);
 
-      setOrders(loadedOrders);
-      setHasNextPage(loadedOrders.length === PAGE_SIZE);
+      setOrders(pageOrders);
+      setHasNextPage(loadedOrders.length > PAGE_SIZE);
       setSelectedOrderIds([]);
       setError('');
     } catch (err) {

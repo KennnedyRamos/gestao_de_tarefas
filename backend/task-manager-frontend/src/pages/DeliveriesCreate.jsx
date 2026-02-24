@@ -58,13 +58,13 @@ const DeliveriesCreate = () => {
         setFantasyName(fantasyNameFromBase);
         setLookupInfo('Nome fantasia preenchido automaticamente.');
       } else {
-        setLookupInfo('C\u00f3digo n\u00e3o encontrado na base. Preencha a fantasia manualmente.');
+        setLookupInfo('Código não encontrado na base. Preencha a fantasia manualmente.');
       }
     } catch (err) {
       if (requestId !== lookupRequestRef.current) {
         return;
       }
-      setLookupInfo('N\u00e3o foi poss\u00edvel consultar o c\u00f3digo neste momento.');
+      setLookupInfo('Não foi possível consultar o código neste momento.');
     } finally {
       if (requestId === lookupRequestRef.current) {
         setLookupLoading(false);
@@ -109,7 +109,7 @@ const DeliveriesCreate = () => {
     setError('');
 
     if (!clientCode.trim()) {
-      setError('Informe o c\u00f3digo do cliente.');
+      setError('Informe o código do cliente.');
       return;
     }
     if (!fantasyName.trim()) {
@@ -117,7 +117,7 @@ const DeliveriesCreate = () => {
       return;
     }
     if (!description.trim()) {
-      setError('Informe a descri\u00e7\u00e3o da entrega.');
+      setError('Informe a descrição da entrega.');
       return;
     }
     if (!deliveryDate) {
@@ -129,7 +129,7 @@ const DeliveriesCreate = () => {
       return;
     }
 
-    const descriptionPayload = `C\u00f3digo do cliente: ${clientCode.trim()} | Fantasia: ${fantasyName.trim()} | Descri\u00e7\u00e3o: ${description.trim()}`;
+    const descriptionPayload = `Código do cliente: ${clientCode.trim()} | Fantasia: ${fantasyName.trim()} | Descrição: ${description.trim()}`;
 
     const formData = new FormData();
     formData.append('description', descriptionPayload);
@@ -160,7 +160,7 @@ const DeliveriesCreate = () => {
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
         <Typography variant="h5">Nova entrega de comodato</Typography>
         <Button variant="outlined" onClick={() => navigate('/operacoes/entregas/historico')}>
-          Ver hist\u00f3rico
+          Ver histórico
         </Button>
       </Box>
 
@@ -169,14 +169,14 @@ const DeliveriesCreate = () => {
 
       <Box component="form" onSubmit={handleSubmit} sx={panelSx}>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          Informe o c\u00f3digo do cliente. O nome fantasia ser\u00e1 preenchido automaticamente quando existir na base.
+          Informe o código do cliente. O nome fantasia será preenchido automaticamente quando existir na base.
         </Typography>
 
         <Box sx={{ display: 'grid', gap: 2 }}>
           <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 2 }}>
             <Box>
               <Typography variant="caption" color="text.secondary">
-                C\u00f3digo do cliente
+                Código do cliente
               </Typography>
               <input
                 type="text"
@@ -195,12 +195,12 @@ const DeliveriesCreate = () => {
                       ? 'text.secondary'
                       : lookupInfo.includes('automaticamente')
                         ? 'success.main'
-                        : lookupInfo.includes('n\u00e3o encontrado')
+                        : lookupInfo.includes('não encontrado')
                           ? 'warning.main'
                           : 'error.main'
                   }}
                 >
-                  {lookupLoading ? 'Consultando c\u00f3digo do cliente...' : lookupInfo}
+                  {lookupLoading ? 'Consultando código do cliente...' : lookupInfo}
                 </Typography>
               )}
             </Box>
@@ -220,7 +220,7 @@ const DeliveriesCreate = () => {
 
           <Box>
             <Typography variant="caption" color="text.secondary">
-              Descri\u00e7\u00e3o
+              Descrição
             </Typography>
             <textarea
               value={description}
@@ -251,7 +251,7 @@ const DeliveriesCreate = () => {
             </Box>
             <Box>
               <Typography variant="caption" color="text.secondary">
-                Hor\u00e1rio
+                Horário
               </Typography>
               <input
                 type="time"

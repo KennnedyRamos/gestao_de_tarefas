@@ -30,7 +30,7 @@ const OperationsHub = () => {
       },
       {
         value: 'entregas_historico',
-        label: 'Hist\u00f3rico de entregas',
+        label: 'Histórico de entregas',
         path: '/operacoes/entregas/historico',
         visible: canManageDeliveries
       },
@@ -72,7 +72,7 @@ const OperationsHub = () => {
       <Box>
         <Typography variant="h5">Entregas e ordens</Typography>
         <Typography variant="body2" color="text.secondary">
-          Centralize as opera\u00e7\u00f5es em uma \u00fanica tela e navegue pelas funcionalidades.
+          Centralize as operações em uma única tela e navegue pelas funcionalidades.
         </Typography>
       </Box>
 

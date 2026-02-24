@@ -115,7 +115,7 @@ def _header_table(order: dict[str, Any], copy_tag: str, styles: dict[str, Paragr
         [
             [
                 Paragraph("AMBEV<br/>Skol / Brahma", styles["logo"]),
-                Paragraph(f"Solicita\u00e7\u00e3o de Retirada<br/><b>{company}</b>", styles["title"]),
+                Paragraph(f"Solicitação de Retirada<br/><b>{company}</b>", styles["title"]),
                 Paragraph(f"{escape(_text(copy_tag))}<br/>Ribeira Beer", styles["copy_tag"]),
             ]
         ],
@@ -146,7 +146,7 @@ def _reseller_header_table(order: dict[str, Any], styles: dict[str, ParagraphSty
     row = [
         _p("Revenda:", styles["field_label"]),
         _p(reseller_name, styles["field_value"]),
-        _p("C\u00f3digo:", styles["field_label"]),
+        _p("Código:", styles["field_label"]),
         _p(client.get("client_code", ""), styles["field_value"]),
         _p("Setor:", styles["field_label"]),
         _p(client.get("setor", ""), styles["field_value"]),
@@ -175,7 +175,7 @@ def _client_table(order: dict[str, Any], styles: dict[str, ParagraphStyle]) -> T
     client = order.get("client", {}) or {}
     rows = [
         [
-            _p("Raz\u00e3o Social:", styles["field_label"]),
+            _p("Razão Social:", styles["field_label"]),
             _p(client.get("razao_social", ""), styles["field_value"]),
             _p("Inscr. Est.:", styles["field_label"]),
             _p(client.get("inscricao_estadual", ""), styles["field_value"]),
@@ -193,7 +193,7 @@ def _client_table(order: dict[str, Any], styles: dict[str, ParagraphStyle]) -> T
             _p(client.get("cidade", ""), styles["field_value"]),
         ],
         [
-            _p("Endere\u00e7o:", styles["field_label"]),
+            _p("Endereço:", styles["field_label"]),
             _p(client.get("endereco", ""), styles["field_value"]),
             _p("Telefone:", styles["field_label"]),
             _p(client.get("telefone", ""), styles["field_value"]),
@@ -201,13 +201,13 @@ def _client_table(order: dict[str, Any], styles: dict[str, ParagraphStyle]) -> T
         [
             _p("Bairro:", styles["field_label"]),
             _p(client.get("bairro", ""), styles["field_value"]),
-            _p("Hor\u00e1rio da retirada:", styles["field_label"]),
+            _p("Horário da retirada:", styles["field_label"]),
             _p(order.get("withdrawal_time", ""), styles["field_value"]),
         ],
         [
-            _p("Respons\u00e1vel:", styles["field_label"]),
+            _p("Responsável:", styles["field_label"]),
             _p(client.get("responsavel_cliente", ""), styles["field_value"]),
-            _p("Respons\u00e1vel pela confer\u00eancia:", styles["field_label"]),
+            _p("Responsável pela conferência:", styles["field_label"]),
             _p(client.get("responsavel_conferencia", ""), styles["field_value"]),
         ],
         [
@@ -335,7 +335,7 @@ def _signature_table(copy_tag: str, styles: dict[str, ParagraphStyle]) -> Table:
         table = Table(
             [
                 [""],
-                [_p("Respons\u00e1vel pela recolha", styles["small_center"])],
+                [_p("Responsável pela recolha", styles["small_center"])],
                 [_p("____________________________________________", styles["small_center"])],
             ],
             colWidths=[PAGE_WIDTH],
@@ -358,7 +358,7 @@ def _signature_table(copy_tag: str, styles: dict[str, ParagraphStyle]) -> Table:
     table = Table(
         [
             ["", ""],
-            [_p("Cliente/Respons\u00e1vel", styles["small_center"]), _p("Conferente", styles["small_center"])],
+            [_p("Cliente/Responsável", styles["small_center"]), _p("Conferente", styles["small_center"])],
             [_p("____________________________________________", styles["small_center"]), _p("____________________________________________", styles["small_center"])],
         ],
         colWidths=[95 * mm, 95 * mm],
@@ -392,7 +392,7 @@ def _copy_story(order: dict[str, Any], copy_tag: str, styles: dict[str, Paragrap
     story.append(Spacer(1, 3 * mm))
     story.append(_p("VOLTAGEM DO EQUIPAMENTO: ( ) 110 volts    ( ) 220 volts", styles["small"]))
     story.append(Spacer(1, 3 * mm))
-    story.append(_section_lines_table("OBSERVA\u00c7\u00c3O:", [], styles, min_rows=4))
+    story.append(_section_lines_table("OBSERVAÇÃO:", [], styles, min_rows=4))
     story.append(Spacer(1, 4 * mm))
     story.append(_reseller_cadastro_box(order, styles))
     story.append(Spacer(1, 4 * mm))
@@ -407,7 +407,7 @@ def _draw_footer_on_page(canvas, document, order: dict[str, Any]) -> None:
     y = 5 * mm
     left_x = document.leftMargin
     right_x = document.pagesize[0] - document.rightMargin
-    canvas.drawString(left_x, y, f"N\u00famero da ordem: {_text(order.get('order_number'))}")
+    canvas.drawString(left_x, y, f"Número da ordem: {_text(order.get('order_number'))}")
     canvas.drawRightString(right_x, y, f"Gerado em: {_text(order.get('generated_at'))}")
     canvas.restoreState()
 
@@ -426,7 +426,7 @@ def build_withdrawal_pdf(order: dict[str, Any]) -> bytes:
 
     styles = _styles()
     story: list[Any] = []
-    copies = order.get("copies", ["Via do Cliente", "Via da Log\u00edstica"])
+    copies = order.get("copies", ["Via do Cliente", "Via da Logística"])
     for index, copy_tag in enumerate(copies):
         story.extend(_copy_story(order, copy_tag, styles))
         if index < len(copies) - 1:

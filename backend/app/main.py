@@ -3,7 +3,7 @@ import os
 import threading
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import inspect, text
@@ -36,6 +36,15 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"]
 )
+
+
+@app.middleware("http")
+async def ensure_utf8_json_charset(request: Request, call_next):
+    response = await call_next(request)
+    content_type = str(response.headers.get("content-type", ""))
+    if content_type.startswith("application/json") and "charset=" not in content_type.lower():
+        response.headers["content-type"] = "application/json; charset=utf-8"
+    return response
 
 uploads_dir = Path(os.getenv("UPLOADS_DIR", Path(__file__).resolve().parents[1] / "uploads")).resolve()
 uploads_dir.mkdir(parents=True, exist_ok=True)

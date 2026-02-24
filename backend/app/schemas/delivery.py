@@ -1,7 +1,7 @@
 from datetime import date, datetime, time
 from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class DeliveryOut(BaseModel):
@@ -15,8 +15,7 @@ class DeliveryOut(BaseModel):
     pdf_two_url: str
     created_at: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class DeliveryClientLookupOut(BaseModel):

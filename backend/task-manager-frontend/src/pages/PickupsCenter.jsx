@@ -443,7 +443,7 @@ const PickupsCenter = ({ initialView = 'orders' }) => {
 
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: activeView === 'withdrawals' ? '2fr 1fr' : '1fr' }, gap: 1 }}>
         <TextField
-          label="Pesquisar por n\u00FAmero da ordem, c\u00F3digo ou nome fantasia"
+          label="Pesquisar por número da ordem, código ou nome fantasia"
           placeholder="Ex.: RET-20260214-000010, 10099 ou Nome Fantasia"
           value={searchQuery}
           onChange={(event) => setSearchQuery(event.target.value)}
@@ -532,7 +532,7 @@ const PickupsCenter = ({ initialView = 'orders' }) => {
             disabled={bulkUpdating || bulkStatus !== 'concluida'}
             helperText={
               bulkStatus !== 'concluida'
-                ? 'Defina status Conclu\\u00EDda para aplicar.'
+                ? 'Defina status Concluída para aplicar.'
                 : selectionHasRefrigerator
                   ? 'Obrigatória para ordens com refrigerador.'
                   : 'Selecione ao menos uma ordem com refrigerador.'

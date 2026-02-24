@@ -103,7 +103,7 @@ def read_task(
     can_manage_tasks = has_permission(current_user, "tasks.manage")
     db_task = db.query(Task).filter(Task.id == task_id).first()
     if not db_task:
-        raise HTTPException(status_code=404, detail="Task not found")
+        raise HTTPException(status_code=404, detail="Tarefa não encontrada")
     assignment = db.query(Assignment).filter(Assignment.task_id == task_id).first()
     assignee = None
     if assignment:
@@ -123,7 +123,7 @@ def update_task(
     can_manage_tasks = has_permission(current_user, "tasks.manage")
     db_task = db.query(Task).filter(Task.id == task_id).first()
     if not db_task:
-        raise HTTPException(status_code=404, detail="Task not found")
+        raise HTTPException(status_code=404, detail="Tarefa não encontrada")
     if hasattr(task, "model_dump"):
         data = task.model_dump(exclude_unset=True)
     else:
@@ -181,8 +181,8 @@ def delete_task(
 ):
     db_task = db.query(Task).filter(Task.id == task_id).first()
     if not db_task:
-        raise HTTPException(status_code=404, detail="Task not found")
+        raise HTTPException(status_code=404, detail="Tarefa não encontrada")
     db.query(Assignment).filter(Assignment.task_id == task_id).delete()
     db.delete(db_task)
     db.commit()
-    return {"detail": "Task deleted"}
+    return {"detail": "Tarefa excluída"}

@@ -168,7 +168,7 @@ def _decode_import_csv(raw_bytes: bytes) -> str:
             return raw_bytes.decode(encoding)
         except UnicodeDecodeError:
             continue
-    raise HTTPException(status_code=422, detail="Nao foi possivel ler o CSV enviado.")
+    raise HTTPException(status_code=422, detail="Não foi possível ler o CSV enviado.")
 
 
 def _sniff_csv_delimiter(text: str) -> str:
@@ -203,8 +203,8 @@ def _resolve_import_header_map(headers: list[str]) -> dict[str, str]:
         raise HTTPException(
             status_code=422,
             detail=(
-                "Cabecalho CSV invalido. "
-                f"Colunas obrigatorias nao encontradas: {', '.join(missing)}."
+                "Cabeçalho CSV inválido. "
+                f"Colunas obrigatórias não encontradas: {', '.join(missing)}."
             ),
         )
     return resolved
@@ -228,7 +228,7 @@ def normalize_voltage(value: Optional[str]) -> str:
     lookup = normalize_lookup_text(value or "")
     if lookup in VOLTAGE_ALIASES:
         return VOLTAGE_ALIASES[lookup]
-    raise HTTPException(status_code=422, detail="Voltagem invalida.")
+    raise HTTPException(status_code=422, detail="Voltagem inválida.")
 
 
 def normalize_code(value: str) -> str:
@@ -253,12 +253,12 @@ def normalize_optional_code(value: Optional[str]) -> Optional[str]:
 def normalize_quantity(value: Optional[int], *, required: bool = False) -> int:
     if value is None:
         if required:
-            raise HTTPException(status_code=422, detail="Quantidade e obrigatoria para esta categoria.")
+            raise HTTPException(status_code=422, detail="Quantidade é obrigatória para esta categoria.")
         return 1
     try:
         resolved = int(value)
     except (TypeError, ValueError) as exc:
-        raise HTTPException(status_code=422, detail="Quantidade invalida.") from exc
+        raise HTTPException(status_code=422, detail="Quantidade inválida.") from exc
     if resolved < 1:
         raise HTTPException(status_code=422, detail="Quantidade deve ser maior que zero.")
     return resolved
@@ -293,14 +293,14 @@ def ensure_unique_codes(
         if current_id is not None:
             rg_query = rg_query.filter(Equipment.id != current_id)
         if rg_query.first():
-            raise HTTPException(status_code=409, detail="RG ja cadastrado.")
+            raise HTTPException(status_code=409, detail="RG já cadastrado.")
 
     if tag_code:
         tag_query = db.query(Equipment).filter(Equipment.tag_code == tag_code)
         if current_id is not None:
             tag_query = tag_query.filter(Equipment.id != current_id)
         if tag_query.first():
-            raise HTTPException(status_code=409, detail="Etiqueta ja cadastrada.")
+            raise HTTPException(status_code=409, detail="Etiqueta já cadastrada.")
 
 def _inventory_uses_batches(db: Session) -> bool:
     return (
@@ -324,27 +324,27 @@ def _normalize_sort(value: str) -> Literal["newest", "oldest"]:
     normalized = normalize_lookup_text(value)
     if normalized in SORT_OPTIONS:
         return "oldest" if normalized == "oldest" else "newest"
-    raise HTTPException(status_code=422, detail="Ordenacao invalida.")
+    raise HTTPException(status_code=422, detail="Ordenação inválida.")
 
 
 def _normalize_month(value: str) -> str:
     text = normalize_spaces(value)
     if not re.match(r"^\d{4}-\d{2}$", text):
-        raise HTTPException(status_code=422, detail="Mes invalido. Use formato YYYY-MM.")
+        raise HTTPException(status_code=422, detail="Mês inválido. Use o formato YYYY-MM.")
     year = int(text[:4])
     month = int(text[5:7])
     if year < 1900 or year > 2300 or month < 1 or month > 12:
-        raise HTTPException(status_code=422, detail="Mes invalido. Use formato YYYY-MM.")
+        raise HTTPException(status_code=422, detail="Mês inválido. Use o formato YYYY-MM.")
     return text
 
 
 def _normalize_year(value: str) -> str:
     text = normalize_spaces(value)
     if not re.match(r"^\d{4}$", text):
-        raise HTTPException(status_code=422, detail="Ano invalido. Use formato YYYY.")
+        raise HTTPException(status_code=422, detail="Ano inválido. Use o formato YYYY.")
     year = int(text)
     if year < 1900 or year > 2300:
-        raise HTTPException(status_code=422, detail="Ano invalido. Use formato YYYY.")
+        raise HTTPException(status_code=422, detail="Ano inválido. Use o formato YYYY.")
     return text
 
 
@@ -362,7 +362,7 @@ def _normalize_material_type(value: str) -> str:
     normalized = normalize_lookup_text(value)
     if normalized in MATERIAL_TYPE_ALIASES:
         return _material_type_bucket(MATERIAL_TYPE_ALIASES[normalized])
-    raise HTTPException(status_code=422, detail="Tipo de material invalido.")
+    raise HTTPException(status_code=422, detail="Tipo de material inválido.")
 
 
 def _parse_inventory_issue_date(raw_date: Optional[str], fallback: Optional[datetime]) -> datetime:
@@ -862,7 +862,7 @@ def list_non_allocated_refrigerators(
     normalized_status = normalize_lookup_text(status_filter or "todos")
     allowed_status_filters = {"todos", "novo", "disponivel", "recap", "sucata"}
     if normalized_status not in allowed_status_filters:
-        raise HTTPException(status_code=422, detail="Status invalido para consulta de refrigeradores.")
+        raise HTTPException(status_code=422, detail="Status inválido para consulta de refrigeradores.")
 
     search = normalize_spaces(q or "")
     query = db.query(Equipment).filter(
@@ -1025,12 +1025,12 @@ def list_inventory_materials(
 ):
     normalized_group = normalize_lookup_text(group)
     if normalized_group not in MATERIAL_GROUP_OPTIONS:
-        raise HTTPException(status_code=422, detail="Grupo de materiais invalido.")
+        raise HTTPException(status_code=422, detail="Grupo de materiais inválido.")
     normalized_sort = _normalize_sort(sort)
     normalized_year = _normalize_year(year) if normalize_spaces(year or "") else ""
     normalized_month = _normalize_month(month) if normalize_spaces(month or "") else ""
     if normalized_month and normalized_year and not normalized_month.startswith(f"{normalized_year}-"):
-        raise HTTPException(status_code=422, detail="Mes e ano conflitantes.")
+        raise HTTPException(status_code=422, detail="Mês e ano conflitantes.")
     normalized_item_type = _normalize_material_type(item_type_filter) if normalize_spaces(item_type_filter or "") else ""
     search = normalize_spaces(q or "")
 
@@ -1240,7 +1240,7 @@ async def import_refrigerators_csv(
     delimiter = _sniff_csv_delimiter(text)
     reader = csv.DictReader(io.StringIO(text), delimiter=delimiter)
     if not reader.fieldnames:
-        raise HTTPException(status_code=422, detail="CSV sem cabecalho.")
+        raise HTTPException(status_code=422, detail="CSV sem cabeçalho.")
     header_map = _resolve_import_header_map([str(item or "") for item in reader.fieldnames])
 
     existing_rg_tokens: set[str] = set()
@@ -1280,7 +1280,7 @@ async def import_refrigerators_csv(
             except HTTPException:
                 invalid_rows += 1
                 if len(errors) < 30:
-                    errors.append(f"Linha {index}: tipo invalido ({raw_tipo}).")
+                    errors.append(f"Linha {index}: tipo inválido ({raw_tipo}).")
                 continue
             if resolved_type != "refrigerador":
                 ignored_non_refrigerator += 1
@@ -1305,14 +1305,14 @@ async def import_refrigerators_csv(
         except HTTPException:
             invalid_rows += 1
             if len(errors) < 30:
-                errors.append(f"Linha {index}: voltagem invalida ({raw_voltage}).")
+                errors.append(f"Linha {index}: voltagem inválida ({raw_voltage}).")
             continue
 
         rg_tokens = _build_code_lookup_tokens(rg_code)
         if not rg_tokens:
             invalid_rows += 1
             if len(errors) < 30:
-                errors.append(f"Linha {index}: RG invalido.")
+                errors.append(f"Linha {index}: RG inválido.")
             continue
         equipment_tokens = _build_equipment_lookup_tokens(rg_code, tag_code)
 
@@ -1334,7 +1334,7 @@ async def import_refrigerators_csv(
         if tag_code and (tag_code in existing_tag_codes or tag_code in seen_import_tags):
             invalid_rows += 1
             if len(errors) < 30:
-                errors.append(f"Linha {index}: etiqueta ja cadastrada ({tag_code}).")
+                errors.append(f"Linha {index}: etiqueta já cadastrada ({tag_code}).")
             continue
 
         pending_rows.append(
@@ -1365,7 +1365,7 @@ async def import_refrigerators_csv(
             raise HTTPException(
                 status_code=409,
                 detail=(
-                    "Conflito de unicidade durante a importacao. "
+                    "Conflito de unicidade durante a importação. "
                     "Verifique RG ou etiqueta duplicados."
                 ),
             ) from exc
@@ -1402,15 +1402,15 @@ def create_equipment(
     notes = normalize_optional_text(payload.notes)
 
     if not model_name:
-        raise HTTPException(status_code=422, detail="Modelo e obrigatorio.")
+        raise HTTPException(status_code=422, detail="Modelo é obrigatório.")
     if not brand:
-        raise HTTPException(status_code=422, detail="Marca e obrigatoria.")
+        raise HTTPException(status_code=422, detail="Marca é obrigatória.")
     if is_refrigerator and not resolved_voltage:
-        raise HTTPException(status_code=422, detail="Voltagem e obrigatoria para refrigerador.")
+        raise HTTPException(status_code=422, detail="Voltagem é obrigatória para refrigerador.")
     if is_refrigerator and not rg_code:
-        raise HTTPException(status_code=422, detail="RG e obrigatorio para refrigerador.")
+        raise HTTPException(status_code=422, detail="RG é obrigatório para refrigerador.")
     if is_refrigerator and resolved_status == "alocado" and not client_name:
-        raise HTTPException(status_code=422, detail="Cliente e obrigatorio quando o equipamento esta alocado.")
+        raise HTTPException(status_code=422, detail="Cliente é obrigatório quando o equipamento está alocado.")
     if resolved_status != "alocado":
         client_name = None
 
@@ -1423,8 +1423,8 @@ def create_equipment(
         raise HTTPException(
             status_code=409,
             detail=(
-                "Equipamento ja consta alocado na base 02.02.20 para o RG ou etiqueta informados. "
-                "Nao e permitido cadastrar como disponivel."
+                "Equipamento já consta como alocado na base 02.02.20 para o RG ou etiqueta informados. "
+                "Não é permitido cadastrar como disponível."
             ),
         )
 
@@ -1446,7 +1446,7 @@ def create_equipment(
         db.refresh(row)
     except IntegrityError as exc:
         db.rollback()
-        raise HTTPException(status_code=409, detail="RG ou etiqueta ja cadastrados.") from exc
+        raise HTTPException(status_code=409, detail="RG ou etiqueta já cadastrados.") from exc
 
     return build_equipment_out(row)
 
@@ -1459,7 +1459,7 @@ def update_equipment(
 ):
     row = db.query(Equipment).filter(Equipment.id == equipment_id).first()
     if not row:
-        raise HTTPException(status_code=404, detail="Equipamento nao encontrado.")
+        raise HTTPException(status_code=404, detail="Equipamento não encontrado.")
 
     if hasattr(payload, "model_dump"):
         data = payload.model_dump(exclude_unset=True)
@@ -1482,19 +1482,19 @@ def update_equipment(
     next_notes = normalize_optional_text(data["notes"]) if "notes" in data else row.notes
 
     if not next_model_name:
-        raise HTTPException(status_code=422, detail="Modelo e obrigatorio.")
+        raise HTTPException(status_code=422, detail="Modelo é obrigatório.")
     if not next_brand:
-        raise HTTPException(status_code=422, detail="Marca e obrigatoria.")
+        raise HTTPException(status_code=422, detail="Marca é obrigatória.")
     if next_is_refrigerator and not next_voltage:
-        raise HTTPException(status_code=422, detail="Voltagem e obrigatoria para refrigerador.")
+        raise HTTPException(status_code=422, detail="Voltagem é obrigatória para refrigerador.")
     if not next_is_refrigerator:
         next_voltage = ""
         next_rg_code = normalize_optional_code(data.get("rg_code")) if "rg_code" in data else normalize_optional_code(row.rg_code)
         next_tag_code = normalize_optional_code(data.get("tag_code")) if "tag_code" in data else normalize_optional_code(row.tag_code)
     if next_is_refrigerator and not next_rg_code:
-        raise HTTPException(status_code=422, detail="RG e obrigatorio para refrigerador.")
+        raise HTTPException(status_code=422, detail="RG é obrigatório para refrigerador.")
     if next_is_refrigerator and next_status == "alocado" and not next_client_name:
-        raise HTTPException(status_code=422, detail="Cliente e obrigatorio quando o equipamento esta alocado.")
+        raise HTTPException(status_code=422, detail="Cliente é obrigatório quando o equipamento está alocado.")
     if next_status != "alocado":
         next_client_name = None
 
@@ -1516,8 +1516,8 @@ def update_equipment(
         raise HTTPException(
             status_code=409,
             detail=(
-                "Equipamento ja consta alocado na base 02.02.20 para o RG ou etiqueta informados. "
-                "Nao e permitido salvar como disponivel."
+                "Equipamento já consta como alocado na base 02.02.20 para o RG ou etiqueta informados. "
+                "Não é permitido salvar como disponível."
             ),
         )
 
@@ -1537,7 +1537,7 @@ def update_equipment(
         db.refresh(row)
     except IntegrityError as exc:
         db.rollback()
-        raise HTTPException(status_code=409, detail="RG ou etiqueta ja cadastrados.") from exc
+        raise HTTPException(status_code=409, detail="RG ou etiqueta já cadastrados.") from exc
 
     return build_equipment_out(row)
 
@@ -1550,6 +1550,11 @@ def delete_equipment(
     row = db.query(Equipment).filter(Equipment.id == equipment_id).first()
     if not row:
         raise HTTPException(status_code=404, detail="Equipamento não encontrado.")
+    if normalize_lookup_text(row.status) == "alocado":
+        raise HTTPException(
+            status_code=409,
+            detail="Não é permitido excluir equipamento alocado. Atualize o status antes de excluir.",
+        )
 
     db.delete(row)
     db.commit()

@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 class UserCreate(BaseModel):
     name: str
@@ -18,8 +18,7 @@ class UserOut(BaseModel):
     role: str
     permissions: list[str] = Field(default_factory=list)
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class UserPasswordReset(BaseModel):

@@ -1741,7 +1741,7 @@ const EquipmentPage = () => {
               onClick={openAllocationLookupScanner}
               sx={{ width: { xs: '100%', sm: 'auto' } }}
             >
-              Escanear RG
+              Scanear RG
             </Button>
           </Stack>
         )}
@@ -1851,7 +1851,7 @@ const EquipmentPage = () => {
                 <Typography color="text.secondary">Consultando alocações...</Typography>
               ) : !allocationLookupResult ? (
                 <Typography color="text.secondary">
-                  Use o botão &quot;Escanear RG&quot; para consultar os dados dos equipamentos alocados.
+                  Use o botão &quot;Scanear RG&quot; para consultar os dados dos equipamentos alocados.
                 </Typography>
               ) : (
                 <>
@@ -2039,7 +2039,7 @@ const EquipmentPage = () => {
                   onClick={openFullLabelScanner}
                   sx={{ width: { xs: '100%', sm: 'auto' } }}
                 >
-                  Escanear
+                  Scanear
                 </Button>
               )}
 
@@ -2519,7 +2519,7 @@ const EquipmentPage = () => {
       )}
 
       <Dialog open={scannerOpen} onClose={closeScanner} fullWidth maxWidth="sm" fullScreen={isMobile}>
-        <DialogTitle>{scannerMode === 'allocation' ? 'Escanear RG para verificar alocação' : 'Escanear equipamento'}</DialogTitle>
+        <DialogTitle>{scannerMode === 'allocation' ? 'Scanear RG para verificar alocação' : 'Scanear equipamento'}</DialogTitle>
         <DialogContent sx={{ display: 'grid', gap: 1.5 }}>
           <Typography variant="body2" color="text.secondary">
             {scannerStep || 'Aponte a câmera para o RG. A leitura será automática.'}

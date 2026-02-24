@@ -356,11 +356,11 @@ def build_upload_url(relative_path: str, request: Optional[FastAPIRequest] = Non
 def open_delivery_file(path: str):
     raw_path = safe_text(path)
     if not raw_path:
-        raise HTTPException(status_code=404, detail="Arquivo nao encontrado.")
+        raise HTTPException(status_code=404, detail="Arquivo não encontrado.")
 
     resolved_url = build_upload_url(raw_path, request=None)
     if not resolved_url:
-        raise HTTPException(status_code=404, detail="Arquivo nao encontrado.")
+        raise HTTPException(status_code=404, detail="Arquivo não encontrado.")
 
     if resolved_url.startswith("http://") or resolved_url.startswith("https://"):
         return RedirectResponse(url=resolved_url, status_code=status.HTTP_307_TEMPORARY_REDIRECT)
@@ -380,10 +380,10 @@ def open_delivery_file(path: str):
     try:
         target_path.relative_to(base_dir)
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail="Arquivo nao encontrado.") from exc
+        raise HTTPException(status_code=404, detail="Arquivo não encontrado.") from exc
 
     if not target_path.exists() or not target_path.is_file():
-        raise HTTPException(status_code=404, detail="Arquivo nao encontrado.")
+        raise HTTPException(status_code=404, detail="Arquivo não encontrado.")
 
     return FileResponse(
         path=str(target_path),

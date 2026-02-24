@@ -161,6 +161,7 @@ function App() {
               </RequireAnyPermission>
             )}
           />
+          <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Route>
       </Routes>
     </Router>

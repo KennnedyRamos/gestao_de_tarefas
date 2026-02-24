@@ -57,9 +57,9 @@ def create_user(
 ):
     existing = db.query(User).filter(User.email == payload.email).first()
     if existing:
-        raise HTTPException(status_code=409, detail='Email ja cadastrado')
+        raise HTTPException(status_code=409, detail='Email já cadastrado')
     if payload.role not in VALID_ROLES:
-        raise HTTPException(status_code=400, detail='Role invalida')
+        raise HTTPException(status_code=400, detail='Perfil inválido')
 
     permissions = [] if payload.role == 'admin' else payload.permissions
     user = User(
@@ -83,13 +83,13 @@ def update_user_access(
     current_user: User = Depends(get_current_admin),
 ):
     if payload.role not in VALID_ROLES:
-        raise HTTPException(status_code=400, detail='Role invalida')
+        raise HTTPException(status_code=400, detail='Perfil inválido')
     if current_user.id == user_id and payload.role != 'admin':
-        raise HTTPException(status_code=400, detail='Nao e possivel remover o proprio perfil admin')
+        raise HTTPException(status_code=400, detail='Não é possível remover o próprio perfil de administrador')
 
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
-        raise HTTPException(status_code=404, detail='Usuario nao encontrado')
+        raise HTTPException(status_code=404, detail='Usuário não encontrado')
 
     user.role = payload.role
     user.permissions = serialize_permissions([] if payload.role == 'admin' else payload.permissions)
@@ -105,10 +105,10 @@ def delete_user(
     current_user: User = Depends(get_current_admin),
 ):
     if current_user.id == user_id:
-        raise HTTPException(status_code=400, detail='Nao e possivel excluir o proprio usuario')
+        raise HTTPException(status_code=400, detail='Não é possível excluir o próprio usuário')
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
-        raise HTTPException(status_code=404, detail='Usuario nao encontrado')
+        raise HTTPException(status_code=404, detail='Usuário não encontrado')
     db.query(Assignment).filter(Assignment.user_id == user_id).delete()
     db.delete(user)
     db.commit()
@@ -124,7 +124,7 @@ def reset_password(
 ):
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
-        raise HTTPException(status_code=404, detail='Usuario nao encontrado')
+        raise HTTPException(status_code=404, detail='Usuário não encontrado')
     user.password = get_password_hash(payload.password)
     db.commit()
     return None

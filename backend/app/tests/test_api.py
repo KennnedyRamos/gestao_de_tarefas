@@ -1,7 +1,8 @@
 import os
 
 import pytest
-import requests
+
+requests = pytest.importorskip("requests")
 
 BASE_URL = os.getenv("TEST_API_BASE_URL", "http://127.0.0.1:8000").rstrip("/")
 REQUEST_TIMEOUT = 15

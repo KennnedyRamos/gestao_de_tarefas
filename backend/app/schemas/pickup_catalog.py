@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class PickupCatalogStats(BaseModel):
@@ -92,8 +92,7 @@ class PickupCatalogOrderOut(BaseModel):
     has_refrigerator: bool = False
     created_at: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class PickupCatalogOrderEmailRefrigeratorOut(BaseModel):

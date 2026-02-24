@@ -781,7 +781,7 @@ def list_orders(
     normalized_status_filter = _normalized_order_status(status_filter) if _safe_text(status_filter) else ""
     normalized_email_filter = _safe_text(email_request_status).lower()
     if normalized_email_filter and normalized_email_filter not in EMAIL_REQUEST_STATUS_VALUES:
-        raise HTTPException(status_code=422, detail="Filtro de solicitacao de e-mail invalido.")
+        raise HTTPException(status_code=422, detail="Filtro de solicitação de e-mail inválido.")
     search_text = _safe_text(q)
 
     query = db.query(PickupCatalogOrder).options(
@@ -868,7 +868,7 @@ def update_order_status(
     if next_status == "concluida" and has_refrigerator and not refrigerator_condition:
         raise HTTPException(
             status_code=422,
-            detail="Informe a condicao do refrigerador (Boa, Recap ou Sucata) para concluir a retirada.",
+            detail="Informe a condição do refrigerador (Boa, Recap ou Sucata) para concluir a retirada.",
         )
     order.status = next_status
     order.status_note = _safe_text(payload.status_note)
@@ -926,7 +926,7 @@ def bulk_update_order_status(
     if status_value == "concluida" and refrigerator_items_by_order and not refrigerator_condition:
         raise HTTPException(
             status_code=422,
-            detail="Informe a condicao do refrigerador (Boa, Recap ou Sucata) para concluir as retiradas.",
+            detail="Informe a condição do refrigerador (Boa, Recap ou Sucata) para concluir as retiradas.",
         )
 
     for order in orders:
@@ -1115,7 +1115,7 @@ def delete_order(
 ):
     order = db.query(PickupCatalogOrder).filter(PickupCatalogOrder.id == order_id).first()
     if not order:
-        raise HTTPException(status_code=404, detail="Ordem de retirada nao encontrada.")
+        raise HTTPException(status_code=404, detail="Ordem de retirada não encontrada.")
 
     if _normalized_order_status(order.status) != "cancelada":
         raise HTTPException(

@@ -237,33 +237,32 @@ const DeliveriesHistory = () => {
             {pagedDeliveries.map((item, index) => (
               <Card
                 key={item.itemKey}
-                className="stagger-item"
-                style={{ '--stagger-delay': `${index * 40}ms` }}
                 sx={{
                   border: '1px solid var(--stroke)',
                   boxShadow: 'var(--shadow-md)',
                   backgroundColor: 'var(--surface)',
                   position: 'relative',
                   zIndex: 1,
+                  overflow: 'visible',
                 }}
               >
-                <CardContent sx={{ display: 'grid', gap: 1 }}>
+                <CardContent sx={{ display: 'grid', gap: 1, p: 2, '&:last-child': { pb: 2 } }}>
                   <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 1 }}>
-                    <Typography variant="subtitle1" sx={{ overflowWrap: 'anywhere', color: 'var(--ink)', fontWeight: 600 }}>
+                    <Typography variant="subtitle1" sx={{ overflowWrap: 'anywhere', color: 'text.primary', fontWeight: 600 }}>
                       {item.idLabel}
                     </Typography>
-                    <Chip size="small" label={item.statusLabel} sx={{ color: 'var(--ink)', backgroundColor: 'var(--surface-warm)' }} />
+                    <Chip size="small" label={item.statusLabel} color="default" />
                   </Box>
-                  <Typography variant="body2" sx={{ color: 'var(--ink)', overflowWrap: 'anywhere' }}>
+                  <Typography variant="body2" sx={{ color: 'text.primary', overflowWrap: 'anywhere' }}>
                     Código: {item.clientCode || '-'}
                   </Typography>
-                  <Typography variant="body2" sx={{ color: 'var(--ink)', overflowWrap: 'anywhere' }}>
+                  <Typography variant="body2" sx={{ color: 'text.primary', overflowWrap: 'anywhere' }}>
                     Fantasia: {item.fantasyName || '-'}
                   </Typography>
-                  <Typography variant="body2" sx={{ color: 'var(--muted)', overflowWrap: 'anywhere' }}>
+                  <Typography variant="body2" sx={{ color: 'text.secondary', overflowWrap: 'anywhere' }}>
                     Descrição: {item.descriptionLabel || '-'}
                   </Typography>
-                  <Typography variant="caption" sx={{ color: 'var(--muted)' }}>
+                  <Typography variant="caption" sx={{ color: 'text.secondary' }}>
                     Data: {item.dateLabel} - {item.timeLabel}
                   </Typography>
                   <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, flexWrap: 'wrap' }}>
@@ -293,6 +292,7 @@ const DeliveriesHistory = () => {
                       aria-label="Excluir entrega"
                       onClick={() => handleDelete(item.id)}
                       disabled={!item.id}
+                      color="default"
                     >
                       <DeleteIcon fontSize="small" />
                     </IconButton>

@@ -47,6 +47,8 @@ const COMODATO_AVAILABLE_STATUS_LABELS = {
 };
 const COMODATO_VISIBLE_ROWS = 25;
 const BAIXA_PREVIEW_VISIBLE_ROWS = 3;
+const BAIXA_PENDING_LIST_MAX_HEIGHT = '52vh';
+const BAIXA_REQUESTS_LIST_MAX_HEIGHT = '60vh';
 
 const MENTION_OPTIONS = [
   { key: 'arlei', name: 'Arlei Pereira', role: 'Gerente de Vendas' },
@@ -68,11 +70,24 @@ const newId = () => {
 const safeText = (value) => String(value || '').trim();
 const normalizeRecipientEmail = (value) => safeText(value).toLowerCase();
 const isValidRecipientEmail = (value) => EMAIL_REGEX.test(normalizeRecipientEmail(value));
+const PLACEHOLDER_EQUIPMENT_CODES = new Set(['S', 'SIM', 'N', 'NA', 'NAO', 'SEM']);
+const isPlaceholderEquipmentCode = (value) => {
+  const normalized = safeText(value).replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+  if (!normalized) {
+    return false;
+  }
+  return PLACEHOLDER_EQUIPMENT_CODES.has(normalized);
+};
 const parseRecipientList = (value) => String(value || '')
   .split(/[;, \n\t]+/)
   .map(normalizeRecipientEmail)
   .filter(Boolean);
 const normalizeLookupCode = (value) => safeText(value).replace(/\s+/g, '').toUpperCase();
+const WRAP_TEXT_SX = {
+  whiteSpace: 'normal',
+  wordBreak: 'break-word',
+  overflowWrap: 'anywhere',
+};
 
 const createMaterialItem = () => ({
   id: newId(),
@@ -180,8 +195,12 @@ const buildMaterialsLines = (materials = [], options = {}) => {
     }))
     .filter((item) => item.material);
 
-  const refrigerators = normalized.filter((item) => item.kind === 'refrigerador');
-  const others = normalized.filter((item) => item.kind !== 'refrigerador');
+  const refrigerators = normalized.filter((item) => (
+    item.kind === 'refrigerador' && !isPlaceholderEquipmentCode(item.rg)
+  ));
+  const others = normalized.filter((item) => (
+    item.kind !== 'refrigerador' || isPlaceholderEquipmentCode(item.rg)
+  ));
 
   if (!refrigerators.length && !others.length) {
     return showEmptyMessage ? ['Nenhum material informado.'] : [];
@@ -1746,8 +1765,18 @@ const Requests = () => {
                       </Button>
 	                    </Box>
 	
-			                    <Box sx={{ display: 'grid', gap: 1, maxHeight: '75vh', overflowY: 'auto', pr: 0.5 }}>
-				                    {pendingLowEmailOrders.map((order) => {
+				                    <Box
+				                      sx={{
+				                        display: 'grid',
+				                        gap: 1,
+				                        maxHeight: BAIXA_PENDING_LIST_MAX_HEIGHT,
+				                        overflowY: 'auto',
+				                        overflowX: 'hidden',
+				                        pr: 0.5,
+				                        scrollbarGutter: 'stable',
+				                      }}
+				                    >
+					                    {pendingLowEmailOrders.map((order) => {
                             const orderEntries = Array.isArray(pendingLowEmailEntriesByOrderId[order.id])
                               ? pendingLowEmailEntriesByOrderId[order.id]
                               : [];
@@ -1769,6 +1798,7 @@ const Requests = () => {
 		                          borderColor: selectedPendingLowEmailSet.has(order.id) ? 'warning.main' : 'rgba(255, 152, 0, 0.45)',
 		                          backgroundColor: selectedPendingLowEmailSet.has(order.id) ? 'rgba(255, 152, 0, 0.14)' : 'rgba(255, 152, 0, 0.08)',
 		                          boxShadow: 'none',
+		                          overflow: 'visible',
 		                        }}
 		                      >
 		                        <CardContent sx={{ display: 'grid', gap: 0.75 }}>
@@ -1782,7 +1812,11 @@ const Requests = () => {
 		                                    disabled={sendingBulkPendingOrders || Boolean(sendingSinglePendingOrderId)}
 		                                  />
 		                                )}
-		                                label={`Ordem ${order.orderNumber || `RET-${order.id}`}`}
+		                                label={(
+		                                  <Typography variant="body1" sx={WRAP_TEXT_SX}>
+		                                    {`Ordem ${order.orderNumber || `RET-${order.id}`}`}
+		                                  </Typography>
+		                                )}
 		                              />
 		                              <Typography
 		                                variant="caption"
@@ -1813,16 +1847,16 @@ const Requests = () => {
                               {sendingSinglePendingOrderId === order.id ? 'Carregando sugestão...' : 'Usar itens selecionados'}
                             </Button>
 		                          </Box>
-		                          <Typography variant="body2" color="text.secondary">
+		                          <Typography variant="body2" color="text.secondary" sx={WRAP_TEXT_SX}>
 		                            Código do cliente: {order.clientCode || '-'}
 		                          </Typography>
-		                          <Typography variant="body2" color="text.secondary">
+		                          <Typography variant="body2" color="text.secondary" sx={WRAP_TEXT_SX}>
 		                            Nome fantasia: {order.fantasyName || '-'}
 		                          </Typography>
-		                          <Typography variant="body2" color="text.secondary">
+		                          <Typography variant="body2" color="text.secondary" sx={WRAP_TEXT_SX}>
 		                            Data da retirada: {order.withdrawalDate || '-'}
 		                          </Typography>
-		                          <Typography variant="caption" color="text.secondary">
+		                          <Typography variant="caption" color="text.secondary" sx={WRAP_TEXT_SX}>
 		                            Resumo: {order.summaryLine || 'Sem resumo.'}
 		                          </Typography>
                               <Box
@@ -1934,7 +1968,20 @@ const Requests = () => {
             </Box>
           )}
 
-          {currentRequests.map((requestBlock, requestIndex) => (
+	          <Box
+	            sx={activeTab === 'baixa'
+	              ? {
+	                  display: 'grid',
+	                  gap: 1,
+	                  maxHeight: BAIXA_REQUESTS_LIST_MAX_HEIGHT,
+	                  overflowY: 'auto',
+	                  overflowX: 'hidden',
+	                  pr: 0.5,
+	                  scrollbarGutter: 'stable',
+	                }
+	              : { display: 'grid', gap: 1 }}
+	          >
+	          {currentRequests.map((requestBlock, requestIndex) => (
             <Card key={requestBlock.id} sx={{ border: '1px solid var(--stroke)', boxShadow: 'none' }}>
               <CardContent sx={{ display: 'grid', gap: 1.25 }}>
                 <Box sx={{ display: 'flex', gap: 1, justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -2248,13 +2295,13 @@ const Requests = () => {
                           label="Tipo"
                           value={item.kind}
                           onChange={(event) => updateMaterial(activeTab, requestBlock.id, item.id, 'kind', event.target.value)}
-                        >
-                          {MATERIAL_KIND_OPTIONS.map((option) => (
-                            <MenuItem key={option.value} value={option.value}>
-                              {option.label}
-                            </MenuItem>
-                          ))}
-                        </TextField>
+	                        >
+	                          {MATERIAL_KIND_OPTIONS.map((option) => (
+	                            <MenuItem key={option.value} value={option.value}>
+	                              {option.label}
+	                            </MenuItem>
+	                          ))}
+	                        </TextField>
                         <TextField
                           label="Material"
                           value={item.material}
@@ -2307,12 +2354,13 @@ const Requests = () => {
                       )}
                     </CardContent>
                   </Card>
-                ))}
-              </CardContent>
-            </Card>
-          ))}
-        </CardContent>
-      </Card>
+	                ))}
+	              </CardContent>
+	            </Card>
+	          ))}
+	          </Box>
+	        </CardContent>
+	      </Card>
 
       {activeTab === 'comodato' && (
         <Card sx={sectionCardSx}>
@@ -2464,5 +2512,3 @@ const Requests = () => {
 };
 
 export default Requests;
-
-

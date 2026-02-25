@@ -8,11 +8,14 @@ import {
   Typography
 } from '@mui/material';
 import dayjs from 'dayjs';
+import customParseFormat from 'dayjs/plugin/customParseFormat';
 import { useNavigate } from 'react-router-dom';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 
 import api from '../services/api';
+
+dayjs.extend(customParseFormat);
 
 const panelSx = {
   backgroundColor: 'var(--surface)',
@@ -62,6 +65,40 @@ const parseClientInfo = (description) => {
   };
 };
 
+const parseDateValue = (value) => {
+  const raw = String(value || '').trim();
+  if (!raw) {
+    return dayjs('');
+  }
+  if (/^\d{2}\/\d{2}\/\d{4}$/.test(raw)) {
+    const parsed = dayjs(raw, 'DD/MM/YYYY', true);
+    if (parsed.isValid()) {
+      return parsed;
+    }
+  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    const parsed = dayjs(raw, 'YYYY-MM-DD', true);
+    if (parsed.isValid()) {
+      return parsed;
+    }
+  }
+  return dayjs(raw);
+};
+
+const normalizeOrderStatus = (value) => {
+  const raw = String(value || '').trim().toLowerCase();
+  if (raw === 'concluida') {
+    return 'concluida';
+  }
+  if (raw === 'pendente') {
+    return 'pendente';
+  }
+  if (raw === 'cancelada') {
+    return 'cancelada';
+  }
+  return 'pendente';
+};
+
 const withinPeriod = (value, start, end) => {
   if (!value || !value.isValid()) {
     return false;
@@ -70,7 +107,16 @@ const withinPeriod = (value, start, end) => {
 };
 
 const formatPeriodRange = (start, end) => {
-  return `${start.format('DD/MM/YYYY')} - ${end.format('DD/MM/YYYY')}`;
+  if (!start || !end || !start.isValid() || !end.isValid()) {
+    return '';
+  }
+  if (start.isSame(end, 'day')) {
+    return start.format('DD/MM/YYYY');
+  }
+  if (start.isSame(end, 'month')) {
+    return `${start.format('DD')} a ${end.format('DD/MM/YYYY')}`;
+  }
+  return `${start.format('DD/MM/YYYY')} a ${end.format('DD/MM/YYYY')}`;
 };
 
 const getMonthWeekMeta = (baseDate) => {
@@ -112,6 +158,7 @@ const ComodatosDashboard = () => {
   const navigate = useNavigate();
   const [deliveries, setDeliveries] = useState([]);
   const [pickups, setPickups] = useState([]);
+  const [pickupOrders, setPickupOrders] = useState([]);
   const [periodDate, setPeriodDate] = useState(dayjs());
   const [selectedWeekIndex, setSelectedWeekIndex] = useState(() => {
     const meta = getMonthWeekMeta(dayjs());
@@ -123,14 +170,71 @@ const ComodatosDashboard = () => {
 
   useEffect(() => {
     const loadData = async () => {
+      const loadOrdersByStatus = async (statusValue) => {
+        const limit = 200;
+        let offset = 0;
+        const merged = [];
+        while (true) {
+          const response = await api.get('/pickup-catalog/orders', {
+            params: {
+              status: statusValue,
+              limit,
+              offset
+            }
+          });
+          const payload = response?.data;
+          const rows = Array.isArray(payload)
+            ? payload
+            : Array.isArray(payload?.items)
+              ? payload.items
+              : [];
+          merged.push(...rows);
+          if (rows.length < limit) {
+            break;
+          }
+          offset += limit;
+        }
+        return merged;
+      };
+
       try {
         setLoading(true);
-        const [deliveriesResponse, pickupsResponse] = await Promise.all([
+        const [deliveriesResponse, pickupsResponse, pickupOrdersResponse] = await Promise.all([
           api.get('/deliveries'),
-          api.get('/pickups')
+          api.get('/pickups'),
+          Promise.all([
+            loadOrdersByStatus('concluida'),
+            loadOrdersByStatus('pendente')
+          ])
+            .then(([concludedOrders, pendingOrders]) => {
+              const byId = new Map();
+              [...concludedOrders, ...pendingOrders].forEach((order) => {
+                const key = Number(order?.id || 0);
+                if (key > 0) {
+                  byId.set(key, order);
+                }
+              });
+              return Array.from(byId.values());
+            })
+            .catch(() => [])
         ]);
-        setDeliveries(deliveriesResponse.data || []);
-        setPickups(pickupsResponse.data || []);
+        const deliveriesPayload = deliveriesResponse?.data;
+        const pickupsPayload = pickupsResponse?.data;
+        setDeliveries(
+          Array.isArray(deliveriesPayload)
+            ? deliveriesPayload
+            : Array.isArray(deliveriesPayload?.items)
+              ? deliveriesPayload.items
+              : []
+        );
+        setPickups(
+          Array.isArray(pickupsPayload)
+            ? pickupsPayload
+            : Array.isArray(pickupsPayload?.items)
+              ? pickupsPayload.items
+              : []
+        );
+        setPickupOrders(Array.isArray(pickupOrdersResponse) ? pickupOrdersResponse : []);
         setError('');
       } catch (err) {
         setError('Não foi possível carregar os dados de comodatos.');
@@ -160,15 +264,18 @@ const ComodatosDashboard = () => {
     const endDay = Math.min(weekIndex * 7, monthMeta.dayLimit);
     const start = monthMeta.monthStart.date(startDay).startOf('day');
     const end = monthMeta.monthStart.date(endDay).endOf('day');
+    const rangeLabel = formatPeriodRange(start, end);
     return {
       periodStart: start,
       periodEnd: end,
-      periodLabel: `Semana ${weekIndex} - ${monthMeta.monthStart.format('MM/YYYY')}`
+      periodLabel: rangeLabel
+        ? `Semana ${weekIndex} (${rangeLabel})`
+        : `Semana ${weekIndex}`
     };
   }, [monthMeta, selectedWeekIndex]);
 
   const deliveriesMapped = deliveries.map((item) => {
-    const dateValue = dayjs(item.delivery_date);
+    const dateValue = parseDateValue(item.delivery_date || item.deliveryDate);
     const clientInfo = parseClientInfo(item.description);
     return {
       ...item,
@@ -180,11 +287,12 @@ const ComodatosDashboard = () => {
   });
 
   const pickupsMapped = pickups.map((item) => {
-    const dateValue = dayjs(item.pickup_date);
+    const dateValue = parseDateValue(item.pickup_date || item.pickupDate);
     const clientInfo = parseClientInfo(item.description);
     const materialItems = parseMaterialItems(item.material, item.quantity);
     return {
       ...item,
+      recordKey: `pickup-${item.id}`,
       ...clientInfo,
       dateValue,
       materialItems,
@@ -192,22 +300,50 @@ const ComodatosDashboard = () => {
     };
   });
 
+  const pickupOrdersMapped = pickupOrders.map((item) => {
+    const fallbackDescription = String(item.summary_line || '').trim();
+    const clientInfoFromSummary = parseClientInfo(fallbackDescription);
+    const materialItems = fallbackDescription && !/^sem itens informados\.?$/i.test(fallbackDescription)
+      ? parseMaterialItems(fallbackDescription, 1)
+      : [];
+    const parsedQuantity = materialItems.reduce((sum, materialItem) => sum + (Number(materialItem.quantity) || 0), 0);
+    return {
+      ...item,
+      recordKey: `order-${item.id}`,
+      dateValue: parseDateValue(item.withdrawal_date || item.status_updated_at || item.created_at),
+      orderStatus: normalizeOrderStatus(item.status),
+      clientCode: String(item.client_code || clientInfoFromSummary.clientCode || '').trim(),
+      fantasyName: String(item.nome_fantasia || clientInfoFromSummary.fantasyName || '').trim(),
+      materialItems,
+      quantity: parsedQuantity,
+      hasPhoto: false
+    };
+  });
+
+  const pickupsAllMapped = [...pickupsMapped, ...pickupOrdersMapped];
+
   const deliveriesInMonthFull = deliveriesMapped.filter((item) =>
     withinPeriod(item.dateValue, monthFullStart, monthFullEnd)
   );
-  const pickupsInMonthFull = pickupsMapped.filter((item) =>
+  const pickupsInMonthFull = pickupsAllMapped.filter((item) =>
     withinPeriod(item.dateValue, monthFullStart, monthFullEnd)
   );
 
   const deliveriesInMonth = deliveriesMapped.filter((item) =>
     withinPeriod(item.dateValue, monthMeta.monthStart, monthMeta.displayEnd)
   );
-  const pickupsInMonth = pickupsMapped.filter((item) =>
+  const pickupsInMonth = pickupsAllMapped.filter((item) =>
+    withinPeriod(item.dateValue, monthMeta.monthStart, monthMeta.displayEnd)
+  );
+  const pickupOrdersInMonth = pickupOrdersMapped.filter((item) =>
     withinPeriod(item.dateValue, monthMeta.monthStart, monthMeta.displayEnd)
   );
 
   const deliveriesInPeriod = deliveriesInMonth.filter((item) => withinPeriod(item.dateValue, periodStart, periodEnd));
   const pickupsInPeriod = pickupsInMonth.filter((item) => withinPeriod(item.dateValue, periodStart, periodEnd));
+  const pickupOrdersInPeriod = pickupOrdersInMonth.filter((item) => withinPeriod(item.dateValue, periodStart, periodEnd));
+  const pickupOrdersConcludedInPeriod = pickupOrdersInPeriod.filter((item) => item.orderStatus === 'concluida');
+  const pickupOrdersPendingInPeriod = pickupOrdersInPeriod.filter((item) => item.orderStatus === 'pendente');
 
   const deliveryDocsComplete = deliveriesInPeriod.filter((item) => item.hasDocs).length;
   const deliveryDocsRate = deliveriesInPeriod.length === 0
@@ -389,7 +525,7 @@ const ComodatosDashboard = () => {
       detail: item.hasDocs ? 'Documentação completa (NF e contrato)' : 'Documentação pendente'
     }));
     const pickupActivities = pickupsInPeriod.map((item) => ({
-      id: `pickup-${item.id}`,
+      id: `pickup-${item.recordKey || item.id}`,
       type: 'Retirada',
       dateValue: item.dateValue,
       dateLabel: item.dateValue.format('DD/MM/YYYY'),
@@ -506,7 +642,7 @@ const ComodatosDashboard = () => {
               Período selecionado
             </Typography>
             <Typography variant="body2" sx={{ fontWeight: 600 }}>
-              {periodLabel} · {formatPeriodRange(periodStart, periodEnd)}
+              {periodLabel}
             </Typography>
           </Box>
         </Box>
@@ -527,10 +663,23 @@ const ComodatosDashboard = () => {
           </Typography>
         </Box>
         <Box sx={panelSx}>
-          <Typography variant="caption" color="text.secondary">Retiradas</Typography>
-          <Typography variant="h4">{pickupsInPeriod.length}</Typography>
+          <Typography variant="caption" color="text.secondary">Ordens de retirada</Typography>
+          <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 2, flexWrap: 'wrap' }}>
+            <Box>
+              <Typography variant="h5">{pickupOrdersConcludedInPeriod.length}</Typography>
+              <Typography variant="caption" color="text.secondary">
+                Concluídas
+              </Typography>
+            </Box>
+            <Box>
+              <Typography variant="h5">{pickupOrdersPendingInPeriod.length}</Typography>
+              <Typography variant="caption" color="text.secondary">
+                Pendentes
+              </Typography>
+            </Box>
+          </Box>
           <Typography variant="body2" color="text.secondary">
-            Total de retiradas no mês selecionado
+            Totais por status no mês selecionado
           </Typography>
         </Box>
         <Box sx={panelSx}>

@@ -13,6 +13,7 @@ from sqlalchemy import func, or_
 from sqlalchemy.orm import Session, load_only
 
 from app.core.auth import require_any_permission, require_permission
+from app.core.permissions import has_permission
 from app.database.deps import get_db
 from app.models.pickup_catalog import (
     PickupCatalogClient,
@@ -103,6 +104,7 @@ get_pickup_catalog_create_access = require_permission("pickups.create_order")
 get_pickup_catalog_orders_access = require_any_permission(
     "pickups.orders_history",
     "pickups.withdrawals_history",
+    "comodatos.view",
 )
 get_pickup_catalog_withdrawals_access = require_permission("pickups.withdrawals_history")
 
@@ -345,10 +347,43 @@ def _normalize_code_key(value: Any) -> str:
 
 
 def _looks_like_refrigerator(item_type: Any, rg_value: Any) -> bool:
-    normalized_type = _safe_text(item_type).lower()
+    normalized_type = _safe_text(item_type).lower().replace(" ", "_")
     if normalized_type.startswith("refrigerador"):
         return True
-    return bool(_safe_text(rg_value))
+
+    non_refrigerator_types = {
+        "outro",
+        "jogo_mesa",
+        "caixa_termica",
+        "garrafeira",
+        "chopeira",
+        "balde",
+        "testeira",
+        "compressor",
+        "totem",
+        "cooler_carrinho",
+        "inflavel",
+        "empilhadeira",
+        "calca",
+        "cartucho",
+        "ombrelone",
+        "camera_fria",
+        "dispensador",
+        "vasilhame_caixa",
+        "vasilhame_garrafa",
+    }
+    if normalized_type in non_refrigerator_types:
+        return False
+
+    normalized_rg = _normalize_code_key(rg_value)
+    if not normalized_rg:
+        return False
+
+    placeholder_rg_values = {"S", "SIM", "N", "NA", "NAO", "SEM"}
+    if normalized_rg in placeholder_rg_values:
+        return False
+
+    return any(char.isdigit() for char in normalized_rg)
 
 
 def _is_refrigerator_order_item(item: PickupCatalogOrderItem) -> bool:
@@ -780,6 +815,13 @@ def list_orders(
 ):
     normalized_status_filter = _normalized_order_status(status_filter) if _safe_text(status_filter) else ""
     normalized_email_filter = _safe_text(email_request_status).lower()
+    can_view_all_orders = (
+        has_permission(current_user, "pickups.orders_history")
+        or has_permission(current_user, "pickups.withdrawals_history")
+    )
+    allowed_dashboard_statuses = {"pendente", "concluida"}
+    if not can_view_all_orders and normalized_status_filter and normalized_status_filter not in allowed_dashboard_statuses:
+        raise HTTPException(status_code=403, detail="Acesso negado para este status.")
     if normalized_email_filter and normalized_email_filter not in EMAIL_REQUEST_STATUS_VALUES:
         raise HTTPException(status_code=422, detail="Filtro de solicitação de e-mail inválido.")
     search_text = _safe_text(q)
@@ -803,6 +845,8 @@ def list_orders(
 
     if normalized_status_filter:
         query = query.filter(PickupCatalogOrder.status == normalized_status_filter)
+    elif not can_view_all_orders:
+        query = query.filter(PickupCatalogOrder.status.in_(["pendente", "concluida"]))
 
     if normalized_email_filter == "pending":
         query = query.filter(

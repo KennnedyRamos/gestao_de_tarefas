@@ -16,7 +16,7 @@ import { useNavigate } from 'react-router-dom';
 
 import api from '../services/api';
 
-const PAGE_SIZE = 25;
+const PAGE_SIZE = 4;
 const STATUS_LABELS = {
   pending: 'Pendente',
   pendente: 'Pendente',
@@ -229,12 +229,9 @@ const DeliveriesHistory = () => {
             sx={{
               display: 'grid',
               gap: 1.25,
-              maxHeight: { xs: '60vh', md: '68vh' },
-              overflowY: 'auto',
-              pr: { xs: 0, sm: 0.25 },
             }}
           >
-            {pagedDeliveries.map((item, index) => (
+            {pagedDeliveries.map((item) => (
               <Card
                 key={item.itemKey}
                 sx={{

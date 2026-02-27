@@ -469,6 +469,13 @@ def healthcheck():
     return {"status": "ok"}
 
 
+@app.get("/health/db")
+def healthcheck_db():
+    with engine.connect() as connection:
+        connection.execute(text("SELECT 1"))
+    return {"status": "ok"}
+
+
 @app.on_event("startup")
 def startup_event():
     trigger_db_bootstrap()

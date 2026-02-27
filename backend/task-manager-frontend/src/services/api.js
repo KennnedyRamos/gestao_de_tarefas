@@ -30,6 +30,8 @@ const api = axios.create({
   baseURL
 });
 
+let warmupRequest = null;
+
 const UNICODE_ESCAPE_PATTERN = /\\u([0-9a-fA-F]{4})/g;
 
 const decodeEscapedUnicode = (value) => {
@@ -96,5 +98,20 @@ api.interceptors.response.use(
     return Promise.reject(error);
   }
 );
+
+export const warmupApi = () => {
+  if (warmupRequest) {
+    return warmupRequest;
+  }
+
+  warmupRequest = api
+    .get('/health/db', { timeout: 15000 })
+    .catch(() => null)
+    .finally(() => {
+      warmupRequest = null;
+    });
+
+  return warmupRequest;
+};
 
 export default api;

@@ -4,7 +4,7 @@ import { Box, TextField, Button, Typography, InputAdornment, IconButton, Alert, 
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
 import { useNavigate } from 'react-router-dom';
-import api from '../services/api';
+import api, { warmupApi } from '../services/api';
 import { clearSessionExpired, consumeSessionExpired } from '../utils/auth';
 
 const Login = () => {
@@ -14,6 +14,7 @@ const Login = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [status, setStatus] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isWarmingBackend, setIsWarmingBackend] = useState(true);
 
   const resolveLoginError = (error) => {
     if (!error?.response) {
@@ -49,6 +50,18 @@ const Login = () => {
         text: 'Sua sessão expirou. Faça login novamente para ver suas tarefas.'
       });
     }
+  }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+    warmupApi().finally(() => {
+      if (isMounted) {
+        setIsWarmingBackend(false);
+      }
+    });
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   const handleLogin = async (e) => {
@@ -145,6 +158,11 @@ const Login = () => {
           >
             {isSubmitting ? 'Entrando...' : 'Entrar'}
           </Button>
+          {isWarmingBackend && !isSubmitting && (
+            <Typography variant="caption" sx={{ display: 'block', mt: 1.5, color: 'var(--muted)' }}>
+              Conectando ao servidor...
+            </Typography>
+          )}
         </form>
       </Box>
     </Box>

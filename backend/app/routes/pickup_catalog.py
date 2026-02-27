@@ -1355,3 +1355,104 @@ def create_order_pdf(
     headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
 
     return StreamingResponse(BytesIO(pdf_bytes), media_type="application/pdf", headers=headers)
+
+
+@router.get("/orders/{order_id}/pdf")
+def reprint_order_pdf(
+    order_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_pickup_catalog_orders_access),
+):
+    order = db.query(PickupCatalogOrder).filter(PickupCatalogOrder.id == order_id).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Ordem de retirada nao encontrada.")
+
+    order_items = (
+        db.query(PickupCatalogOrderItem)
+        .filter(PickupCatalogOrderItem.order_id == order_id)
+        .order_by(PickupCatalogOrderItem.id.asc())
+        .all()
+    )
+
+    selected_lines: list[dict[str, Any]] = []
+    selected_types: set[str] = set()
+    for item in order_items:
+        item_type = _safe_text(item.item_type) or "outro"
+        quantity = int(item.quantity or 0)
+        line = {
+            "description": _safe_text(item.description),
+            "item_type": item_type,
+            "type_label": item_type_label(item_type),
+            "quantity": quantity,
+            "quantity_text": _safe_text(item.quantity_text) or str(quantity),
+            "rg": _safe_text(item.rg),
+            "comodato_number": _safe_text(item.comodato_number),
+            "volume_key": _safe_text(item.volume_key),
+        }
+        if _safe_text(line["description"]):
+            selected_lines.append(line)
+        if item_type != "outro":
+            selected_types.add(item_type)
+
+    if not selected_lines:
+        raise HTTPException(status_code=422, detail="A ordem nao possui itens para reimpressao.")
+
+    client_data = {
+        "client_code": _safe_text(order.client_code),
+        "nome_fantasia": _safe_text(order.nome_fantasia),
+        "razao_social": _safe_text(order.razao_social),
+        "cnpj_cpf": _safe_text(order.cnpj_cpf),
+        "setor": _safe_text(order.setor),
+        "telefone": _safe_text(order.telefone),
+        "endereco": _safe_text(order.endereco),
+        "bairro": _safe_text(order.bairro),
+        "cidade": _safe_text(order.cidade),
+        "cep": _safe_text(order.cep),
+        "inscricao_estadual": _safe_text(order.inscricao_estadual),
+        "responsavel_cliente": _safe_text(order.responsavel_cliente),
+        "responsavel_retirada": _safe_text(order.responsavel_retirada),
+        "responsavel_conferencia": _safe_text(order.responsavel_conferencia),
+    }
+    client_data = _ensure_client_cep(client_data)
+
+    inventory_items: list[PickupCatalogInventoryItem] = []
+    if order.client_id:
+        inventory_items = _load_inventory_items_for_client(db, int(order.client_id))
+    else:
+        fallback_code = canonical_code(_safe_text(order.client_code))
+        if fallback_code:
+            fallback_client = (
+                db.query(PickupCatalogClient)
+                .filter(PickupCatalogClient.client_code == fallback_code)
+                .first()
+            )
+            if fallback_client:
+                inventory_items = _load_inventory_items_for_client(db, int(fallback_client.id))
+
+    summary_line = _safe_text(order.summary_line) or _build_summary(selected_lines)
+    observation = _safe_text(order.observation) or summary_line
+
+    order_payload = {
+        "company_name": _safe_text(order.company_name) or "Ribeira Beer",
+        "client": client_data,
+        "items": selected_lines,
+        "observation": observation,
+        "summary_line": summary_line,
+        "withdrawal_date": _safe_text(order.withdrawal_date),
+        "withdrawal_time": _safe_text(order.withdrawal_time),
+        "generated_at": datetime.now().strftime("%d/%m/%Y %H:%M"),
+        "copies": ["Via do Cliente", "Via da Logistica"],
+        "reseller_lines": RESELLER_LINES,
+        "open_equipment_summary": _open_equipment_summary(inventory_items, selected_types),
+        "order_number": _safe_text(order.order_number),
+    }
+
+    pdf_bytes = build_withdrawal_pdf(order_payload)
+    filename_seed = _safe_text(order.order_number) or f"ordem_{order.id}"
+    filename = (
+        f"ordem_retirada_{_safe_filename_chunk(filename_seed)}"
+        f"_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf"
+    )
+    headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+
+    return StreamingResponse(BytesIO(pdf_bytes), media_type="application/pdf", headers=headers)

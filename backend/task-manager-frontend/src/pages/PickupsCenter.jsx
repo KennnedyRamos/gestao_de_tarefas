@@ -61,6 +61,33 @@ const normalizeStatus = (value) => {
 const statusLabel = (value) => STATUS_BY_VALUE[normalizeStatus(value)]?.label || 'Pendente';
 const statusColor = (value) => STATUS_BY_VALUE[normalizeStatus(value)]?.color || 'warning';
 
+const parseFilenameFromDisposition = (contentDispositionValue) => {
+  if (!contentDispositionValue) {
+    return '';
+  }
+  const utfMatch = contentDispositionValue.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utfMatch && utfMatch[1]) {
+    try {
+      return decodeURIComponent(utfMatch[1]);
+    } catch (err) {
+      return utfMatch[1];
+    }
+  }
+  const simpleMatch = contentDispositionValue.match(/filename="?([^";]+)"?/i);
+  return simpleMatch && simpleMatch[1] ? simpleMatch[1] : '';
+};
+
+const downloadBlob = (blob, filename) => {
+  const objectUrl = window.URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = objectUrl;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.URL.revokeObjectURL(objectUrl);
+};
+
 const resolveView = (initialView, availableViews) => {
   const normalized = safeText(initialView).toLowerCase();
   if (availableViews.some((item) => item.value === normalized)) {
@@ -117,6 +144,7 @@ const PickupsCenter = ({ initialView = 'orders' }) => {
   const [bulkRefrigeratorCondition, setBulkRefrigeratorCondition] = useState('');
   const [bulkUpdating, setBulkUpdating] = useState(false);
   const [deletingOrderId, setDeletingOrderId] = useState(null);
+  const [printingOrderId, setPrintingOrderId] = useState(null);
   const [statusConditionByOrder, setStatusConditionByOrder] = useState({});
 
   useEffect(() => {
@@ -392,6 +420,35 @@ const PickupsCenter = ({ initialView = 'orders' }) => {
     }
   };
 
+  const handleReprintOrder = async (orderId, orderNumber) => {
+    setPrintingOrderId(orderId);
+    setError('');
+    setSuccess('');
+
+    try {
+      const response = await api.get(`/pickup-catalog/orders/${orderId}/pdf`, {
+        responseType: 'blob',
+      });
+
+      const contentDisposition = response?.headers?.['content-disposition'] || '';
+      const fileFromHeader = parseFilenameFromDisposition(contentDisposition);
+      const fallbackSeed = safeText(orderNumber) || `RET-${orderId}`;
+      const fallbackName = `ordem_retirada_${fallbackSeed}_${dayjs().format('YYYYMMDD_HHmm')}.pdf`;
+      const filename = fileFromHeader || fallbackName;
+      const payloadBlob = response?.data instanceof Blob
+        ? response.data
+        : new Blob([response?.data], { type: 'application/pdf' });
+
+      downloadBlob(payloadBlob, filename);
+      setSuccess(`PDF da ordem ${fallbackSeed} gerado para impressao.`);
+    } catch (err) {
+      const detail = err?.response?.data?.detail;
+      setError(typeof detail === 'string' ? detail : 'Falha ao carregar documento PDF.');
+    } finally {
+      setPrintingOrderId(null);
+    }
+  };
+
   const helperText = availableViews.find((item) => item.value === activeView)?.helper || '';
 
   return (
@@ -604,6 +661,19 @@ const PickupsCenter = ({ initialView = 'orders' }) => {
                 <Typography variant="caption" color="text.secondary" sx={WRAP_TEXT_SX}>
                   Gerado em: {item.createdAtLabel}
                 </Typography>
+
+                {activeView !== 'withdrawals' && (
+                  <Box sx={{ display: 'flex', justifyContent: 'flex-start', mt: 0.25 }}>
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      onClick={() => handleReprintOrder(item.id, item.orderNumber)}
+                      disabled={printingOrderId === item.id}
+                    >
+                      {printingOrderId === item.id ? 'Gerando PDF...' : 'Reimprimir ordem'}
+                    </Button>
+                  </Box>
+                )}
 
                 {activeView === 'withdrawals' && (
                   <>

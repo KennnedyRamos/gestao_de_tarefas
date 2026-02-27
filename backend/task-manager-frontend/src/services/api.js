@@ -41,6 +41,16 @@ const decodeEscapedUnicode = (value) => {
 };
 
 const normalizeResponseData = (payload) => {
+  // Preserve binary payloads (PDF, images, files) and native buffers.
+  if (typeof Blob !== 'undefined' && payload instanceof Blob) {
+    return payload;
+  }
+  if (typeof ArrayBuffer !== 'undefined' && payload instanceof ArrayBuffer) {
+    return payload;
+  }
+  if (typeof FormData !== 'undefined' && payload instanceof FormData) {
+    return payload;
+  }
   if (typeof payload === 'string') {
     return decodeEscapedUnicode(payload);
   }

@@ -23,9 +23,9 @@ const Sidebar = () => {
   const canManageDeliveries = hasPermission('deliveries.manage');
   const canViewComodatos = hasPermission('comodatos.view');
   const canAccessEquipments = hasAnyPermission(['equipments.view', 'equipments.manage']);
+  const canImportPickupBase = hasPermission('pickups.import_base');
   const hasPickupAreaAccess = hasAnyPermission([
     'pickups.create_order',
-    'pickups.import_base',
     'pickups.orders_history',
     'pickups.withdrawals_history',
   ]);
@@ -50,9 +50,6 @@ const Sidebar = () => {
     }
     if (hasPermission('pickups.create_order')) {
       return '/operacoes/ordens/nova';
-    }
-    if (hasPermission('pickups.import_base')) {
-      return '/operacoes/ordens/base';
     }
     return '/dashboard';
   })();
@@ -235,74 +232,88 @@ const Sidebar = () => {
         )}
       </List>
 
-      {showAdmin && (
+            {(canImportPickupBase || showAdmin) && (
         <Box sx={{ mt: 'auto', px: 1, pb: 1, display: 'grid', gap: 1 }}>
           <Divider sx={{ my: 0.5 }} />
-          <ListItemButton
-            onClick={() => navigate('/users')}
-            selected={isActive('/users')}
-            sx={navItemSx}
-          >
-            <ListItemText primary='Usuários' />
-          </ListItemButton>
-          <Box sx={{ display: 'flex', justifyContent: 'flex-start' }}>
-              <Button
-                variant='outlined'
-                startIcon={<MenuIcon />}
-                onMouseEnter={handleUserMenuHoverOpen}
-                onMouseLeave={handleUserMenuHoverClose}
-                onClick={handleUserMenuClick}
-                aria-haspopup='menu'
-                aria-expanded={userMenuOpen ? 'true' : undefined}
-                sx={{
-                  textTransform: 'none',
-                  fontWeight: 600,
-                  borderRadius: '999px',
-                  px: 2,
-                  backgroundColor: 'var(--surface)',
-                  borderColor: 'var(--stroke)',
-                  boxShadow: 'var(--shadow-md)'
-                }}
-              >
-                {'Selecionar usuário'}
-              </Button>
-            <Menu
-              anchorEl={userMenuAnchor}
-              open={userMenuOpen}
-              onClose={handleUserMenuClose}
-              anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
-              transformOrigin={{ vertical: 'top', horizontal: 'left' }}
-              MenuListProps={{
-                dense: true,
-                onMouseEnter: clearMenuCloseTimeout,
-                onMouseLeave: handleUserMenuHoverClose
-              }}
-              PaperProps={{
-                sx: {
-                  mb: 1,
-                  minWidth: 220,
-                  maxHeight: 320,
-                  border: '1px solid var(--stroke)',
-                  backgroundColor: 'var(--surface)',
-                  boxShadow: 'var(--shadow-md)'
-                }
-              }}
+          {canImportPickupBase && (
+            <ListItemButton
+              onClick={() => navigate('/base-retiradas')}
+              selected={isActive('/base-retiradas')}
+              sx={navItemSx}
             >
-              {users.length === 0 ? (
-                <MenuItem disabled>{'Nenhum usuário encontrado.'}</MenuItem>
-              ) : (
-                users.map((user) => (
-                  <MenuItem
-                    key={user.id}
-                    selected={selectedUserId === String(user.id)}
-                    onClick={() => handleUserMenuSelect(user.id)}
-                  >
-                    {user.name}
-                  </MenuItem>
-                ))
-              )}
-            </Menu>
-          </Box>
+              <ListItemText primary='Atualizar base' />
+            </ListItemButton>
+          )}
+
+          {showAdmin && (
+            <>
+              <ListItemButton
+                onClick={() => navigate('/users')}
+                selected={isActive('/users')}
+                sx={navItemSx}
+              >
+                <ListItemText primary='Usuários' />
+              </ListItemButton>
+              <Box sx={{ display: 'flex', justifyContent: 'flex-start' }}>
+                <Button
+                  variant='outlined'
+                  startIcon={<MenuIcon />}
+                  onMouseEnter={handleUserMenuHoverOpen}
+                  onMouseLeave={handleUserMenuHoverClose}
+                  onClick={handleUserMenuClick}
+                  aria-haspopup='menu'
+                  aria-expanded={userMenuOpen ? 'true' : undefined}
+                  sx={{
+                    textTransform: 'none',
+                    fontWeight: 600,
+                    borderRadius: '999px',
+                    px: 2,
+                    backgroundColor: 'var(--surface)',
+                    borderColor: 'var(--stroke)',
+                    boxShadow: 'var(--shadow-md)'
+                  }}
+                >
+                  {'Selecionar usuário'}
+                </Button>
+                <Menu
+                  anchorEl={userMenuAnchor}
+                  open={userMenuOpen}
+                  onClose={handleUserMenuClose}
+                  anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+                  transformOrigin={{ vertical: 'top', horizontal: 'left' }}
+                  MenuListProps={{
+                    dense: true,
+                    onMouseEnter: clearMenuCloseTimeout,
+                    onMouseLeave: handleUserMenuHoverClose
+                  }}
+                  PaperProps={{
+                    sx: {
+                      mb: 1,
+                      minWidth: 220,
+                      maxHeight: 320,
+                      border: '1px solid var(--stroke)',
+                      backgroundColor: 'var(--surface)',
+                      boxShadow: 'var(--shadow-md)'
+                    }
+                  }}
+                >
+                  {users.length === 0 ? (
+                    <MenuItem disabled>{'Nenhum usuário encontrado.'}</MenuItem>
+                  ) : (
+                    users.map((user) => (
+                      <MenuItem
+                        key={user.id}
+                        selected={selectedUserId === String(user.id)}
+                        onClick={() => handleUserMenuSelect(user.id)}
+                      >
+                        {user.name}
+                      </MenuItem>
+                    ))
+                  )}
+                </Menu>
+              </Box>
+            </>
+          )}
         </Box>
       )}
     </Box>
@@ -310,3 +321,4 @@ const Sidebar = () => {
 };
 
 export default Sidebar;
+

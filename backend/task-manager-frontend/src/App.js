@@ -48,9 +48,6 @@ const defaultOperationsRoute = () => {
   if (hasPermission('pickups.create_order')) {
     return '/operacoes/ordens/nova';
   }
-  if (hasPermission('pickups.import_base')) {
-    return '/operacoes/ordens/base';
-  }
   return '/dashboard';
 };
 
@@ -81,6 +78,10 @@ function App() {
 
           <Route path="users" element={<RequireAdmin><Users /></RequireAdmin>} />
           <Route path="comodatos" element={<RequirePermission permission="comodatos.view"><ComodatosDashboard /></RequirePermission>} />
+          <Route
+            path="base-retiradas"
+            element={<RequirePermission permission="pickups.import_base"><PickupsDataUpload /></RequirePermission>}
+          />
 
           <Route
             path="operacoes"
@@ -89,7 +90,6 @@ function App() {
                 permissions={[
                   'deliveries.manage',
                   'pickups.create_order',
-                  'pickups.import_base',
                   'pickups.orders_history',
                   'pickups.withdrawals_history'
                 ]}
@@ -113,7 +113,7 @@ function App() {
             />
             <Route
               path="ordens/base"
-              element={<RequirePermission permission="pickups.import_base"><PickupsDataUpload /></RequirePermission>}
+              element={<Navigate to="/base-retiradas" replace />}
             />
             <Route
               path="ordens/central"
@@ -130,7 +130,7 @@ function App() {
           <Route path="deliveries/history" element={<Navigate to="/operacoes/entregas/historico" replace />} />
           <Route path="pickups" element={<Navigate to={defaultOperationsRoute()} replace />} />
           <Route path="pickups/create" element={<Navigate to="/operacoes/ordens/nova" replace />} />
-          <Route path="pickups/import" element={<Navigate to="/operacoes/ordens/base" replace />} />
+          <Route path="pickups/import" element={<Navigate to="/base-retiradas" replace />} />
           <Route path="pickups/center" element={<Navigate to="/operacoes/ordens/central" replace />} />
           <Route path="pickups/history" element={<Navigate to="/operacoes/ordens/central?view=orders" replace />} />
           <Route path="pickups/withdrawals-history" element={<Navigate to="/operacoes/ordens/central?view=withdrawals" replace />} />

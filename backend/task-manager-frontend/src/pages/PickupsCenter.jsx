@@ -104,7 +104,6 @@ const PickupsCenter = ({ initialView = 'orders' }) => {
   const canOrdersHistory = hasPermission('pickups.orders_history');
   const canWithdrawalsHistory = hasPermission('pickups.withdrawals_history');
   const canCreatePickupOrder = hasPermission('pickups.create_order');
-  const canImportPickupBase = hasPermission('pickups.import_base');
   const requestedView = safeText(searchParams.get('view')).toLowerCase();
   const initialViewRequest = requestedView || safeText(initialView).toLowerCase() || 'orders';
 
@@ -459,11 +458,6 @@ const PickupsCenter = ({ initialView = 'orders' }) => {
           <Typography variant="body2" color="text.secondary">{helperText}</Typography>
         </Box>
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ width: { xs: '100%', sm: 'auto' } }}>
-          {canImportPickupBase && (
-            <Button variant="outlined" onClick={() => navigate('/operacoes/ordens/base')} fullWidth={isMobile}>
-              Atualizar base
-            </Button>
-          )}
           {canCreatePickupOrder && (
             <Button variant="contained" onClick={() => navigate('/operacoes/ordens/nova')} fullWidth={isMobile}>
               Nova ordem de retirada

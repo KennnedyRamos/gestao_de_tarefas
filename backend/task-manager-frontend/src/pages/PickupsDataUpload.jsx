@@ -49,14 +49,18 @@ const PickupsDataUpload = () => {
     setError('');
     setSuccess('');
 
-    if (!clientsFile || !inventoryFile) {
-      setError('Envie os dois CSVs: 01.20.11 e 02.02.20.');
+    if (!clientsFile && !inventoryFile) {
+      setError('Envie pelo menos um CSV: 01.20.11 ou 02.02.20.');
       return;
     }
 
     const formData = new FormData();
-    formData.append('clients_csv', clientsFile);
-    formData.append('inventory_csv', inventoryFile);
+    if (clientsFile) {
+      formData.append('clients_csv', clientsFile);
+    }
+    if (inventoryFile) {
+      formData.append('inventory_csv', inventoryFile);
+    }
 
     try {
       setUploading(true);
@@ -65,7 +69,8 @@ const PickupsDataUpload = () => {
       });
 
       const stats = response?.data?.stats || {};
-      const message = `Base atualizada. Clientes: ${stats.clients_count || 0}, clientes com itens: ${stats.inventory_clients || 0}, itens em aberto: ${stats.open_items || 0}.`;
+      const baseMessage = String(response?.data?.message || 'Base atualizada.').trim();
+      const message = `${baseMessage} Clientes: ${stats.clients_count || 0}, clientes com itens: ${stats.inventory_clients || 0}, itens em aberto: ${stats.open_items || 0}.`;
       setSuccess(message);
       setClientsFile(null);
       setInventoryFile(null);
@@ -97,7 +102,7 @@ const PickupsDataUpload = () => {
       <Box sx={panelSx}>
         <Typography variant="subtitle1" sx={{ mb: 1 }}>Carga diária de CSV</Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          Envie os dois arquivos do dia: 01.20.11 (clientes) e 02.02.20 (itens emprestados).
+          Envie 01.20.11 (clientes), 02.02.20 (itens emprestados) ou ambos no mesmo envio.
         </Typography>
 
         <Box component="form" onSubmit={handleSubmit} sx={{ display: 'grid', gap: 1.5 }}>
@@ -116,7 +121,6 @@ const PickupsDataUpload = () => {
                 background: 'var(--surface)',
                 fontFamily: 'var(--font-sans)',
               }}
-              required
             />
           </Box>
 
@@ -135,7 +139,6 @@ const PickupsDataUpload = () => {
                 background: 'var(--surface)',
                 fontFamily: 'var(--font-sans)',
               }}
-              required
             />
           </Box>
 

@@ -652,6 +652,75 @@ def _safe_filename_chunk(text: str) -> str:
     return chunk.strip("_") or "sem_codigo"
 
 
+def _load_existing_clients_rows(db: Session) -> dict[str, dict[str, str]]:
+    clients = db.query(PickupCatalogClient).all()
+    rows: dict[str, dict[str, str]] = {}
+    for client in clients:
+        code = canonical_code(_safe_text(client.client_code))
+        if not code:
+            continue
+        payload = _client_payload_from_model(client, fallback_code=code)
+        payload["client_code"] = _safe_text(payload.get("client_code")) or code
+        rows[code] = payload
+    return rows
+
+
+def _load_existing_inventory_rows(db: Session) -> dict[str, list[dict[str, Any]]]:
+    query = db.query(PickupCatalogInventoryItem)
+    if _uses_batched_inventory(db):
+        latest_batch_id = _latest_batch_id(db)
+        if latest_batch_id is None:
+            return {}
+        query = query.filter(PickupCatalogInventoryItem.batch_id == latest_batch_id)
+
+    inventory_items = query.order_by(
+        PickupCatalogInventoryItem.client_id.asc(),
+        PickupCatalogInventoryItem.id.asc(),
+    ).all()
+    if not inventory_items:
+        return {}
+
+    client_ids = sorted({
+        int(item.client_id)
+        for item in inventory_items
+        if int(item.client_id or 0) > 0
+    })
+    clients_by_id: dict[int, PickupCatalogClient] = {}
+    if client_ids:
+        client_rows = (
+            db.query(PickupCatalogClient)
+            .filter(PickupCatalogClient.id.in_(client_ids))
+            .all()
+        )
+        clients_by_id = {int(client.id): client for client in client_rows}
+
+    result: dict[str, list[dict[str, Any]]] = {}
+    row_number = 0
+    for item in inventory_items:
+        client = clients_by_id.get(int(item.client_id or 0))
+        code = canonical_code(_safe_text(getattr(client, "client_code", "")))
+        if not code:
+            continue
+
+        row_number += 1
+        client_snapshot = _client_payload_from_model(client, fallback_code=code)
+        result.setdefault(code, []).append({
+            "id": f"db_{row_number}",
+            "description": _safe_text(item.description),
+            "open_quantity": int(item.open_quantity or 0),
+            "item_type": _safe_text(item.item_type) or "outro",
+            "rg": _safe_text(item.rg),
+            "comodato_number": _safe_text(item.comodato_number),
+            "issue_date": _safe_text(item.invoice_issue_date),
+            "volume_key": _safe_text(item.volume_key),
+            "source_baixados": int(item.source_baixados or 0),
+            "product_code": _safe_text(item.product_code),
+            "client_snapshot": client_snapshot,
+        })
+
+    return result
+
+
 @router.get("/status", response_model=PickupCatalogStatusOut)
 def get_status(
     db: Session = Depends(get_db),
@@ -663,20 +732,33 @@ def get_status(
 
 @router.post("/upload-csv")
 async def upload_csv(
-    clients_csv: UploadFile = File(...),
-    inventory_csv: UploadFile = File(...),
+    clients_csv: UploadFile | None = File(default=None),
+    inventory_csv: UploadFile | None = File(default=None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_pickup_catalog_import_access),
 ):
-    clients_bytes = await clients_csv.read()
-    inventory_bytes = await inventory_csv.read()
+    clients_bytes = await clients_csv.read() if clients_csv else b""
+    inventory_bytes = await inventory_csv.read() if inventory_csv else b""
 
-    if not clients_bytes or not inventory_bytes:
-        raise HTTPException(status_code=400, detail="Envie os dois arquivos CSV (01.20.11 e 02.02.20).")
+    has_clients_upload = bool(clients_bytes)
+    has_inventory_upload = bool(inventory_bytes)
+    if not has_clients_upload and not has_inventory_upload:
+        raise HTTPException(
+            status_code=400,
+            detail="Envie ao menos um arquivo CSV (01.20.11 ou 02.02.20).",
+        )
 
     try:
-        clients_rows = load_clients_csv(clients_bytes)
-        inventory_rows = load_inventory_csv(inventory_bytes)
+        clients_rows = (
+            load_clients_csv(clients_bytes)
+            if has_clients_upload
+            else _load_existing_clients_rows(db)
+        )
+        inventory_rows = (
+            load_inventory_csv(inventory_bytes)
+            if has_inventory_upload
+            else _load_existing_inventory_rows(db)
+        )
         merged_clients = _prepare_merged_clients(clients_rows, inventory_rows)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -706,8 +788,8 @@ async def upload_csv(
     stale_clients_query.delete(synchronize_session=False)
 
     batch = PickupCatalogUploadBatch(
-        clients_file_name=_safe_text(clients_csv.filename),
-        inventory_file_name=_safe_text(inventory_csv.filename),
+        clients_file_name=_safe_text(clients_csv.filename) if has_clients_upload and clients_csv else "",
+        inventory_file_name=_safe_text(inventory_csv.filename) if has_inventory_upload and inventory_csv else "",
     )
     db.add(batch)
     db.flush()
@@ -760,8 +842,19 @@ async def upload_csv(
 
     db.commit()
 
+    if has_clients_upload and has_inventory_upload:
+        message = "Dados gravados com sucesso. Base anterior substituída."
+    elif has_clients_upload:
+        message = "Dados gravados com sucesso. Atualização parcial aplicada (01.20.11)."
+    else:
+        message = "Dados gravados com sucesso. Atualização parcial aplicada (02.02.20)."
+
     return {
-        "message": "Dados gravados com sucesso. Base anterior substituida.",
+        "message": message,
+        "updated_sources": {
+            "clients_012011": has_clients_upload,
+            "inventory_020220": has_inventory_upload,
+        },
         "stats": {
             "clients_count": batch.clients_count,
             "inventory_clients": batch.inventory_clients,
@@ -1365,7 +1458,7 @@ def reprint_order_pdf(
 ):
     order = db.query(PickupCatalogOrder).filter(PickupCatalogOrder.id == order_id).first()
     if not order:
-        raise HTTPException(status_code=404, detail="Ordem de retirada nao encontrada.")
+        raise HTTPException(status_code=404, detail="Ordem de retirada não encontrada.")
 
     order_items = (
         db.query(PickupCatalogOrderItem)
@@ -1395,7 +1488,7 @@ def reprint_order_pdf(
             selected_types.add(item_type)
 
     if not selected_lines:
-        raise HTTPException(status_code=422, detail="A ordem nao possui itens para reimpressao.")
+        raise HTTPException(status_code=422, detail="A ordem não possui itens para reimpressão.")
 
     client_data = {
         "client_code": _safe_text(order.client_code),
@@ -1441,7 +1534,7 @@ def reprint_order_pdf(
         "withdrawal_date": _safe_text(order.withdrawal_date),
         "withdrawal_time": _safe_text(order.withdrawal_time),
         "generated_at": datetime.now().strftime("%d/%m/%Y %H:%M"),
-        "copies": ["Via do Cliente", "Via da Logistica"],
+        "copies": ["Via do Cliente", "Via da Logística"],
         "reseller_lines": RESELLER_LINES,
         "open_equipment_summary": _open_equipment_summary(inventory_items, selected_types),
         "order_number": _safe_text(order.order_number),

@@ -17,7 +17,6 @@ const OperationsHub = () => {
 
   const canManageDeliveries = hasPermission('deliveries.manage');
   const canCreatePickupOrder = hasPermission('pickups.create_order');
-  const canImportPickupBase = hasPermission('pickups.import_base');
   const canPickupCenter = hasAnyPermission(['pickups.orders_history', 'pickups.withdrawals_history']);
 
   const tabs = useMemo(
@@ -45,15 +44,9 @@ const OperationsHub = () => {
         label: 'Central de retiradas',
         path: '/operacoes/ordens/central',
         visible: canPickupCenter
-      },
-      {
-        value: 'ordens_base',
-        label: 'Atualizar base',
-        path: '/operacoes/ordens/base',
-        visible: canImportPickupBase
       }
     ]).filter((item) => item.visible),
-    [canCreatePickupOrder, canImportPickupBase, canManageDeliveries, canPickupCenter]
+    [canCreatePickupOrder, canManageDeliveries, canPickupCenter]
   );
 
   if (tabs.length === 0) {

@@ -17,6 +17,8 @@ from app.models.equipment import Equipment
 from app.models.pickup_catalog import (
     PickupCatalogClient,
     PickupCatalogInventoryItem,
+    PickupCatalogOrder,
+    PickupCatalogOrderItem,
     PickupCatalogUploadBatch,
 )
 from app.models.user import User
@@ -72,6 +74,17 @@ CATEGORY_ALIASES = {
     "outros": "outro",
 }
 VALID_STATUSES = {"novo", "disponivel", "recap", "sucata", "alocado"}
+ALLOWED_CSV_UPLOAD_SUFFIXES = {".csv", ".txt"}
+ALLOWED_CSV_UPLOAD_CONTENT_TYPES = {
+    "",
+    "text/csv",
+    "application/csv",
+    "text/plain",
+    "application/vnd.ms-excel",
+    "application/octet-stream",
+}
+MAX_EQUIPMENT_IMPORT_CSV_BYTES = 5 * 1024 * 1024
+MAX_EQUIPMENT_IMPORT_CSV_LINES = 10000
 VOLTAGE_ALIASES = {
     "": "",
     "110": "110v",
@@ -169,6 +182,40 @@ def _decode_import_csv(raw_bytes: bytes) -> str:
         except UnicodeDecodeError:
             continue
     raise HTTPException(status_code=422, detail="Não foi possível ler o CSV enviado.")
+
+
+async def _read_csv_upload_bytes(
+    upload: UploadFile,
+    *,
+    max_bytes: int,
+    max_lines: int,
+    label: str,
+) -> bytes:
+    file_name = str(getattr(upload, "filename", "") or "").strip()
+    suffix = Path(file_name).suffix.lower()
+    if suffix and suffix not in ALLOWED_CSV_UPLOAD_SUFFIXES:
+        raise HTTPException(status_code=400, detail=f"{label} deve estar em formato CSV.")
+
+    content_type = str(getattr(upload, "content_type", "") or "").strip().lower()
+    if content_type not in ALLOWED_CSV_UPLOAD_CONTENT_TYPES:
+        raise HTTPException(status_code=400, detail=f"Tipo de arquivo invÃ¡lido para {label}.")
+
+    raw_bytes = await upload.read(max_bytes + 1)
+    if len(raw_bytes) > max_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"{label} excede o limite de {max_bytes // (1024 * 1024)} MB.",
+        )
+    if not raw_bytes:
+        raise HTTPException(status_code=400, detail=f"{label} vazio.")
+
+    line_count = raw_bytes.count(b"\n") + (1 if raw_bytes else 0)
+    if line_count > max_lines + 1:
+        raise HTTPException(
+            status_code=422,
+            detail=f"{label} excede o limite de {max_lines} linhas.",
+        )
+    return raw_bytes
 
 
 def _sniff_csv_delimiter(text: str) -> str:
@@ -429,6 +476,65 @@ def _refrigerator_allocated_tokens_from_020220(db: Session) -> set[str]:
         allocated_tokens.update(_build_code_lookup_tokens(row.rg_code))
 
     return allocated_tokens
+
+
+def _is_refrigerator_pickup_item(
+    item_type: Optional[str],
+    description: Optional[str],
+    rg_code: Optional[str],
+) -> bool:
+    normalized_type = normalize_spaces(item_type or "")
+    if _material_type_bucket(normalized_type) == "refrigerador":
+        return True
+
+    inferred_type = _material_type_bucket(classify_item_type(normalize_spaces(description or "")))
+    if inferred_type == "refrigerador":
+        return True
+
+    normalized_rg = normalize_spaces(rg_code or "")
+    if not normalized_rg:
+        return False
+
+    compact_rg = re.sub(r"[^A-Z0-9]+", "", normalized_rg.upper())
+    if compact_rg in {"S", "SIM", "N", "NA", "NAO", "SEM"}:
+        return False
+    return any(char.isdigit() for char in compact_rg)
+
+
+def _returned_refrigerator_tokens_from_concluded_pickups(db: Session) -> set[str]:
+    rows = (
+        db.query(
+            PickupCatalogOrderItem.item_type.label("item_type"),
+            PickupCatalogOrderItem.description.label("description"),
+            PickupCatalogOrderItem.rg.label("rg_code"),
+        )
+        .join(
+            PickupCatalogOrder,
+            PickupCatalogOrder.id == PickupCatalogOrderItem.order_id,
+        )
+        .filter(PickupCatalogOrder.status == "concluida")
+        .all()
+    )
+
+    returned_tokens: set[str] = set()
+    for row in rows:
+        if not _is_refrigerator_pickup_item(row.item_type, row.description, row.rg_code):
+            continue
+        returned_tokens.update(_build_code_lookup_tokens(row.rg_code))
+    return returned_tokens
+
+
+def _is_equipment_still_allocated(
+    equipment: Equipment,
+    allocated_tokens_020220: set[str],
+    returned_tokens: set[str],
+) -> bool:
+    equipment_tokens = _build_equipment_lookup_tokens(equipment.rg_code, equipment.tag_code)
+    if not equipment_tokens:
+        return False
+    if not allocated_tokens_020220.intersection(equipment_tokens):
+        return False
+    return not returned_tokens.intersection(equipment_tokens)
 
 
 def _is_refrigerator_allocated_in_020220(
@@ -814,11 +920,15 @@ def list_available_refrigerators_for_comodato(
     if not rows:
         return []
     allocated_tokens_020220 = _refrigerator_allocated_tokens_from_020220(db)
+    returned_tokens = _returned_refrigerator_tokens_from_concluded_pickups(db)
 
     filtered_rows: list[Equipment] = []
     for row in rows:
-        equipment_tokens = _build_equipment_lookup_tokens(row.rg_code, row.tag_code)
-        if equipment_tokens and allocated_tokens_020220.intersection(equipment_tokens):
+        if _is_equipment_still_allocated(
+            row,
+            allocated_tokens_020220=allocated_tokens_020220,
+            returned_tokens=returned_tokens,
+        ):
             continue
         filtered_rows.append(row)
 
@@ -869,10 +979,6 @@ def list_non_allocated_refrigerators(
         Equipment.category == "refrigerador",
         Equipment.status != "alocado",
     )
-    if normalized_status == "disponivel":
-        query = query.filter(Equipment.status.in_(["novo", "disponivel"]))
-    elif normalized_status != "todos":
-        query = query.filter(Equipment.status == normalized_status)
     if search:
         pattern = f"%{search}%"
         query = query.filter(
@@ -888,21 +994,35 @@ def list_non_allocated_refrigerators(
 
     rows = query.order_by(Equipment.created_at.desc(), Equipment.id.desc()).all()
     allocated_tokens_020220 = _refrigerator_allocated_tokens_from_020220(db)
+    returned_tokens = _returned_refrigerator_tokens_from_concluded_pickups(db)
 
     counters = {"novo": 0, "disponivel": 0, "recap": 0, "sucata": 0}
-    filtered_rows: list[Equipment] = []
+    eligible_rows: list[Equipment] = []
     for row in rows:
-        equipment_tokens = _build_equipment_lookup_tokens(row.rg_code, row.tag_code)
-        if equipment_tokens and allocated_tokens_020220.intersection(equipment_tokens):
+        if _is_equipment_still_allocated(
+            row,
+            allocated_tokens_020220=allocated_tokens_020220,
+            returned_tokens=returned_tokens,
+        ):
             continue
         status_value = normalize_lookup_text(row.status)
         if status_value in counters:
             counters[status_value] += 1
-        filtered_rows.append(row)
+        eligible_rows.append(row)
+
+    if normalized_status == "todos":
+        filtered_rows = eligible_rows
+    else:
+        filtered_rows = [
+            row
+            for row in eligible_rows
+            if normalize_lookup_text(row.status) == normalized_status
+        ]
 
     if normalized_sort == "oldest":
         filtered_rows = list(reversed(filtered_rows))
 
+    dashboard_total = len(eligible_rows)
     total = len(filtered_rows)
     paged_rows = filtered_rows[offset: offset + limit]
     items = [
@@ -922,7 +1042,7 @@ def list_non_allocated_refrigerators(
 
     return EquipmentNonAllocatedListOut(
         dashboard=EquipmentNonAllocatedDashboardOut(
-            total_nao_alocados=total,
+            total_nao_alocados=dashboard_total,
             novo=counters["novo"],
             disponivel=counters["disponivel"],
             recap=counters["recap"],
@@ -956,6 +1076,7 @@ def sync_refrigerators_allocation_status(
         )
 
     allocated_tokens_020220 = _refrigerator_allocated_tokens_from_020220(db)
+    returned_tokens = _returned_refrigerator_tokens_from_concluded_pickups(db)
     if not allocated_tokens_020220:
         return EquipmentAllocationSyncOut(
             scanned_count=scanned_count,
@@ -967,6 +1088,8 @@ def sync_refrigerators_allocation_status(
     updated_ids: list[int] = []
     matched_count = 0
     for row in rows:
+        if returned_tokens and _build_equipment_lookup_tokens(row.rg_code, row.tag_code).intersection(returned_tokens):
+            continue
         if not _is_refrigerator_allocated_in_020220(
             db,
             rg_code=row.rg_code,
@@ -1232,9 +1355,12 @@ async def import_refrigerators_csv(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_equipments_manager),
 ):
-    raw_bytes = await csv_file.read()
-    if not raw_bytes:
-        raise HTTPException(status_code=400, detail="Arquivo CSV vazio.")
+    raw_bytes = await _read_csv_upload_bytes(
+        csv_file,
+        max_bytes=MAX_EQUIPMENT_IMPORT_CSV_BYTES,
+        max_lines=MAX_EQUIPMENT_IMPORT_CSV_LINES,
+        label="Arquivo CSV",
+    )
 
     text = _decode_import_csv(raw_bytes)
     delimiter = _sniff_csv_delimiter(text)

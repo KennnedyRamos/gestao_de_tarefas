@@ -1,7 +1,9 @@
 from datetime import datetime
 from typing import List, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from app.schemas.common import normalize_optional_text, normalize_string_list, normalize_text
 
 
 class PickupCatalogStats(BaseModel):
@@ -53,16 +55,31 @@ class PickupCatalogClientOut(BaseModel):
 
 
 class PickupCatalogInventorySelectionIn(BaseModel):
-    item_id: int
-    quantity: int = Field(default=1, ge=1)
+    item_id: int = Field(ge=1)
+    quantity: int = Field(default=1, ge=1, le=999)
 
 
 class PickupCatalogManualItemIn(BaseModel):
     description: str
-    quantity: int = Field(default=1, ge=1)
+    quantity: int = Field(default=1, ge=1, le=999)
     item_type: str = "outro"
     rg: Optional[str] = ""
     volume_key: Optional[str] = ""
+
+    @field_validator("description")
+    @classmethod
+    def validate_description(cls, value: str) -> str:
+        return normalize_text(value, min_length=2, max_length=255)
+
+    @field_validator("item_type")
+    @classmethod
+    def validate_item_type(cls, value: str) -> str:
+        return normalize_text(value, min_length=2, max_length=40, lower=True)
+
+    @field_validator("rg", "volume_key")
+    @classmethod
+    def validate_codes(cls, value: Optional[str]) -> Optional[str]:
+        return normalize_optional_text(value, max_length=120)
 
 
 class PickupCatalogPdfRequest(BaseModel):
@@ -75,6 +92,57 @@ class PickupCatalogPdfRequest(BaseModel):
     client: PickupCatalogClientData
     selected_inventory: List[PickupCatalogInventorySelectionIn] = Field(default_factory=list)
     manual_items: List[PickupCatalogManualItemIn] = Field(default_factory=list)
+
+    @field_validator("lookup_code")
+    @classmethod
+    def validate_lookup_code(cls, value: Optional[str]) -> Optional[str]:
+        return normalize_optional_text(value, max_length=64, lower=False)
+
+    @field_validator("company_name")
+    @classmethod
+    def validate_company_name(cls, value: Optional[str]) -> Optional[str]:
+        return normalize_optional_text(value, max_length=255)
+
+    @field_validator("data_retirada")
+    @classmethod
+    def validate_withdrawal_date(cls, value: Optional[str]) -> Optional[str]:
+        return normalize_optional_text(value, max_length=20)
+
+    @field_validator("hora_retirada")
+    @classmethod
+    def validate_withdrawal_time(cls, value: Optional[str]) -> Optional[str]:
+        return normalize_optional_text(value, max_length=20)
+
+    @field_validator("auto_summary")
+    @classmethod
+    def validate_auto_summary(cls, value: Optional[str]) -> Optional[str]:
+        return normalize_optional_text(value, max_length=4000)
+
+    @field_validator("observacao_extra")
+    @classmethod
+    def validate_observation(cls, value: Optional[str]) -> Optional[str]:
+        return normalize_optional_text(value, max_length=2000)
+
+    @field_validator("selected_inventory")
+    @classmethod
+    def validate_selected_inventory(cls, value: List[PickupCatalogInventorySelectionIn]) -> List[PickupCatalogInventorySelectionIn]:
+        if len(value) > 300:
+            raise ValueError("Selecione no máximo 300 itens do inventário.")
+        unique_ids: set[int] = set()
+        normalized: list[PickupCatalogInventorySelectionIn] = []
+        for item in value:
+            if item.item_id in unique_ids:
+                continue
+            unique_ids.add(item.item_id)
+            normalized.append(item)
+        return normalized
+
+    @field_validator("manual_items")
+    @classmethod
+    def validate_manual_items(cls, value: List[PickupCatalogManualItemIn]) -> List[PickupCatalogManualItemIn]:
+        if len(value) > 300:
+            raise ValueError("Informe no máximo 300 itens manuais.")
+        return value
 
 
 class PickupCatalogOrderOut(BaseModel):
@@ -123,12 +191,32 @@ class PickupCatalogOrderStatusUpdateIn(BaseModel):
     status_note: Optional[str] = ""
     refrigerator_condition: Optional[Literal["boa", "recap", "sucata"]] = None
 
+    @field_validator("status_note")
+    @classmethod
+    def validate_status_note(cls, value: Optional[str]) -> Optional[str]:
+        return normalize_optional_text(value, max_length=500)
+
 
 class PickupCatalogOrderBulkStatusUpdateIn(BaseModel):
     order_ids: List[int] = Field(default_factory=list)
     status: Literal["pendente", "concluida", "cancelada"]
     status_note: Optional[str] = ""
     refrigerator_condition: Optional[Literal["boa", "recap", "sucata"]] = None
+
+    @field_validator("order_ids")
+    @classmethod
+    def validate_order_ids(cls, value: List[int]) -> List[int]:
+        normalized = sorted({int(item) for item in value if int(item) > 0})
+        if not normalized:
+            raise ValueError("Informe ao menos uma ordem válida.")
+        if len(normalized) > 200:
+            raise ValueError("Selecione no máximo 200 ordens por vez.")
+        return normalized
+
+    @field_validator("status_note")
+    @classmethod
+    def validate_status_note(cls, value: Optional[str]) -> Optional[str]:
+        return normalize_optional_text(value, max_length=500)
 
 
 class PickupCatalogOrderBulkStatusUpdateOut(BaseModel):
@@ -138,6 +226,16 @@ class PickupCatalogOrderBulkStatusUpdateOut(BaseModel):
 
 class PickupCatalogOrderEmailRequestBulkIn(BaseModel):
     order_ids: List[int] = Field(default_factory=list)
+
+    @field_validator("order_ids")
+    @classmethod
+    def validate_order_ids(cls, value: List[int]) -> List[int]:
+        normalized = sorted({int(item) for item in value if int(item) > 0})
+        if not normalized:
+            raise ValueError("Informe ao menos uma ordem válida.")
+        if len(normalized) > 200:
+            raise ValueError("Selecione no máximo 200 ordens por vez.")
+        return normalized
 
 
 class PickupCatalogOrderEmailRequestBulkOut(BaseModel):

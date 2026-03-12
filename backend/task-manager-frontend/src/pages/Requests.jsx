@@ -20,6 +20,7 @@ import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
 
 import api from '../services/api';
+import { hasAnyPermission, hasPermission } from '../utils/auth';
 
 const TAB_CONFIG = {
   baixa: {
@@ -447,6 +448,8 @@ const mapEmailPayloadToBaixaRequestBlock = (payload, selectedEntryKeys = []) => 
 };
 
 const Requests = () => {
+  const canAccessComodatoRequests = hasAnyPermission(['equipments.view', 'equipments.manage']);
+  const canManageDeliveries = hasPermission('deliveries.manage');
   const [activeTab, setActiveTab] = useState('baixa');
   const [recipients, setRecipients] = useState('');
   const [recipientName, setRecipientName] = useState('João');
@@ -641,7 +644,7 @@ const Requests = () => {
 
   useEffect(() => {
     let isMounted = true;
-    if (activeTab !== 'comodato') {
+    if (activeTab !== 'comodato' || !canAccessComodatoRequests) {
       return () => {
         isMounted = false;
       };
@@ -700,7 +703,13 @@ const Requests = () => {
     return () => {
       isMounted = false;
     };
-  }, [activeTab]);
+  }, [activeTab, canAccessComodatoRequests]);
+
+  useEffect(() => {
+    if (activeTab === 'comodato' && !canAccessComodatoRequests) {
+      setActiveTab('baixa');
+    }
+  }, [activeTab, canAccessComodatoRequests]);
 
   const filteredAvailableRefrigerators = useMemo(() => {
     const search = safeText(availableRefrigeratorsQuery).toLowerCase();
@@ -815,7 +824,11 @@ const Requests = () => {
         code: safeText(client.client_code) || normalizedCode,
         fantasy: safeText(client.nome_fantasia),
         document: safeText(client.cnpj_cpf),
-        items: Array.isArray(payload.items) ? payload.items.map(normalizeInventoryItem).filter((item) => item.id > 0) : [],
+        items: Array.isArray(payload.items)
+          ? payload.items
+            .map(normalizeInventoryItem)
+            .filter((item) => item.id > 0 && item.openQuantity > 0)
+          : [],
       };
       pickupInventoryItems = profile.items;
       if (Boolean(payload.found_anything) || profile.fantasy || profile.document || profile.items.length > 0) {
@@ -826,7 +839,10 @@ const Requests = () => {
       pickupInventoryItems = [];
     }
 
-    if (!resolvedProfile || (!resolvedProfile.fantasy && !resolvedProfile.document)) {
+    if (
+      canManageDeliveries
+      && (!resolvedProfile || (!resolvedProfile.fantasy && !resolvedProfile.document))
+    ) {
       try {
         const fallbackResponse = await api.get(`/deliveries/client/${encodeURIComponent(normalizedCode)}`);
         const payload = fallbackResponse.data || {};
@@ -897,7 +913,7 @@ const Requests = () => {
             fromInventoryItems: [],
             selectedFromInventoryItemIds: [],
             fromInventoryLoading: false,
-            fromInventoryError: 'Não foi possível carregar os materiais deste cliente.',
+            fromInventoryError: 'Não foi possível carregar os comodatos em aberto deste cliente na base 02.02.20.',
           };
         });
       }
@@ -1203,7 +1219,8 @@ const Requests = () => {
     [selectedMentions]
   );
 
-  const emailSubject = TAB_CONFIG[activeTab].subject;
+  const activeTabConfig = TAB_CONFIG[activeTab] || TAB_CONFIG.baixa;
+  const emailSubject = activeTabConfig.subject;
   const selectedCurrentRequests = useMemo(
     () => currentRequests.filter((requestBlock) => requestBlock.selected),
     [currentRequests]
@@ -1548,7 +1565,9 @@ const Requests = () => {
       <Box>
         <Typography variant="h5">Solicitações</Typography>
         <Typography variant="body2" color="text.secondary">
-          Solicite baixa, DE-PARA e comodato com e-mail padronizado.
+          {canAccessComodatoRequests
+            ? 'Solicite baixa, DE-PARA e comodato com e-mail padronizado.'
+            : 'Solicite baixa e DE-PARA com e-mail padronizado.'}
         </Typography>
       </Box>
 
@@ -1569,7 +1588,9 @@ const Requests = () => {
           >
             <Tab value="baixa" label={TAB_CONFIG.baixa.label} />
             <Tab value="de_para" label={TAB_CONFIG.de_para.label} />
-            <Tab value="comodato" label={TAB_CONFIG.comodato.label} />
+            {canAccessComodatoRequests && (
+              <Tab value="comodato" label={TAB_CONFIG.comodato.label} />
+            )}
           </Tabs>
         </CardContent>
       </Card>
@@ -2082,25 +2103,28 @@ const Requests = () => {
                     <Box sx={{ display: 'grid', gap: 1 }}>
                       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, flexWrap: 'wrap' }}>
                         <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                          Materiais do PDV de origem
+                          Comodatos em aberto do PDV de origem (base 02.02.20)
                         </Typography>
                         {requestBlock.fromInventoryLoading && <CircularProgress size={16} />}
                       </Box>
 
                       {!safeText(requestBlock.fromClientCode) ? (
                         <Typography variant="body2" color="text.secondary">
-                          Informe o código do cliente de origem para carregar os materiais.
+                          Informe o código do cliente de origem para carregar os comodatos em aberto.
                         </Typography>
                       ) : requestBlock.fromInventoryError ? (
                         <Alert severity="warning">{requestBlock.fromInventoryError}</Alert>
                       ) : (
                         <>
                           <Typography variant="caption" color="text.secondary">
-                            Selecione os materiais que devem entrar nesta solicitação de DE-PARA.
+                            Selecione os comodatos e equipamentos da base 02.02.20 que devem entrar nesta solicitação de DE-PARA.
                           </Typography>
                           {Array.isArray(requestBlock.fromInventoryItems) && requestBlock.fromInventoryItems.length > 0 ? (
                             <>
                               <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, flexWrap: 'wrap' }}>
+                                <Typography variant="caption" color="text.secondary">
+                                  {`Comodatos em aberto encontrados: ${requestBlock.fromInventoryItems.length}`}
+                                </Typography>
                                 <FormControlLabel
                                   control={(
                                     <Checkbox
@@ -2125,7 +2149,7 @@ const Requests = () => {
                                   onClick={() => addSelectedDeParaInventoryMaterials(requestBlock.id)}
                                   disabled={(requestBlock.selectedFromInventoryItemIds || []).length === 0}
                                 >
-                                  Adicionar selecionados
+                                  Adicionar equipamentos selecionados
                                 </Button>
                               </Box>
 
@@ -2187,7 +2211,7 @@ const Requests = () => {
                             </>
                           ) : !requestBlock.fromInventoryLoading ? (
                             <Typography variant="body2" color="text.secondary">
-                              Nenhum material disponível encontrado para este cliente.
+                              Nenhum comodato em aberto encontrado para este cliente na base 02.02.20.
                             </Typography>
                           ) : null}
                         </>

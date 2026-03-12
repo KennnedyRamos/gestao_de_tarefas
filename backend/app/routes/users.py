@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.core.auth import get_current_admin
@@ -55,7 +56,7 @@ def create_user(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_admin),
 ):
-    existing = db.query(User).filter(User.email == payload.email).first()
+    existing = db.query(User).filter(func.lower(User.email) == payload.email).first()
     if existing:
         raise HTTPException(status_code=409, detail='Email já cadastrado')
     if payload.role not in VALID_ROLES:

@@ -72,13 +72,15 @@ const MONTH_PICKER_OPTIONS = [
 
 const STATUS_OPTIONS = [
   { value: 'novo', label: 'Novo' },
-  { value: 'disponivel', label: 'Disponível' },
-  { value: 'recap', label: 'Recap' }
+  { value: 'disponivel', label: 'Boa' },
+  { value: 'recap', label: 'Recap' },
+  { value: 'sucata', label: 'Sucata' }
 ];
 
 const NON_ALLOCATED_STATUS_OPTIONS = [
   { value: 'todos', label: 'Todos os status' },
-  { value: 'disponivel', label: 'Disponível (inclui novos)' },
+  { value: 'novo', label: 'Novo' },
+  { value: 'disponivel', label: 'Boa' },
   { value: 'recap', label: 'Recap' },
   { value: 'sucata', label: 'Sucata' },
 ];
@@ -163,13 +165,7 @@ const COMPACT_MODEL_CELL_SX = {
 
 const normalizeCodeInput = (value) => String(value || '').trim().toUpperCase();
 const normalizeTextInput = (value) => String(value || '').trim();
-const normalizeNonAllocatedStatus = (value) => {
-  const normalized = normalizeTextInput(value).toLowerCase();
-  if (normalized === 'novo' || normalized === 'disponivel') {
-    return 'disponivel';
-  }
-  return normalized;
-};
+const normalizeNonAllocatedStatus = (value) => normalizeTextInput(value).toLowerCase();
 
 const normalizeQuantityInput = (value) => {
   const digits = String(value || '').replace(/\D+/g, '');
@@ -671,14 +667,13 @@ const EquipmentPage = () => {
   );
   const nonAllocatedStatusLabelByValue = useMemo(
     () => ({
-      novo: 'Disponível',
-      disponivel: 'Disponível',
+      novo: 'Novo',
+      disponivel: 'Boa',
       recap: 'Recap',
       sucata: 'Sucata',
     }),
     []
   );
-  const nonAllocatedAvailableCount = Number(nonAllocatedDashboard.novo || 0) + Number(nonAllocatedDashboard.disponivel || 0);
 
   const monthPickerOpen = Boolean(monthPickerAnchorEl);
   const numericYears = useMemo(
@@ -2157,7 +2152,7 @@ const EquipmentPage = () => {
             <CardContent sx={{ display: 'grid', gap: 1.5 }}>
               <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 1, flexWrap: 'wrap' }}>
                 <Typography variant="h6">
-                  {isMaterialsScreen ? 'Filtros de materiais da base 02.02.20' : 'Filtros de refrigeradores disponíveis'}
+                  {isMaterialsScreen ? 'Filtros de materiais da base 02.02.20' : 'Filtros de refrigeradores retirados'}
                 </Typography>
                 <Button variant="outlined" onClick={() => refreshData({ notifySync: true })} fullWidth={isMobile}>Atualizar dados</Button>
               </Box>
@@ -2255,7 +2250,7 @@ const EquipmentPage = () => {
                   }}
                 >
                   <TextField
-                    label="Pesquisar refrigeradores disponíveis"
+                    label="Pesquisar refrigeradores retirados"
                     placeholder="Modelo, marca, RG, etiqueta ou voltagem"
                     value={overviewSearch}
                     onChange={(event) => setOverviewSearch(event.target.value)}
@@ -2289,17 +2284,18 @@ const EquipmentPage = () => {
           {isNewRefrigeratorsScreen && (
             <Card sx={{ border: '1px solid var(--stroke)', boxShadow: 'var(--shadow-md)' }}>
               <CardContent sx={{ display: 'grid', gap: 1.25 }}>
-                <Typography variant="h6">Refrigeradores disponíveis (não alocados)</Typography>
+                <Typography variant="h6">Refrigeradores retirados (não alocados)</Typography>
                 <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', md: 'repeat(5, minmax(0, 1fr))' }, gap: 1 }}>
                   <Chip size="small" label={`Total: ${nonAllocatedDashboard.total_nao_alocados}`} />
-                  <Chip size="small" color="success" label={`Disponíveis: ${nonAllocatedAvailableCount}`} />
+                  <Chip size="small" color="default" label={`Novos: ${nonAllocatedDashboard.novo}`} />
+                  <Chip size="small" color="success" label={`Boa: ${nonAllocatedDashboard.disponivel}`} />
                   <Chip size="small" color="warning" label={`Recap: ${nonAllocatedDashboard.recap}`} />
                   <Chip size="small" color="error" label={`Sucata: ${nonAllocatedDashboard.sucata}`} />
                 </Box>
                 {loadingNewRefrigerators ? (
                   <Typography color="text.secondary">Carregando refrigeradores não alocados...</Typography>
                 ) : newRefrigerators.length === 0 ? (
-                  <Typography color="text.secondary">Nenhum refrigerador disponível encontrado.</Typography>
+                  <Typography color="text.secondary">Nenhum refrigerador retirado encontrado.</Typography>
                 ) : (
                   <>
                     {isMobile ? (

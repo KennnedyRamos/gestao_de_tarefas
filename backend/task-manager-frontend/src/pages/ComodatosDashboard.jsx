@@ -175,7 +175,7 @@ const ComodatosDashboard = () => {
         let offset = 0;
         const merged = [];
         while (true) {
-          const response = await api.get('/pickup-catalog/orders', {
+          const response = await api.get('/pickup-catalog/orders/dashboard', {
             params: {
               status: statusValue,
               limit,
@@ -200,8 +200,8 @@ const ComodatosDashboard = () => {
       try {
         setLoading(true);
         const [deliveriesResponse, pickupsResponse, pickupOrdersResponse] = await Promise.all([
-          api.get('/deliveries'),
-          api.get('/pickups'),
+          api.get('/deliveries/dashboard'),
+          api.get('/pickups/dashboard'),
           Promise.all([
             loadOrdersByStatus('concluida'),
             loadOrdersByStatus('pendente')

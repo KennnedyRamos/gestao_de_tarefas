@@ -1,10 +1,8 @@
 import logging
 import os
 import threading
-from pathlib import Path
 
 from fastapi import FastAPI, Request
-from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import inspect, text
 from app.routes import tasks, auth, users, routines, deliveries, pickups, pickup_catalog as pickup_catalog_routes, equipments
@@ -31,7 +29,7 @@ cors_origins = parse_cors_origins(CORS_ORIGINS)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
-    allow_origin_regex=CORS_ORIGIN_REGEX,
+    allow_origin_regex=CORS_ORIGIN_REGEX or None,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"]
@@ -45,10 +43,6 @@ async def ensure_utf8_json_charset(request: Request, call_next):
     if content_type.startswith("application/json") and "charset=" not in content_type.lower():
         response.headers["content-type"] = "application/json; charset=utf-8"
     return response
-
-uploads_dir = Path(os.getenv("UPLOADS_DIR", Path(__file__).resolve().parents[1] / "uploads")).resolve()
-uploads_dir.mkdir(parents=True, exist_ok=True)
-app.mount("/uploads", StaticFiles(directory=str(uploads_dir)), name="uploads")
 
 def ensure_task_columns():
     inspector = inspect(engine)

@@ -15,15 +15,23 @@ os.environ.setdefault("DB_BOOTSTRAP_MODE", "off")
 from app.core.security import get_password_hash  # noqa: E402
 from app.database.base import Base  # noqa: E402
 from app.database.session import SessionLocal, engine  # noqa: E402
-from app.models.pickup_catalog import PickupCatalogClient, PickupCatalogInventoryItem  # noqa: E402
+from app.models.pickup_catalog import (  # noqa: E402
+    PickupCatalogClient,
+    PickupCatalogInventoryItem,
+    PickupCatalogOrder,
+    PickupCatalogOrderItem,
+)
 from app.models.user import User  # noqa: E402
+from app.routes.pickup_catalog import list_orders, update_order_status  # noqa: E402
 from app.routes.equipments import (  # noqa: E402
     create_equipment,
     list_available_refrigerators_for_comodato,
     list_equipments,
+    list_non_allocated_refrigerators,
     sync_refrigerators_allocation_status,
 )
 from app.schemas.equipment import EquipmentCreate  # noqa: E402
+from app.schemas.pickup_catalog import PickupCatalogOrderStatusUpdateIn  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -163,3 +171,167 @@ def test_sync_allocation_status_and_hide_from_available_requests(db_session):
     assert row is not None
     row_status = row.get("status") if isinstance(row, dict) else getattr(row, "status", "")
     assert str(row_status or "").lower() == "alocado"
+
+
+def test_concluded_withdrawal_returns_refrigerator_to_non_allocated_and_blocks_resync(db_session):
+    current_user = create_admin_user(db_session)
+    token_seed = uuid4().hex[:10].upper()
+    local_rg = f"RG-RET-{token_seed}"
+
+    created = create_equipment(
+        payload=EquipmentCreate(
+            category="refrigerador",
+            model_name="VISA COOLER RETORNO",
+            brand="BRAHMA",
+            quantity=1,
+            voltage="220v",
+            rg_code=local_rg,
+            tag_code=f"TAG-RET-{token_seed}",
+            status="novo",
+            client_name=None,
+            notes="Teste integracao retorno",
+        ),
+        db=db_session,
+        current_user=current_user,
+    )
+    equipment_id = int(created.id)
+
+    seed_020220_allocation(db_session, local_rg, client_code="2002")
+
+    available_after_allocation = list_available_refrigerators_for_comodato(
+        limit=500,
+        offset=0,
+        q=None,
+        db=db_session,
+        current_user=current_user,
+    )
+    assert equipment_by_id(available_after_allocation, equipment_id) is None
+
+    order = PickupCatalogOrder(
+        order_number=f"RET-{token_seed}",
+        client_code="2002",
+        nome_fantasia="Cliente Retorno",
+        withdrawal_date="2026-03-11",
+        status="pendente",
+        summary_line="Refrigerador retornado",
+    )
+    db_session.add(order)
+    db_session.flush()
+    db_session.add(
+        PickupCatalogOrderItem(
+            order_id=order.id,
+            description="VISA COOLER RETORNO",
+            item_type="refrigerador",
+            quantity=1,
+            rg=local_rg,
+            comodato_number="CMD-RET-0001",
+        )
+    )
+    db_session.commit()
+
+    update_order_status(
+        order_id=int(order.id),
+        payload=PickupCatalogOrderStatusUpdateIn(
+            status="concluida",
+            status_note="Retirado",
+            refrigerator_condition="boa",
+        ),
+        db=db_session,
+        current_user=current_user,
+    )
+
+    available_after_return = list_available_refrigerators_for_comodato(
+        limit=500,
+        offset=0,
+        q=None,
+        db=db_session,
+        current_user=current_user,
+    )
+    assert equipment_by_id(available_after_return, equipment_id) is not None
+
+    non_allocated = list_non_allocated_refrigerators(
+        limit=50,
+        offset=0,
+        q=None,
+        status_filter="todos",
+        sort="newest",
+        db=db_session,
+        current_user=current_user,
+    )
+    returned_row = equipment_by_id(non_allocated.items, equipment_id)
+    assert returned_row is not None
+    returned_status = returned_row.get("status") if isinstance(returned_row, dict) else getattr(returned_row, "status", "")
+    assert str(returned_status or "").lower() == "disponivel"
+
+    sync_payload = sync_refrigerators_allocation_status(
+        db=db_session,
+        current_user=current_user,
+    )
+    assert equipment_id not in (sync_payload.updated_ids or [])
+
+
+def test_list_orders_sorts_pending_first_then_completed_by_withdrawal_date_desc(db_session):
+    current_user = create_admin_user(db_session)
+
+    db_session.add_all([
+        PickupCatalogOrder(
+            order_number="RET-PENDENTE-RECENTE",
+            client_code="1001",
+            nome_fantasia="Cliente Ordenacao",
+            withdrawal_date="2026-03-12",
+            status="pendente",
+            summary_line="RET-PENDENTE-RECENTE",
+        ),
+        PickupCatalogOrder(
+            order_number="RET-PENDENTE-ANTIGA",
+            client_code="1001",
+            nome_fantasia="Cliente Ordenacao",
+            withdrawal_date="2026-03-10",
+            status="pendente",
+            summary_line="RET-PENDENTE-ANTIGA",
+        ),
+        PickupCatalogOrder(
+            order_number="RET-CONCLUIDA-RECENTE",
+            client_code="1001",
+            nome_fantasia="Cliente Ordenacao",
+            withdrawal_date="2026-03-11",
+            status="concluida",
+            summary_line="RET-CONCLUIDA-RECENTE",
+        ),
+        PickupCatalogOrder(
+            order_number="RET-CONCLUIDA-ANTIGA",
+            client_code="1001",
+            nome_fantasia="Cliente Ordenacao",
+            withdrawal_date="2026-03-09",
+            status="concluida",
+            summary_line="RET-CONCLUIDA-ANTIGA",
+        ),
+        PickupCatalogOrder(
+            order_number="RET-CANCELADA",
+            client_code="1001",
+            nome_fantasia="Cliente Ordenacao",
+            withdrawal_date="2026-03-13",
+            status="cancelada",
+            summary_line="RET-CANCELADA",
+        ),
+    ])
+    db_session.commit()
+
+    rows = list_orders(
+        limit=20,
+        offset=0,
+        status_filter=None,
+        email_request_status=None,
+        q=None,
+        db=db_session,
+        current_user=current_user,
+    )
+
+    ordered_numbers = [row.order_number for row in rows]
+    assert ordered_numbers == [
+        "RET-PENDENTE-RECENTE",
+        "RET-PENDENTE-ANTIGA",
+        "RET-CONCLUIDA-RECENTE",
+        "RET-CONCLUIDA-ANTIGA",
+        "RET-CANCELADA",
+    ]

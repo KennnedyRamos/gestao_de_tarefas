@@ -67,6 +67,38 @@ const parseDeliveryStatus = (value) => {
   return STATUS_LABELS[normalized] || toText(value);
 };
 
+const parseFilenameFromDisposition = (contentDispositionValue) => {
+  if (!contentDispositionValue) {
+    return '';
+  }
+  const utfMatch = contentDispositionValue.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utfMatch?.[1]) {
+    try {
+      return decodeURIComponent(utfMatch[1]);
+    } catch (err) {
+      return utfMatch[1];
+    }
+  }
+  const simpleMatch = contentDispositionValue.match(/filename="?([^";]+)"?/i);
+  return simpleMatch?.[1] || '';
+};
+
+const openBlobInNewTab = (blob, fallbackFilename) => {
+  const objectUrl = window.URL.createObjectURL(blob);
+  const openedWindow = window.open(objectUrl, '_blank', 'noopener,noreferrer');
+  if (!openedWindow) {
+    const anchor = document.createElement('a');
+    anchor.href = objectUrl;
+    anchor.download = fallbackFilename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+  }
+  window.setTimeout(() => {
+    window.URL.revokeObjectURL(objectUrl);
+  }, 60000);
+};
+
 const DeliveriesHistory = () => {
   const navigate = useNavigate();
   const [deliveries, setDeliveries] = useState([]);
@@ -74,6 +106,7 @@ const DeliveriesHistory = () => {
   const [page, setPage] = useState(1);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
+  const [openingFileKey, setOpeningFileKey] = useState('');
 
   const apiBaseUrl = api?.defaults?.baseURL
     || process.env.REACT_APP_API_URL
@@ -127,6 +160,27 @@ const DeliveriesHistory = () => {
       loadDeliveries();
     } catch (err) {
       setError('Erro ao excluir a entrega.');
+    }
+  };
+
+  const handleOpenFile = async (fileUrl, fallbackFilename, fileKey) => {
+    if (!fileUrl) {
+      return;
+    }
+    try {
+      setOpeningFileKey(fileKey);
+      const response = await api.get(fileUrl, { responseType: 'blob' });
+      const contentDisposition = response?.headers?.['content-disposition'] || '';
+      const resolvedFilename = parseFilenameFromDisposition(contentDisposition) || fallbackFilename;
+      const payloadBlob = response?.data instanceof Blob
+        ? response.data
+        : new Blob([response?.data], { type: response?.headers?.['content-type'] || 'application/pdf' });
+      openBlobInNewTab(payloadBlob, resolvedFilename);
+      setError('');
+    } catch (err) {
+      setError('Erro ao abrir o arquivo da entrega.');
+    } finally {
+      setOpeningFileKey('');
     }
   };
 
@@ -267,22 +321,18 @@ const DeliveriesHistory = () => {
                       <Button
                         size="small"
                         variant="outlined"
-                        href={item.pdfOneHref || undefined}
-                        target="_blank"
-                        rel="noreferrer"
-                        disabled={!item.pdfOneHref}
+                        onClick={() => handleOpenFile(item.pdfOneHref, `entrega_${item.id || 'nf'}_nf.pdf`, `nf-${item.itemKey}`)}
+                        disabled={!item.pdfOneHref || openingFileKey === `nf-${item.itemKey}`}
                       >
-                        Abrir NF
+                        {openingFileKey === `nf-${item.itemKey}` ? 'Abrindo NF...' : 'Abrir NF'}
                       </Button>
                       <Button
                         size="small"
                         variant="outlined"
-                        href={item.pdfTwoHref || undefined}
-                        target="_blank"
-                        rel="noreferrer"
-                        disabled={!item.pdfTwoHref}
+                        onClick={() => handleOpenFile(item.pdfTwoHref, `entrega_${item.id || 'contrato'}_contrato.pdf`, `contract-${item.itemKey}`)}
+                        disabled={!item.pdfTwoHref || openingFileKey === `contract-${item.itemKey}`}
                       >
-                        Abrir contrato
+                        {openingFileKey === `contract-${item.itemKey}` ? 'Abrindo contrato...' : 'Abrir contrato'}
                       </Button>
                     </Box>
                     <IconButton

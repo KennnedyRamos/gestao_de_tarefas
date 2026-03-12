@@ -1,11 +1,21 @@
 // src/pages/Login.jsx
 import React, { useEffect, useState } from 'react';
-import { Box, TextField, Button, Typography, InputAdornment, IconButton, Alert, CircularProgress } from '@mui/material';
+import {
+  Alert,
+  Box,
+  Button,
+  CircularProgress,
+  IconButton,
+  InputAdornment,
+  TextField,
+  Typography,
+} from '@mui/material';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
 import { useNavigate } from 'react-router-dom';
+
 import api, { warmupApi } from '../services/api';
-import { clearSessionExpired, consumeSessionExpired } from '../utils/auth';
+import { consumeSessionExpired, setToken } from '../utils/auth';
 
 const Login = () => {
   const navigate = useNavigate();
@@ -18,27 +28,23 @@ const Login = () => {
 
   const resolveLoginError = (error) => {
     if (!error?.response) {
-      return 'Não foi possível conectar ao servidor. Tente novamente.';
+      return 'Nao foi possivel conectar ao servidor. Tente novamente.';
     }
-    const detail = error?.response?.data?.detail;
-    if (typeof detail === 'string' && detail.trim()) {
-      if (detail.toLowerCase().includes('credenciais')) {
-        return 'Email ou senha incorretos.';
-      }
-      return detail;
-    }
+
     const statusCode = error?.response?.status;
-    if (statusCode === 400) {
-      return 'Email incorreto.';
-    }
+    const detail = error?.response?.data?.detail;
+
     if (statusCode === 401) {
-      return 'Senha incorreta.';
+      return 'Email ou senha incorretos.';
     }
-    if (statusCode === 404) {
-      return 'Usuário não encontrado.';
+    if (statusCode === 429) {
+      return 'Muitas tentativas de login. Aguarde 1 minuto e tente novamente.';
     }
     if (statusCode === 422) {
-      return 'Preencha email e senha válidos.';
+      return 'Preencha email e senha validos.';
+    }
+    if (typeof detail === 'string' && detail.trim()) {
+      return detail;
     }
     return 'Erro ao logar. Verifique suas credenciais e tente novamente.';
   };
@@ -47,7 +53,7 @@ const Login = () => {
     if (consumeSessionExpired()) {
       setStatus({
         severity: 'warning',
-        text: 'Sua sessão expirou. Faça login novamente para ver suas tarefas.'
+        text: 'Sua sessao expirou. Faca login novamente para continuar.'
       });
     }
   }, []);
@@ -64,17 +70,15 @@ const Login = () => {
     };
   }, []);
 
-  const handleLogin = async (e) => {
-    e.preventDefault();
+  const handleLogin = async (event) => {
+    event.preventDefault();
     setIsSubmitting(true);
     setStatus(null);
     try {
       const response = await api.post('/auth/login', { email, password });
-      localStorage.setItem('token', response.data.access_token);
-      clearSessionExpired();
+      setToken(response.data.access_token);
       navigate('/');
     } catch (error) {
-      console.error(error);
       setStatus({
         severity: 'error',
         text: resolveLoginError(error)
@@ -118,7 +122,7 @@ const Login = () => {
           <TextField
             label="Email"
             value={email}
-            onChange={(e) => setEmail(e.target.value)}
+            onChange={(event) => setEmail(event.target.value)}
             fullWidth
             required
             disabled={isSubmitting}
@@ -128,7 +132,7 @@ const Login = () => {
             label="Senha"
             type={showPassword ? 'text' : 'password'}
             value={password}
-            onChange={(e) => setPassword(e.target.value)}
+            onChange={(event) => setPassword(event.target.value)}
             fullWidth
             required
             disabled={isSubmitting}

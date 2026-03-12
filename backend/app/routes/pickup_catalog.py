@@ -1,6 +1,7 @@
 import json
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
+from pathlib import Path
 import re
 from typing import Any
 from urllib.parse import quote
@@ -76,6 +77,12 @@ REFRIGERATOR_CONDITION_TO_EQUIPMENT_STATUS = {
     "recap": "recap",
     "sucata": "sucata",
 }
+ORDER_STATUS_SORT_PRIORITY = {
+    "pendente": 0,
+    "concluida": 1,
+    "cancelada": 2,
+}
+WITHDRAWAL_DATE_SORT_FORMATS = ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y")
 
 
 def _resolve_brazil_tz():
@@ -92,16 +99,32 @@ FOLLOWUP_MINUTE = 30
 MAX_ORDERS_PAGE_SIZE = 200
 DEFAULT_ORDERS_PAGE_SIZE = 60
 CEP_LOOKUP_CACHE: dict[str, str] = {}
+ALLOWED_CSV_UPLOAD_SUFFIXES = {".csv", ".txt"}
+ALLOWED_CSV_UPLOAD_CONTENT_TYPES = {
+    "",
+    "text/csv",
+    "application/csv",
+    "text/plain",
+    "application/vnd.ms-excel",
+    "application/octet-stream",
+}
+MAX_CLIENTS_CSV_UPLOAD_BYTES = 5 * 1024 * 1024
+MAX_INVENTORY_CSV_UPLOAD_BYTES = 12 * 1024 * 1024
+MAX_CLIENTS_CSV_LINES = 50000
+MAX_INVENTORY_CSV_LINES = 120000
 get_pickup_catalog_status_access = require_any_permission(
     "pickups.create_order",
     "pickups.import_base",
     "pickups.orders_history",
     "pickups.withdrawals_history",
-    "comodatos.view",
 )
 get_pickup_catalog_import_access = require_permission("pickups.import_base")
 get_pickup_catalog_create_access = require_permission("pickups.create_order")
 get_pickup_catalog_orders_access = require_any_permission(
+    "pickups.orders_history",
+    "pickups.withdrawals_history",
+)
+get_pickup_catalog_dashboard_orders_access = require_any_permission(
     "pickups.orders_history",
     "pickups.withdrawals_history",
     "comodatos.view",
@@ -132,12 +155,140 @@ def _normalized_refrigerator_condition(value: Any) -> str:
     return ""
 
 
+def _parse_withdrawal_sort_date(value: Any, fallback: datetime | None = None) -> datetime:
+    raw = _safe_text(value)
+    if raw:
+        for fmt in WITHDRAWAL_DATE_SORT_FORMATS:
+            try:
+                return datetime.strptime(raw, fmt)
+            except ValueError:
+                continue
+    return fallback or datetime(1900, 1, 1)
+
+
+def _datetime_sort_value(value: datetime | None) -> float:
+    if value is None:
+        return 0.0
+    return (
+        float(value.toordinal()) * 86400
+        + float(value.hour * 3600)
+        + float(value.minute * 60)
+        + float(value.second)
+        + (float(value.microsecond) / 1_000_000)
+    )
+
+
+def _order_sort_key(order: PickupCatalogOrder) -> tuple[int, float, float, int]:
+    normalized_status = _normalized_order_status(order.status)
+    withdrawal_sort_date = _parse_withdrawal_sort_date(order.withdrawal_date, order.created_at)
+    created_at_value = order.created_at or datetime(1900, 1, 1)
+    return (
+        ORDER_STATUS_SORT_PRIORITY.get(normalized_status, 9),
+        -_datetime_sort_value(withdrawal_sort_date),
+        -_datetime_sort_value(created_at_value),
+        -int(order.id or 0),
+    )
+
+
+def _build_orders_query(
+    db: Session,
+    *,
+    normalized_status_filter: str,
+    normalized_email_filter: str,
+    search_text: str,
+    can_view_all_orders: bool,
+):
+    query = db.query(PickupCatalogOrder).options(
+        load_only(
+            PickupCatalogOrder.id,
+            PickupCatalogOrder.order_number,
+            PickupCatalogOrder.client_code,
+            PickupCatalogOrder.nome_fantasia,
+            PickupCatalogOrder.withdrawal_date,
+            PickupCatalogOrder.status,
+            PickupCatalogOrder.email_request_status,
+            PickupCatalogOrder.status_note,
+            PickupCatalogOrder.status_updated_by,
+            PickupCatalogOrder.status_updated_at,
+            PickupCatalogOrder.summary_line,
+            PickupCatalogOrder.created_at,
+        )
+    )
+
+    if normalized_status_filter:
+        query = query.filter(PickupCatalogOrder.status == normalized_status_filter)
+    elif not can_view_all_orders:
+        query = query.filter(PickupCatalogOrder.status.in_(["pendente", "concluida"]))
+
+    if normalized_email_filter == "pending":
+        query = query.filter(
+            PickupCatalogOrder.status == "concluida",
+            or_(
+                PickupCatalogOrder.email_request_status.is_(None),
+                func.trim(PickupCatalogOrder.email_request_status) == "",
+                PickupCatalogOrder.email_request_status == "pending",
+            ),
+        )
+    elif normalized_email_filter == "requested":
+        query = query.filter(
+            PickupCatalogOrder.status == "concluida",
+            PickupCatalogOrder.email_request_status == "requested",
+        )
+
+    if search_text:
+        pattern = f"%{search_text}%"
+        query = query.filter(
+            or_(
+                PickupCatalogOrder.order_number.ilike(pattern),
+                PickupCatalogOrder.client_code.ilike(pattern),
+                PickupCatalogOrder.nome_fantasia.ilike(pattern),
+                PickupCatalogOrder.summary_line.ilike(pattern),
+            )
+        )
+
+    return query
+
+
 def _now_brazil() -> datetime:
     return datetime.now(BRAZIL_TZ)
 
 
 def _today_brazil_date() -> str:
     return _now_brazil().strftime("%d/%m/%Y")
+
+
+async def _read_csv_upload_bytes(
+    upload: UploadFile,
+    *,
+    max_bytes: int,
+    max_lines: int,
+    label: str,
+) -> bytes:
+    file_name = _safe_text(getattr(upload, "filename", ""))
+    suffix = Path(file_name).suffix.lower()
+    if suffix and suffix not in ALLOWED_CSV_UPLOAD_SUFFIXES:
+        raise HTTPException(status_code=400, detail=f"{label} deve estar em formato CSV.")
+
+    content_type = _safe_text(getattr(upload, "content_type", "")).lower()
+    if content_type not in ALLOWED_CSV_UPLOAD_CONTENT_TYPES:
+        raise HTTPException(status_code=400, detail=f"Tipo de arquivo invÃ¡lido para {label}.")
+
+    raw_bytes = await upload.read(max_bytes + 1)
+    if len(raw_bytes) > max_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"{label} excede o limite de {max_bytes // (1024 * 1024)} MB.",
+        )
+    if not raw_bytes:
+        return b""
+
+    line_count = raw_bytes.count(b"\n") + (1 if raw_bytes else 0)
+    if line_count > max_lines + 1:
+        raise HTTPException(
+            status_code=422,
+            detail=f"{label} excede o limite de {max_lines} linhas.",
+        )
+    return raw_bytes
 
 
 def _is_after_followup_time(now_brazil: datetime) -> bool:
@@ -512,7 +663,10 @@ def _uses_batched_inventory(db: Session) -> bool:
 
 
 def _load_inventory_items_for_client(db: Session, client_id: int) -> list[PickupCatalogInventoryItem]:
-    query = db.query(PickupCatalogInventoryItem).filter(PickupCatalogInventoryItem.client_id == client_id)
+    query = db.query(PickupCatalogInventoryItem).filter(
+        PickupCatalogInventoryItem.client_id == client_id,
+        PickupCatalogInventoryItem.open_quantity > 0,
+    )
 
     if _uses_batched_inventory(db):
         latest_batch_id = _latest_batch_id(db)
@@ -737,8 +891,26 @@ async def upload_csv(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_pickup_catalog_import_access),
 ):
-    clients_bytes = await clients_csv.read() if clients_csv else b""
-    inventory_bytes = await inventory_csv.read() if inventory_csv else b""
+    clients_bytes = (
+        await _read_csv_upload_bytes(
+            clients_csv,
+            max_bytes=MAX_CLIENTS_CSV_UPLOAD_BYTES,
+            max_lines=MAX_CLIENTS_CSV_LINES,
+            label="CSV 01.20.11",
+        )
+        if clients_csv
+        else b""
+    )
+    inventory_bytes = (
+        await _read_csv_upload_bytes(
+            inventory_csv,
+            max_bytes=MAX_INVENTORY_CSV_UPLOAD_BYTES,
+            max_lines=MAX_INVENTORY_CSV_LINES,
+            label="CSV 02.02.20",
+        )
+        if inventory_csv
+        else b""
+    )
 
     has_clients_upload = bool(clients_bytes)
     has_inventory_upload = bool(inventory_bytes)
@@ -919,61 +1091,46 @@ def list_orders(
         raise HTTPException(status_code=422, detail="Filtro de solicitação de e-mail inválido.")
     search_text = _safe_text(q)
 
-    query = db.query(PickupCatalogOrder).options(
-        load_only(
-            PickupCatalogOrder.id,
-            PickupCatalogOrder.order_number,
-            PickupCatalogOrder.client_code,
-            PickupCatalogOrder.nome_fantasia,
-            PickupCatalogOrder.withdrawal_date,
-            PickupCatalogOrder.status,
-            PickupCatalogOrder.email_request_status,
-            PickupCatalogOrder.status_note,
-            PickupCatalogOrder.status_updated_by,
-            PickupCatalogOrder.status_updated_at,
-            PickupCatalogOrder.summary_line,
-            PickupCatalogOrder.created_at,
-        )
+    query = _build_orders_query(
+        db,
+        normalized_status_filter=normalized_status_filter,
+        normalized_email_filter=normalized_email_filter,
+        search_text=search_text,
+        can_view_all_orders=can_view_all_orders,
     )
+    filtered_orders = query.all()
+    ordered_rows = sorted(filtered_orders, key=_order_sort_key)
+    orders = ordered_rows[offset: offset + limit]
 
-    if normalized_status_filter:
-        query = query.filter(PickupCatalogOrder.status == normalized_status_filter)
-    elif not can_view_all_orders:
-        query = query.filter(PickupCatalogOrder.status.in_(["pendente", "concluida"]))
+    has_refrigerator_set = _has_refrigerator_map_for_orders(db, [int(order.id) for order in orders])
+    return [
+        _order_out(order, has_refrigerator=(int(order.id) in has_refrigerator_set))
+        for order in orders
+    ]
 
-    if normalized_email_filter == "pending":
-        query = query.filter(
-            PickupCatalogOrder.status == "concluida",
-            or_(
-                PickupCatalogOrder.email_request_status.is_(None),
-                func.trim(PickupCatalogOrder.email_request_status) == "",
-                PickupCatalogOrder.email_request_status == "pending",
-            ),
-        )
-    elif normalized_email_filter == "requested":
-        query = query.filter(
-            PickupCatalogOrder.status == "concluida",
-            PickupCatalogOrder.email_request_status == "requested",
-        )
 
-    if search_text:
-        pattern = f"%{search_text}%"
-        query = query.filter(
-            or_(
-                PickupCatalogOrder.order_number.ilike(pattern),
-                PickupCatalogOrder.client_code.ilike(pattern),
-                PickupCatalogOrder.nome_fantasia.ilike(pattern),
-                PickupCatalogOrder.summary_line.ilike(pattern),
-            )
-        )
+@router.get("/orders/dashboard", response_model=list[PickupCatalogOrderOut])
+def list_dashboard_orders(
+    limit: int = Query(default=DEFAULT_ORDERS_PAGE_SIZE, ge=1, le=MAX_ORDERS_PAGE_SIZE),
+    offset: int = Query(default=0, ge=0),
+    status_filter: str | None = Query(default=None, alias="status"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_pickup_catalog_dashboard_orders_access),
+):
+    normalized_status_filter = _normalized_order_status(status_filter) if _safe_text(status_filter) else ""
+    if normalized_status_filter and normalized_status_filter not in {"pendente", "concluida"}:
+        raise HTTPException(status_code=403, detail="Acesso negado para este status.")
 
-    orders = (
-        query
-        .order_by(PickupCatalogOrder.created_at.desc(), PickupCatalogOrder.id.desc())
-        .offset(offset)
-        .limit(limit)
-        .all()
+    query = _build_orders_query(
+        db,
+        normalized_status_filter=normalized_status_filter,
+        normalized_email_filter="",
+        search_text="",
+        can_view_all_orders=False,
     )
+    filtered_orders = query.all()
+    ordered_rows = sorted(filtered_orders, key=_order_sort_key)
+    orders = ordered_rows[offset: offset + limit]
 
     has_refrigerator_set = _has_refrigerator_map_for_orders(db, [int(order.id) for order in orders])
     return [

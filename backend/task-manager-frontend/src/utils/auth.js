@@ -2,6 +2,62 @@ const TOKEN_KEY = 'token';
 const SESSION_EXPIRED_KEY = 'session_expired';
 const EXP_LEEWAY_SECONDS = 30;
 
+const readSessionValue = (key) => {
+  try {
+    return sessionStorage.getItem(key);
+  } catch (err) {
+    return null;
+  }
+};
+
+const writeSessionValue = (key, value) => {
+  try {
+    sessionStorage.setItem(key, value);
+  } catch (err) {
+    // Ignore storage write failures.
+  }
+};
+
+const removeSessionValue = (key) => {
+  try {
+    sessionStorage.removeItem(key);
+  } catch (err) {
+    // Ignore storage removal failures.
+  }
+};
+
+const readLocalValue = (key) => {
+  try {
+    return localStorage.getItem(key);
+  } catch (err) {
+    return null;
+  }
+};
+
+const removeLocalValue = (key) => {
+  try {
+    localStorage.removeItem(key);
+  } catch (err) {
+    // Ignore storage removal failures.
+  }
+};
+
+const getStoredToken = () => {
+  const sessionToken = readSessionValue(TOKEN_KEY);
+  if (sessionToken) {
+    return sessionToken;
+  }
+
+  const legacyToken = readLocalValue(TOKEN_KEY);
+  if (!legacyToken) {
+    return null;
+  }
+
+  writeSessionValue(TOKEN_KEY, legacyToken);
+  removeLocalValue(TOKEN_KEY);
+  return legacyToken;
+};
+
 const decodeBase64Url = (value) => {
   if (!value) {
     return null;
@@ -24,15 +80,15 @@ const isTokenExpired = (payload) => {
 };
 
 export const markSessionExpired = () => {
-  sessionStorage.setItem(SESSION_EXPIRED_KEY, '1');
+  writeSessionValue(SESSION_EXPIRED_KEY, '1');
 };
 
 export const clearSessionExpired = () => {
-  sessionStorage.removeItem(SESSION_EXPIRED_KEY);
+  removeSessionValue(SESSION_EXPIRED_KEY);
 };
 
 export const consumeSessionExpired = () => {
-  const value = sessionStorage.getItem(SESSION_EXPIRED_KEY);
+  const value = readSessionValue(SESSION_EXPIRED_KEY);
   if (value) {
     clearSessionExpired();
     return true;
@@ -40,18 +96,32 @@ export const consumeSessionExpired = () => {
   return false;
 };
 
+export const setToken = (token) => {
+  const normalized = String(token || '').trim();
+  if (!normalized) {
+    removeSessionValue(TOKEN_KEY);
+    removeLocalValue(TOKEN_KEY);
+    return;
+  }
+  writeSessionValue(TOKEN_KEY, normalized);
+  removeLocalValue(TOKEN_KEY);
+  clearSessionExpired();
+};
+
 export const clearAuth = () => {
-  localStorage.removeItem(TOKEN_KEY);
+  removeSessionValue(TOKEN_KEY);
+  removeLocalValue(TOKEN_KEY);
   clearSessionExpired();
 };
 
 export const clearAuthForExpiry = () => {
-  localStorage.removeItem(TOKEN_KEY);
+  removeSessionValue(TOKEN_KEY);
+  removeLocalValue(TOKEN_KEY);
   markSessionExpired();
 };
 
 export const getTokenPayload = () => {
-  const token = localStorage.getItem(TOKEN_KEY);
+  const token = getStoredToken();
   if (!token) {
     return null;
   }
@@ -79,7 +149,8 @@ export const getTokenPayload = () => {
 };
 
 export const getToken = () => {
-  return getTokenPayload() ? localStorage.getItem(TOKEN_KEY) : null;
+  const token = getStoredToken();
+  return token && getTokenPayload() ? token : null;
 };
 
 export const isAdmin = () => {

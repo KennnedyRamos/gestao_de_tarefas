@@ -2,12 +2,14 @@ import axios from 'axios';
 import { clearAuthForExpiry, getToken } from '../utils/auth';
 
 const DEFAULT_LOCAL_API_URL = 'http://localhost:8000';
-const DEFAULT_PRODUCTION_API_URL = 'https://gestao-de-tarefas-backend.onrender.com';
 
 const inferBaseUrl = () => {
   const fromEnv = String(process.env.REACT_APP_API_URL || '').trim();
   if (fromEnv) {
     return fromEnv;
+  }
+  if (typeof window === 'undefined') {
+    return DEFAULT_LOCAL_API_URL;
   }
   if (typeof window !== 'undefined') {
     const host = String(window.location.hostname || '').toLowerCase();
@@ -20,8 +22,9 @@ const inferBaseUrl = () => {
     if (port === '3000') {
       return `${protocol}//${host}:8000`;
     }
+    return window.location.origin;
   }
-  return DEFAULT_PRODUCTION_API_URL;
+  return DEFAULT_LOCAL_API_URL;
 };
 
 const baseURL = inferBaseUrl();

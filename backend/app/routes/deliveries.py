@@ -1,7 +1,7 @@
 import os
 import re
-import shutil
 import json
+from mimetypes import guess_type
 from datetime import date, datetime, time
 from pathlib import Path
 from typing import Optional
@@ -24,9 +24,11 @@ from app.services.pickup_catalog_csv import canonical_code
 
 router = APIRouter(prefix="/deliveries", tags=["Deliveries"])
 get_deliveries_manager = require_permission("deliveries.manage")
-get_deliveries_viewer = require_any_permission("deliveries.manage", "comodatos.view")
+get_deliveries_viewer = require_permission("deliveries.manage")
+get_deliveries_dashboard_viewer = require_any_permission("deliveries.manage", "comodatos.view")
 
 SUPABASE_REF_PREFIX = "supabase://"
+MAX_PDF_UPLOAD_BYTES = 10 * 1024 * 1024
 
 
 def env_text(name: str, default: str = "") -> str:
@@ -182,6 +184,16 @@ def safe_text(value: object) -> str:
     return str(value or "").strip()
 
 
+def read_upload_bytes(upload: UploadFile, max_bytes: int, field_label: str) -> bytes:
+    content_bytes = upload.file.read(max_bytes + 1)
+    if len(content_bytes) > max_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"{field_label} excede o limite de {max_bytes // (1024 * 1024)} MB.",
+        )
+    return content_bytes
+
+
 def unique_paths(paths: list[str]) -> list[str]:
     seen: set[str] = set()
     result: list[str] = []
@@ -291,7 +303,12 @@ def find_supabase_object_by_file_name(config: dict, bucket: str, file_name: str)
     return ""
 
 
-def build_upload_url(relative_path: str, request: Optional[FastAPIRequest] = None) -> str:
+def build_upload_url(
+    relative_path: str,
+    request: Optional[FastAPIRequest] = None,
+    *,
+    allow_local_storage_path: bool = False,
+) -> str:
     raw_path = safe_text(relative_path)
     if not raw_path:
         return ""
@@ -349,16 +366,27 @@ def build_upload_url(relative_path: str, request: Optional[FastAPIRequest] = Non
 
     if not normalized:
         return ""
-    return f"/uploads/{normalized}"
+    if allow_local_storage_path:
+        return f"/uploads/{normalized}"
+    if request is not None:
+        try:
+            base_url = str(request.url_for("open_delivery_file"))
+        except Exception:
+            base_url = "/deliveries/files/open"
+        return f"{base_url}?path={quote(normalized, safe='')}"
+    return f"/deliveries/files/open?path={quote(normalized, safe='')}"
 
 
 @router.get("/files/open", name="open_delivery_file")
-def open_delivery_file(path: str):
+def open_delivery_file(
+    path: str,
+    current_user: User = Depends(get_deliveries_manager),
+):
     raw_path = safe_text(path)
     if not raw_path:
         raise HTTPException(status_code=404, detail="Arquivo não encontrado.")
 
-    resolved_url = build_upload_url(raw_path, request=None)
+    resolved_url = build_upload_url(raw_path, request=None, allow_local_storage_path=True)
     if not resolved_url:
         raise HTTPException(status_code=404, detail="Arquivo não encontrado.")
 
@@ -376,9 +404,10 @@ def open_delivery_file(path: str):
             normalized = normalized[len("uploads/"):]
 
     base_dir = get_uploads_base_dir().resolve()
+    deliveries_dir = get_deliveries_dir().resolve()
     target_path = (base_dir / normalized).resolve()
     try:
-        target_path.relative_to(base_dir)
+        target_path.relative_to(deliveries_dir)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail="Arquivo não encontrado.") from exc
 
@@ -387,7 +416,7 @@ def open_delivery_file(path: str):
 
     return FileResponse(
         path=str(target_path),
-        media_type="application/pdf",
+        media_type=guess_type(str(target_path))[0] or "application/pdf",
         filename=target_path.name,
     )
 
@@ -416,10 +445,22 @@ def ensure_pdf(upload: UploadFile, field_label: str) -> None:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"{field_label} precisa ser um PDF (.pdf)."
         )
+    content_type = (upload.content_type or "").lower()
+    if content_type and content_type not in {"application/pdf", "application/x-pdf"}:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"{field_label} precisa ser um PDF válido."
+        )
 
 
 def save_pdf(upload: UploadFile, prefix: str, label: str) -> str:
     ensure_pdf(upload, label)
+    content_bytes = read_upload_bytes(upload, MAX_PDF_UPLOAD_BYTES, label)
+    if not content_bytes.startswith(b"%PDF-"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"{label} precisa ser um PDF válido."
+        )
 
     supabase_config = get_supabase_storage_config()
     original_name = upload.filename or f"{prefix}.pdf"
@@ -432,7 +473,6 @@ def save_pdf(upload: UploadFile, prefix: str, label: str) -> str:
             f"{supabase_config['url']}/storage/v1/object/"
             f"{quote(supabase_config['bucket'], safe='')}/{quote(object_path, safe='/')}"
         )
-        content_bytes = upload.file.read()
         response_status, response_payload = supabase_storage_request(
             method="POST",
             endpoint=endpoint,
@@ -453,7 +493,7 @@ def save_pdf(upload: UploadFile, prefix: str, label: str) -> str:
     deliveries_dir = get_deliveries_dir()
     target_path = deliveries_dir / target_name
     with target_path.open("wb") as buffer:
-        shutil.copyfileobj(upload.file, buffer)
+        buffer.write(content_bytes)
     relative_path = Path("deliveries") / target_name
     return relative_path.as_posix()
 
@@ -502,12 +542,24 @@ def build_delivery_out(delivery: Delivery, request: Optional[FastAPIRequest] = N
         description=delivery.description,
         delivery_date=delivery.delivery_date,
         delivery_time=delivery.delivery_time,
-        pdf_one_path=delivery.pdf_one_path,
-        pdf_two_path=delivery.pdf_two_path,
         pdf_one_url=build_upload_url(delivery.pdf_one_path, request=request),
         pdf_two_url=build_upload_url(delivery.pdf_two_path, request=request),
         created_at=delivery.created_at
     )
+
+
+@router.get("/dashboard", response_model=list[DeliveryOut])
+def list_deliveries_dashboard(
+    request: FastAPIRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_deliveries_dashboard_viewer)
+):
+    rows = (
+        db.query(Delivery)
+        .order_by(Delivery.delivery_date.desc(), Delivery.delivery_time.desc(), Delivery.id.desc())
+        .all()
+    )
+    return [build_delivery_out(row, request=request) for row in rows]
 
 
 @router.get("/", response_model=list[DeliveryOut])

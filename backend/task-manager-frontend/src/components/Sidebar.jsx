@@ -30,11 +30,8 @@ const Sidebar = () => {
     'pickups.withdrawals_history',
   ]);
   const canAccessRequests = hasAnyPermission([
-    'deliveries.manage',
-    'pickups.create_order',
-    'pickups.import_base',
-    'pickups.orders_history',
     'pickups.withdrawals_history',
+    'pickups.create_order',
     'equipments.view',
     'equipments.manage',
   ]);

@@ -21,6 +21,7 @@ import dayjs from 'dayjs';
 import { useNavigate } from 'react-router-dom';
 
 import api from '../services/api';
+import { hasAnyPermission, hasPermission } from '../utils/auth';
 
 const CLIENT_FIELDS = [
   'client_code',
@@ -140,6 +141,8 @@ const downloadBlob = (blob, filename) => {
 
 const PickupsCreate = () => {
   const navigate = useNavigate();
+  const canImportPickupBase = hasPermission('pickups.import_base');
+  const canAccessPickupCenter = hasAnyPermission(['pickups.orders_history', 'pickups.withdrawals_history']);
 
   const [statusInfo, setStatusInfo] = useState(null);
   const [searchCode, setSearchCode] = useState('');
@@ -449,12 +452,16 @@ const PickupsCreate = () => {
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, flexWrap: 'wrap' }}>
         <Typography variant="h5">Retiradas de comodato (ordem automática)</Typography>
         <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-          <Button variant="outlined" onClick={() => navigate('/base-retiradas')}>
-            Atualizar base
-          </Button>
-          <Button variant="outlined" onClick={() => navigate('/operacoes/ordens/central')}>
-            Central de retiradas
-          </Button>
+          {canImportPickupBase && (
+            <Button variant="outlined" onClick={() => navigate('/base-retiradas')}>
+              Atualizar base
+            </Button>
+          )}
+          {canAccessPickupCenter && (
+            <Button variant="outlined" onClick={() => navigate('/operacoes/ordens/central')}>
+              Central de retiradas
+            </Button>
+          )}
         </Box>
       </Box>
 
@@ -482,9 +489,15 @@ const PickupsCreate = () => {
           <Typography variant="body1" sx={{ mb: 1 }}>
             A base de retiradas ainda não foi carregada.
           </Typography>
-          <Button variant="contained" onClick={() => navigate('/base-retiradas')}>
-            Ir para tela de carga dos CSVs
-          </Button>
+          {canImportPickupBase ? (
+            <Button variant="contained" onClick={() => navigate('/base-retiradas')}>
+              Ir para tela de carga dos CSVs
+            </Button>
+          ) : (
+            <Typography variant="body2" color="text.secondary">
+              Solicite a atualizaÃ§Ã£o da base para um usuÃ¡rio com acesso Ã  importaÃ§Ã£o.
+            </Typography>
+          )}
         </Box>
       )}
 

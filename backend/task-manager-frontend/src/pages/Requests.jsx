@@ -448,11 +448,19 @@ const mapEmailPayloadToBaixaRequestBlock = (payload, selectedEntryKeys = []) => 
 };
 
 const Requests = () => {
+  const canAccessBaixaRequests = hasPermission('pickups.withdrawals_history');
+  const canAccessDeParaRequests = hasPermission('pickups.create_order');
   const canAccessComodatoRequests = hasAnyPermission(['equipments.view', 'equipments.manage']);
   const canManageDeliveries = hasPermission('deliveries.manage');
-  const [activeTab, setActiveTab] = useState('baixa');
+  const availableRequestTabs = useMemo(() => ([
+    canAccessBaixaRequests ? 'baixa' : null,
+    canAccessDeParaRequests ? 'de_para' : null,
+    canAccessComodatoRequests ? 'comodato' : null,
+  ].filter(Boolean)), [canAccessBaixaRequests, canAccessComodatoRequests, canAccessDeParaRequests]);
+  const defaultRequestTab = availableRequestTabs[0] || 'baixa';
+  const [activeTab, setActiveTab] = useState(defaultRequestTab);
   const [recipients, setRecipients] = useState('');
-  const [recipientName, setRecipientName] = useState('João');
+  const [recipientName, setRecipientName] = useState('Gleicy');
   const [recipientDraftName, setRecipientDraftName] = useState('');
   const [recipientDraftEmail, setRecipientDraftEmail] = useState('');
   const [savedRecipients, setSavedRecipients] = useState([]);
@@ -528,9 +536,25 @@ const Requests = () => {
   }, [savedRecipients]);
 
   const currentRequests = useMemo(
-    () => requestsByType[activeTab] || [],
-    [requestsByType, activeTab]
+    () => requestsByType[activeTab] || requestsByType[defaultRequestTab] || [],
+    [requestsByType, activeTab, defaultRequestTab]
   );
+  const requestHeading = useMemo(() => {
+    const visibleLabels = availableRequestTabs
+      .map((tabKey) => TAB_CONFIG[tabKey]?.label?.replace(/^SolicitaÃ§Ã£o de\s+/i, '').trim())
+      .filter(Boolean);
+    if (visibleLabels.length === 0) {
+      return 'Ãrea indisponÃ­vel com as permissÃµes atuais.';
+    }
+    if (visibleLabels.length === 1) {
+      return `Solicite ${visibleLabels[0]} com e-mail padronizado.`;
+    }
+    if (visibleLabels.length === 2) {
+      return `Solicite ${visibleLabels[0]} e ${visibleLabels[1]} com e-mail padronizado.`;
+    }
+    const lastLabel = visibleLabels[visibleLabels.length - 1];
+    return `Solicite ${visibleLabels.slice(0, -1).join(', ')} e ${lastLabel} com e-mail padronizado.`;
+  }, [availableRequestTabs]);
 
   const loadPendingLowEmailOrders = useCallback(async () => {
     setPendingLowEmailLoading(true);
@@ -706,10 +730,10 @@ const Requests = () => {
   }, [activeTab, canAccessComodatoRequests]);
 
   useEffect(() => {
-    if (activeTab === 'comodato' && !canAccessComodatoRequests) {
-      setActiveTab('baixa');
+    if (!availableRequestTabs.includes(activeTab)) {
+      setActiveTab(defaultRequestTab);
     }
-  }, [activeTab, canAccessComodatoRequests]);
+  }, [activeTab, availableRequestTabs, defaultRequestTab]);
 
   const filteredAvailableRefrigerators = useMemo(() => {
     const search = safeText(availableRefrigeratorsQuery).toLowerCase();
@@ -1219,7 +1243,7 @@ const Requests = () => {
     [selectedMentions]
   );
 
-  const activeTabConfig = TAB_CONFIG[activeTab] || TAB_CONFIG.baixa;
+  const activeTabConfig = TAB_CONFIG[activeTab] || TAB_CONFIG[defaultRequestTab] || TAB_CONFIG.baixa;
   const emailSubject = activeTabConfig.subject;
   const selectedCurrentRequests = useMemo(
     () => currentRequests.filter((requestBlock) => requestBlock.selected),
@@ -1246,7 +1270,7 @@ const Requests = () => {
   }, [recipients, selectedSavedRecipientEmails]);
 
   const emailBody = useMemo(() => {
-    const greetingTarget = safeText(recipientName) || 'João';
+    const greetingTarget = safeText(recipientName) || 'Gleicy';
     const greeting = `${buildGreeting()}, ${greetingTarget}!`;
     const requestBlocks = selectedCurrentRequests || [];
 
@@ -1565,9 +1589,7 @@ const Requests = () => {
       <Box>
         <Typography variant="h5">Solicitações</Typography>
         <Typography variant="body2" color="text.secondary">
-          {canAccessComodatoRequests
-            ? 'Solicite baixa, DE-PARA e comodato com e-mail padronizado.'
-            : 'Solicite baixa e DE-PARA com e-mail padronizado.'}
+          {requestHeading}
         </Typography>
       </Box>
 
@@ -1586,8 +1608,12 @@ const Requests = () => {
             variant="scrollable"
             allowScrollButtonsMobile
           >
-            <Tab value="baixa" label={TAB_CONFIG.baixa.label} />
-            <Tab value="de_para" label={TAB_CONFIG.de_para.label} />
+            {canAccessBaixaRequests && (
+              <Tab value="baixa" label={TAB_CONFIG.baixa.label} />
+            )}
+            {canAccessDeParaRequests && (
+              <Tab value="de_para" label={TAB_CONFIG.de_para.label} />
+            )}
             {canAccessComodatoRequests && (
               <Tab value="comodato" label={TAB_CONFIG.comodato.label} />
             )}
@@ -1607,7 +1633,7 @@ const Requests = () => {
             />
             <TextField
               label="Nome na saudação"
-              placeholder="ex.: João"
+              placeholder="ex.: Gleicy"
               value={recipientName}
               onChange={(event) => setRecipientName(event.target.value)}
               fullWidth

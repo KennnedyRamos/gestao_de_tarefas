@@ -148,11 +148,8 @@ function App() {
             element={(
               <RequireAnyPermission
                 permissions={[
-                  'deliveries.manage',
-                  'pickups.create_order',
-                  'pickups.import_base',
-                  'pickups.orders_history',
                   'pickups.withdrawals_history',
+                  'pickups.create_order',
                   'equipments.view',
                   'equipments.manage'
                 ]}

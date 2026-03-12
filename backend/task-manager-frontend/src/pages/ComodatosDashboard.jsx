@@ -14,6 +14,7 @@ import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 
 import api from '../services/api';
+import { hasAnyPermission, hasPermission } from '../utils/auth';
 
 dayjs.extend(customParseFormat);
 
@@ -156,6 +157,11 @@ const buildMaterialSummary = (items) => {
 
 const ComodatosDashboard = () => {
   const navigate = useNavigate();
+  const canManageDeliveries = hasPermission('deliveries.manage');
+  const canAccessPickupCenter = hasAnyPermission(['pickups.orders_history', 'pickups.withdrawals_history']);
+  const defaultPickupCenterRoute = hasPermission('pickups.withdrawals_history')
+    ? '/pickups/center?view=withdrawals'
+    : '/pickups/center?view=orders';
   const [deliveries, setDeliveries] = useState([]);
   const [pickups, setPickups] = useState([]);
   const [pickupOrders, setPickupOrders] = useState([]);
@@ -606,14 +612,20 @@ const ComodatosDashboard = () => {
             Visão executiva de entregas e retiradas por período.
           </Typography>
         </Box>
-        <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-          <Button variant="outlined" onClick={() => navigate('/deliveries/history')}>
-            Entregas
-          </Button>
-          <Button variant="outlined" onClick={() => navigate('/pickups/center?view=withdrawals')}>
-            Retiradas
-          </Button>
-        </Box>
+        {(canManageDeliveries || canAccessPickupCenter) && (
+          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+            {canManageDeliveries && (
+              <Button variant="outlined" onClick={() => navigate('/deliveries/history')}>
+                Entregas
+              </Button>
+            )}
+            {canAccessPickupCenter && (
+              <Button variant="outlined" onClick={() => navigate(defaultPickupCenterRoute)}>
+                Retiradas
+              </Button>
+            )}
+          </Box>
+        )}
       </Box>
 
       {error && <Alert severity="error">{error}</Alert>}

@@ -8,9 +8,11 @@ import {
 import { useNavigate } from 'react-router-dom';
 
 import api from '../services/api';
+import { hasPermission } from '../utils/auth';
 
 const PickupsDataUpload = () => {
   const navigate = useNavigate();
+  const canCreatePickupOrder = hasPermission('pickups.create_order');
   const [statusInfo, setStatusInfo] = useState(null);
   const [loadingStatus, setLoadingStatus] = useState(true);
   const [clientsFile, setClientsFile] = useState(null);
@@ -91,9 +93,11 @@ const PickupsDataUpload = () => {
     <Box sx={{ p: 3, display: 'grid', gap: 2 }}>
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
         <Typography variant="h5">Atualizar base de retiradas</Typography>
-        <Button variant="outlined" onClick={() => navigate('/operacoes/ordens/nova')}>
-          Ir para retiradas
-        </Button>
+        {canCreatePickupOrder && (
+          <Button variant="outlined" onClick={() => navigate('/operacoes/ordens/nova')}>
+            Ir para retiradas
+          </Button>
+        )}
       </Box>
 
       {error && <Alert severity="error">{error}</Alert>}

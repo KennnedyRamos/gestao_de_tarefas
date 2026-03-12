@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Box,
   Chip,
@@ -43,30 +43,35 @@ const Dashboard = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const canManageTasks = hasPermission('tasks.manage');
+  const canManageRoutines = hasPermission('routines.manage');
   const selectedUserId = searchParams.get('user');
 
-  const fetchTasks = async () => {
+  const fetchTasks = useCallback(async () => {
     try {
       const response = await api.get('/tasks/');
       setTasks(response.data);
     } catch (error) {
       console.error(error);
     }
-  };
+  }, []);
 
-  const fetchRoutines = async () => {
+  const fetchRoutines = useCallback(async () => {
+    if (!canManageRoutines) {
+      setRoutines([]);
+      return;
+    }
     try {
       const response = await api.get('/routines');
       setRoutines(response.data || []);
     } catch (error) {
       setRoutines([]);
     }
-  };
+  }, [canManageRoutines]);
 
   useEffect(() => {
     fetchTasks();
     fetchRoutines();
-  }, []);
+  }, [fetchRoutines, fetchTasks]);
 
   useEffect(() => {
     localStorage.setItem('reminderChannels', JSON.stringify(reminderChannels));

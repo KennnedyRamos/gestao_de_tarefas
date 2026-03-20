@@ -52,6 +52,9 @@ const Sidebar = () => {
   })();
 
   const [users, setUsers] = useState([]);
+  const [usersLoaded, setUsersLoaded] = useState(false);
+  const [usersLoading, setUsersLoading] = useState(false);
+  const [usersLoadError, setUsersLoadError] = useState('');
   const [userMenuAnchor, setUserMenuAnchor] = useState(null);
   const [userMenuLocked, setUserMenuLocked] = useState(false);
   const menuCloseTimeoutRef = useRef(null);
@@ -59,11 +62,11 @@ const Sidebar = () => {
   useEffect(() => {
     if (!showAdmin) {
       setUsers([]);
+      setUsersLoaded(false);
+      setUsersLoading(false);
+      setUsersLoadError('');
       return;
     }
-    api.get('/users')
-      .then((res) => setUsers(res.data || []))
-      .catch(() => setUsers([]));
   }, [showAdmin]);
 
   useEffect(() => () => {
@@ -113,11 +116,31 @@ const Sidebar = () => {
     }
   };
 
+  const ensureUsersLoaded = async () => {
+    if (!showAdmin || usersLoaded || usersLoading) {
+      return;
+    }
+
+    try {
+      setUsersLoading(true);
+      setUsersLoadError('');
+      const response = await api.get('/users');
+      setUsers(Array.isArray(response.data) ? response.data : []);
+      setUsersLoaded(true);
+    } catch (err) {
+      setUsers([]);
+      setUsersLoadError('Erro ao carregar usuários.');
+    } finally {
+      setUsersLoading(false);
+    }
+  };
+
   const handleUserMenuHoverOpen = (event) => {
     if (userMenuLocked) {
       return;
     }
     clearMenuCloseTimeout();
+    ensureUsersLoaded();
     setUserMenuAnchor(event.currentTarget);
   };
 
@@ -138,6 +161,7 @@ const Sidebar = () => {
       setUserMenuLocked(false);
       return;
     }
+    ensureUsersLoaded();
     setUserMenuAnchor(event.currentTarget);
     setUserMenuLocked(true);
   };
@@ -294,7 +318,11 @@ const Sidebar = () => {
                     }
                   }}
                 >
-                  {users.length === 0 ? (
+                  {usersLoading ? (
+                    <MenuItem disabled>{'Carregando usuários...'}</MenuItem>
+                  ) : usersLoadError ? (
+                    <MenuItem disabled>{usersLoadError}</MenuItem>
+                  ) : users.length === 0 ? (
                     <MenuItem disabled>{'Nenhum usuário encontrado.'}</MenuItem>
                   ) : (
                     users.map((user) => (

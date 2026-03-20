@@ -75,6 +75,10 @@ const Login = () => {
     setIsSubmitting(true);
     setStatus(null);
     try {
+      if (isWarmingBackend) {
+        await warmupApi();
+        setIsWarmingBackend(false);
+      }
       const response = await api.post('/auth/login', { email, password });
       setToken(response.data.access_token);
       navigate('/');

@@ -14,6 +14,12 @@ from sqlalchemy import func, or_
 from sqlalchemy.orm import Session, load_only
 
 from app.core.auth import require_any_permission, require_permission
+from app.core.config import (
+    PICKUP_CATALOG_CLIENTS_CSV_MAX_BYTES,
+    PICKUP_CATALOG_CLIENTS_CSV_MAX_LINES,
+    PICKUP_CATALOG_INVENTORY_CSV_MAX_BYTES,
+    PICKUP_CATALOG_INVENTORY_CSV_MAX_LINES,
+)
 from app.core.permissions import has_permission
 from app.database.deps import get_db
 from app.models.pickup_catalog import (
@@ -108,10 +114,10 @@ ALLOWED_CSV_UPLOAD_CONTENT_TYPES = {
     "application/vnd.ms-excel",
     "application/octet-stream",
 }
-MAX_CLIENTS_CSV_UPLOAD_BYTES = 5 * 1024 * 1024
-MAX_INVENTORY_CSV_UPLOAD_BYTES = 12 * 1024 * 1024
-MAX_CLIENTS_CSV_LINES = 50000
-MAX_INVENTORY_CSV_LINES = 120000
+MAX_CLIENTS_CSV_UPLOAD_BYTES = PICKUP_CATALOG_CLIENTS_CSV_MAX_BYTES
+MAX_INVENTORY_CSV_UPLOAD_BYTES = PICKUP_CATALOG_INVENTORY_CSV_MAX_BYTES
+MAX_CLIENTS_CSV_LINES = PICKUP_CATALOG_CLIENTS_CSV_MAX_LINES
+MAX_INVENTORY_CSV_LINES = PICKUP_CATALOG_INVENTORY_CSV_MAX_LINES
 get_pickup_catalog_status_access = require_any_permission(
     "pickups.create_order",
     "pickups.import_base",

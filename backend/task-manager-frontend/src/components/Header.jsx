@@ -1,18 +1,15 @@
 import React, { useEffect, useState } from 'react';
 import { AppBar, Toolbar, Typography, Box, Button } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
-import api from '../services/api';
-import { clearAuth } from '../utils/auth';
+import { clearAuth, getTokenPayload } from '../utils/auth';
 
 const Header = () => {
-  const [username, setUsername] = useState('Usuário');
+  const [username, setUsername] = useState(() => getTokenPayload()?.name || 'Usuário');
   const navigate = useNavigate();
   const logoSrc = `${process.env.PUBLIC_URL}/logo192.png`;
 
   useEffect(() => {
-    api.get('/auth/me')
-      .then((res) => setUsername(res.data.name || 'Usuário'))
-      .catch(() => setUsername('Usuário'));
+    setUsername(getTokenPayload()?.name || 'Usuário');
   }, []);
 
   const handleLogout = () => {

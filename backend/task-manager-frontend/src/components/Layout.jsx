@@ -64,11 +64,12 @@ const Layout = () => {
       }
     };
 
-    checkDailyFollowup();
+    const initialTimerId = window.setTimeout(checkDailyFollowup, 1200);
     const timerId = window.setInterval(checkDailyFollowup, FOLLOWUP_CHECK_INTERVAL_MS);
 
     return () => {
       active = false;
+      window.clearTimeout(initialTimerId);
       window.clearInterval(timerId);
     };
   }, [location.pathname]);

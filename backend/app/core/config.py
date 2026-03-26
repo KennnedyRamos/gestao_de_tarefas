@@ -27,10 +27,10 @@ def env_positive_int(name: str, default: int) -> int:
 
 
 PICKUP_CATALOG_CLIENTS_CSV_MAX_BYTES = (
-    env_positive_int("PICKUP_CATALOG_CLIENTS_CSV_MAX_MB", 5) * 1024 * 1024
+    env_positive_int("PICKUP_CATALOG_CLIENTS_CSV_MAX_MB", 200) * 1024 * 1024
 )
 PICKUP_CATALOG_INVENTORY_CSV_MAX_BYTES = (
-    env_positive_int("PICKUP_CATALOG_INVENTORY_CSV_MAX_MB", 50) * 1024 * 1024
+    env_positive_int("PICKUP_CATALOG_INVENTORY_CSV_MAX_MB", 200) * 1024 * 1024
 )
 PICKUP_CATALOG_CLIENTS_CSV_MAX_LINES = env_positive_int(
     "PICKUP_CATALOG_CLIENTS_CSV_MAX_LINES",

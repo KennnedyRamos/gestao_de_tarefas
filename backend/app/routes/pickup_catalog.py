@@ -273,7 +273,7 @@ async def _read_csv_upload_bytes(
     file_name = _safe_text(getattr(upload, "filename", ""))
     suffix = Path(file_name).suffix.lower()
     if suffix and suffix not in ALLOWED_CSV_UPLOAD_SUFFIXES:
-        raise HTTPException(status_code=400, detail=f"{label} deve estar em formato CSV.")
+        raise HTTPException(status_code=400, detail=f"{label} deve estar em formato CSV ou TXT.")
 
     content_type = _safe_text(getattr(upload, "content_type", "")).lower()
     if content_type not in ALLOWED_CSV_UPLOAD_CONTENT_TYPES:

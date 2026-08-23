@@ -1,6 +1,6 @@
 # Gestao de Tarefas
 
-Plataforma full stack para tarefas, rotinas, entregas, retiradas e controle de equipamentos.
+Plataforma Full Stack para gestão operacional, desenvolvida para centralizar tarefas, rotinas, entregas, retiradas e controle de equipamentos. O projeto integra frontend React, API REST em FastAPI e banco PostgreSQL, além de autenticação, controle de permissões, upload de documentos, OCR e infraestrutura de deploy.
 
 ## Stack
 - Frontend: React + MUI + Dayjs

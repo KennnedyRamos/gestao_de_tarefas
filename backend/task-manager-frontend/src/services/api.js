@@ -4,7 +4,9 @@ import { clearAuthForExpiry, getToken } from '../utils/auth';
 const DEFAULT_LOCAL_API_URL = 'http://localhost:8000';
 
 const inferBaseUrl = () => {
-  const fromEnv = String(import.meta.env.VITE_API_URL || '').trim();
+  const fromEnv = String(
+    import.meta.env.VITE_API_URL || import.meta.env.REACT_APP_API_URL || ''
+  ).trim();
   if (fromEnv) {
     return fromEnv;
   }

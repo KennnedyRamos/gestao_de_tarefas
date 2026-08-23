@@ -2,6 +2,8 @@ import { defineConfig, transformWithEsbuild } from 'vite';
 import react from '@vitejs/plugin-react';
 
 export default defineConfig({
+  // Mantem compatibilidade com a variavel configurada antes da migracao do CRA.
+  envPrefix: ['VITE_', 'REACT_APP_'],
   plugins: [
     {
       name: 'treat-src-js-as-jsx',

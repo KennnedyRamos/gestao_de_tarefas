@@ -1,25 +1,26 @@
-import React from 'react';
+import React, { lazy, Suspense } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import Dashboard from './pages/Dashboard';
-import CreateTask from './pages/CreateTask';
-import EditTask from './pages/EditTask';
-import Assignments from './pages/Assignments';
-import ProductivityHub from './pages/ProductivityHub';
-import Login from './pages/Login';
-import Users from './pages/Users';
-import Routines from './pages/Routines';
-import ComodatosDashboard from './pages/ComodatosDashboard';
-import DeliveriesCreate from './pages/DeliveriesCreate';
-import DeliveriesHistory from './pages/DeliveriesHistory';
-import PickupsCreate from './pages/PickupsCreate';
-import PickupsDataUpload from './pages/PickupsDataUpload';
-import PickupsCenter from './pages/PickupsCenter';
-import OperationsHub from './pages/OperationsHub';
-import Equipments from './pages/Equipments';
-import Requests from './pages/Requests';
 import Layout from './components/Layout';
 import { getToken, hasAnyPermission, hasPermission, isAdmin } from './utils/auth';
 import './App.css';
+
+const Dashboard = lazy(() => import('./pages/Dashboard'));
+const CreateTask = lazy(() => import('./pages/CreateTask'));
+const EditTask = lazy(() => import('./pages/EditTask'));
+const Assignments = lazy(() => import('./pages/Assignments'));
+const ProductivityHub = lazy(() => import('./pages/ProductivityHub'));
+const Login = lazy(() => import('./pages/Login'));
+const Users = lazy(() => import('./pages/Users'));
+const Routines = lazy(() => import('./pages/Routines'));
+const ComodatosDashboard = lazy(() => import('./pages/ComodatosDashboard'));
+const DeliveriesCreate = lazy(() => import('./pages/DeliveriesCreate'));
+const DeliveriesHistory = lazy(() => import('./pages/DeliveriesHistory'));
+const PickupsCreate = lazy(() => import('./pages/PickupsCreate'));
+const PickupsDataUpload = lazy(() => import('./pages/PickupsDataUpload'));
+const PickupsCenter = lazy(() => import('./pages/PickupsCenter'));
+const OperationsHub = lazy(() => import('./pages/OperationsHub'));
+const Equipments = lazy(() => import('./pages/Equipments'));
+const Requests = lazy(() => import('./pages/Requests'));
 
 const RequireAuth = ({ children }) => {
   const token = getToken();
@@ -57,8 +58,9 @@ const defaultProductivityRoute = () => {
 
 function App() {
   return (
-    <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-      <Routes>
+    <Router>
+      <Suspense fallback={<div style={{ padding: 24 }}>Carregando...</div>}>
+        <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/" element={<RequireAuth><Layout /></RequireAuth>}>
           <Route index element={<Navigate to="/dashboard" />} />
@@ -160,7 +162,8 @@ function App() {
           />
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Route>
-      </Routes>
+        </Routes>
+      </Suspense>
     </Router>
   );
 }

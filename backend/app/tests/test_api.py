@@ -3,6 +3,7 @@ import os
 import pytest
 
 requests = pytest.importorskip("requests")
+pytestmark = pytest.mark.external
 
 BASE_URL = os.getenv("TEST_API_BASE_URL", "http://127.0.0.1:8000").rstrip("/")
 REQUEST_TIMEOUT = 15

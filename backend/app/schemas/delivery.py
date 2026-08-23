@@ -6,6 +6,8 @@ from pydantic import BaseModel, ConfigDict
 
 class DeliveryOut(BaseModel):
     id: int
+    client_code: str = ""
+    fantasy_name: str = ""
     description: str
     delivery_date: date
     delivery_time: Optional[time] = None

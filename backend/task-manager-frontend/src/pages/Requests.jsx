@@ -541,10 +541,10 @@ const Requests = () => {
   );
   const requestHeading = useMemo(() => {
     const visibleLabels = availableRequestTabs
-      .map((tabKey) => TAB_CONFIG[tabKey]?.label?.replace(/^SolicitaÃ§Ã£o de\s+/i, '').trim())
+      .map((tabKey) => TAB_CONFIG[tabKey]?.label?.replace(/^Solicitação de\s+/i, '').trim())
       .filter(Boolean);
     if (visibleLabels.length === 0) {
-      return 'Ãrea indisponÃ­vel com as permissÃµes atuais.';
+      return 'Área indisponível com as permissões atuais.';
     }
     if (visibleLabels.length === 1) {
       return `Solicite ${visibleLabels[0]} com e-mail padronizado.`;
@@ -860,7 +860,6 @@ const Requests = () => {
       }
     } catch (error) {
       resolvedProfile = null;
-      pickupInventoryItems = [];
     }
 
     if (

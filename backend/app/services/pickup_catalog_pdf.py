@@ -432,6 +432,8 @@ def build_withdrawal_pdf(order: dict[str, Any]) -> bytes:
         if index < len(copies) - 1:
             story.append(PageBreak())
 
-    on_page = lambda canvas, doc: _draw_footer_on_page(canvas, doc, order)
+    def on_page(canvas, doc):
+        _draw_footer_on_page(canvas, doc, order)
+
     document.build(story, onFirstPage=on_page, onLaterPages=on_page)
     return output.getvalue()

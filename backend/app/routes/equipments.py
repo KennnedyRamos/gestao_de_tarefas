@@ -4,6 +4,7 @@ import re
 import unicodedata
 from collections import defaultdict
 from datetime import datetime
+from pathlib import Path
 from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
@@ -198,7 +199,7 @@ async def _read_csv_upload_bytes(
 
     content_type = str(getattr(upload, "content_type", "") or "").strip().lower()
     if content_type not in ALLOWED_CSV_UPLOAD_CONTENT_TYPES:
-        raise HTTPException(status_code=400, detail=f"Tipo de arquivo invÃ¡lido para {label}.")
+        raise HTTPException(status_code=400, detail=f"Tipo de arquivo inválido para {label}.")
 
     raw_bytes = await upload.read(max_bytes + 1)
     if len(raw_bytes) > max_bytes:

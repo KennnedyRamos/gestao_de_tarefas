@@ -3,7 +3,7 @@ from typing import List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from app.schemas.common import normalize_optional_text, normalize_string_list, normalize_text
+from app.schemas.common import normalize_optional_text, normalize_text
 
 
 class PickupCatalogStats(BaseModel):

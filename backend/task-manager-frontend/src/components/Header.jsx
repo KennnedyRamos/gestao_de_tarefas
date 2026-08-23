@@ -6,7 +6,7 @@ import { clearAuth, getTokenPayload } from '../utils/auth';
 const Header = () => {
   const [username, setUsername] = useState(() => getTokenPayload()?.name || 'Usuário');
   const navigate = useNavigate();
-  const logoSrc = `${process.env.PUBLIC_URL}/logo192.png`;
+  const logoSrc = '/logo192.png';
 
   useEffect(() => {
     setUsername(getTokenPayload()?.name || 'Usuário');

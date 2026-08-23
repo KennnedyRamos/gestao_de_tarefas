@@ -1,6 +1,7 @@
 import logging
 import os
 import threading
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -8,7 +9,8 @@ from sqlalchemy import inspect, text
 from app.routes import tasks, auth, users, routines, deliveries, pickups, pickup_catalog as pickup_catalog_routes, equipments
 from app.database.base import Base
 from app.database.session import engine, SessionLocal
-from app.models import task, user, assignment, routine, delivery, pickup, pickup_catalog, equipment
+# Importa os modulos para registrar todos os models no metadata do SQLAlchemy.
+from app.models import assignment, delivery, equipment, pickup, pickup_catalog, routine, task, user  # noqa: F401
 from app.core.config import (
     ADMIN_EMAIL,
     ADMIN_PASSWORD,
@@ -22,7 +24,15 @@ from app.core.security import get_password_hash
 from app.models.user import User
 
 logger = logging.getLogger("uvicorn.error")
-app = FastAPI(title="Gestão de Tarefas")
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    trigger_db_bootstrap()
+    yield
+
+
+app = FastAPI(title="Gestão de Tarefas", lifespan=lifespan)
 
 cors_origins = parse_cors_origins(CORS_ORIGINS)
 
@@ -69,6 +79,26 @@ def ensure_pickup_columns():
     with engine.begin() as conn:
         if "photo_path" not in columns:
             conn.execute(text("ALTER TABLE pickups ADD COLUMN photo_path VARCHAR"))
+
+
+def ensure_delivery_columns():
+    inspector = inspect(engine)
+    if "deliveries" not in inspector.get_table_names():
+        return
+    columns = [col["name"] for col in inspector.get_columns("deliveries")]
+    with engine.begin() as conn:
+        if "client_code" not in columns:
+            conn.execute(text("ALTER TABLE deliveries ADD COLUMN client_code VARCHAR DEFAULT ''"))
+        if "fantasy_name" not in columns:
+            conn.execute(text("ALTER TABLE deliveries ADD COLUMN fantasy_name VARCHAR DEFAULT ''"))
+        conn.execute(text("UPDATE deliveries SET client_code = '' WHERE client_code IS NULL"))
+        conn.execute(text("UPDATE deliveries SET fantasy_name = '' WHERE fantasy_name IS NULL"))
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS "
+                "idx_deliveries_client_code ON deliveries (client_code)"
+            )
+        )
 
 def ensure_user_permissions_column():
     inspector = inspect(engine)
@@ -399,11 +429,12 @@ def ensure_admin_user():
         db.close()
 
 
-def run_db_bootstrap() -> None:
+def run_db_bootstrap(*, strict: bool = False) -> None:
     steps = [
         ("create_all", lambda: Base.metadata.create_all(bind=engine)),
         ("ensure_task_columns", ensure_task_columns),
         ("ensure_pickup_columns", ensure_pickup_columns),
+        ("ensure_delivery_columns", ensure_delivery_columns),
         ("ensure_user_permissions_column", ensure_user_permissions_column),
         ("ensure_pickup_catalog_columns", ensure_pickup_catalog_columns),
         ("ensure_pickup_catalog_item_type_overrides", ensure_pickup_catalog_item_type_overrides),
@@ -418,6 +449,8 @@ def run_db_bootstrap() -> None:
             step_fn()
         except Exception:  # pragma: no cover - startup hardening
             logger.exception("Falha ao executar bootstrap do banco (etapa: %s)", step_name)
+            if strict:
+                raise
 
 
 _bootstrap_lock = threading.Lock()
@@ -437,8 +470,14 @@ def trigger_db_bootstrap() -> None:
         return
     if mode == "sync":
         logger.info("Executando DB bootstrap em modo sincronizado.")
-        run_db_bootstrap()
+        run_db_bootstrap(strict=True)
         return
+
+    if mode != "background":
+        logger.warning(
+            "DB_BOOTSTRAP_MODE=%s invalido; usando modo background.",
+            mode,
+        )
 
     logger.info("Executando DB bootstrap em background.")
     threading.Thread(target=run_db_bootstrap, daemon=True, name="db-bootstrap").start()
@@ -468,12 +507,5 @@ def healthcheck_db():
     with engine.connect() as connection:
         connection.execute(text("SELECT 1"))
     return {"status": "ok"}
-
-
-@app.on_event("startup")
-def startup_event():
-    trigger_db_bootstrap()
-
-
 
 

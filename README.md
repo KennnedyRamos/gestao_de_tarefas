@@ -3,7 +3,7 @@
 Plataforma Full Stack para gestão operacional, desenvolvida para centralizar tarefas, rotinas, entregas, retiradas e controle de equipamentos. O projeto integra frontend React, API REST em FastAPI e banco PostgreSQL, além de autenticação, controle de permissões, upload de documentos, OCR e infraestrutura de deploy.
 
 ## Stack
-- Frontend: React + MUI + Dayjs
+- Frontend: React + Vite + MUI + Dayjs
 - Backend: FastAPI + SQLAlchemy
 - Banco: PostgreSQL
 
@@ -33,7 +33,7 @@ uvicorn app.main:app --reload
 
 ### Frontend
 1. Copie `backend/task-manager-frontend/.env.example` para `backend/task-manager-frontend/.env`.
-2. Ajuste `REACT_APP_API_URL` para sua API local/remota.
+2. Ajuste `VITE_API_URL` para sua API local/remota.
 3. Rode:
 
 ```bash
@@ -57,34 +57,34 @@ Variaveis obrigatorias no Render:
 - `ADMIN_EMAIL`
 - `ADMIN_PASSWORD`
 - `CORS_ORIGINS` (inclua sua URL do Vercel)
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `SUPABASE_STORAGE_BUCKET` (ex.: `deliveries`, configurado como privado)
 
 Opcional:
 - `UPLOADS_DIR` (somente se quiser salvar localmente no servidor)
-- `DB_BOOTSTRAP_MODE` (`background` recomendado no deploy; `sync` para rodar ajustes no startup; `off` para desativar)
-- `SUPABASE_URL`
-- `SUPABASE_SERVICE_ROLE_KEY`
-- `SUPABASE_STORAGE_BUCKET` (ex.: `deliveries`)
+- `DB_BOOTSTRAP_MODE` (`sync` recomendado no deploy; `background` executa ajustes sem bloquear o startup; `off` desativa)
 - `SUPABASE_STORAGE_PREFIX` (ex.: `deliveries`)
-- `SUPABASE_STORAGE_PUBLIC` (`true` para bucket publico, `false` para URL assinada)
 - `SUPABASE_STORAGE_LEGACY_PATHS` (`true` para tentar resolver caminhos antigos do banco no Supabase)
 
 Importante:
 - sem armazenamento persistente no backend, arquivos em `uploads/` podem ser perdidos em reinicio/deploy.
 - alternativa no plano free: usar Supabase Storage para os PDFs de entregas.
+- o bucket `deliveries` deve ser criado como privado no painel do Supabase.
 - se usar plano pago com disco persistente no Render, configure `UPLOADS_DIR=/var/data/uploads`.
 
 ### Frontend (Vercel)
 No projeto `backend/task-manager-frontend`:
 - `vercel.json` ja configurado para SPA rewrite
-- Defina `REACT_APP_API_URL` com a URL publica do backend
+- Defina `VITE_API_URL` com a URL publica do backend
 
 Build/Output na Vercel:
 - Build command: `npm run build`
-- Output directory: `build`
+- Output directory: `dist`
 
 ## Checklist de publicacao
 - `npm run build` no frontend sem erros
-- API responde `GET /health` com `{"status":"ok"}`
+- API responde `GET /health` e `GET /health/db` com `{"status":"ok"}`
 - Login funcionando em producao
 - CORS com dominio do frontend publicado
 - Upload/download de PDFs validado em producao

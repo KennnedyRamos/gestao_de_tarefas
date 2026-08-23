@@ -277,7 +277,7 @@ async def _read_csv_upload_bytes(
 
     content_type = _safe_text(getattr(upload, "content_type", "")).lower()
     if content_type not in ALLOWED_CSV_UPLOAD_CONTENT_TYPES:
-        raise HTTPException(status_code=400, detail=f"Tipo de arquivo invÃ¡lido para {label}.")
+        raise HTTPException(status_code=400, detail=f"Tipo de arquivo inválido para {label}.")
 
     raw_bytes = await upload.read(max_bytes + 1)
     if len(raw_bytes) > max_bytes:

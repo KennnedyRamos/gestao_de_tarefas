@@ -495,7 +495,7 @@ const PickupsCreate = () => {
             </Button>
           ) : (
             <Typography variant="body2" color="text.secondary">
-              Solicite a atualizaÃ§Ã£o da base para um usuÃ¡rio com acesso Ã  importaÃ§Ã£o.
+              Solicite a atualização da base para um usuário com acesso à importação.
             </Typography>
           )}
         </Box>

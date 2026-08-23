@@ -19,6 +19,7 @@ backend/.pytest_cache/
 # Frontend artifacts
 backend/task-manager-frontend/node_modules/
 backend/task-manager-frontend/build/
+backend/task-manager-frontend/dist/
 
 # Logs
 *.log

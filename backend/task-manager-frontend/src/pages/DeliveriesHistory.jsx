@@ -6,6 +6,10 @@ import {
   Card,
   CardContent,
   Chip,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   IconButton,
   TextField,
   Typography
@@ -15,6 +19,7 @@ import dayjs from 'dayjs';
 import { useNavigate } from 'react-router-dom';
 
 import api from '../services/api';
+import { extractPdfRequestError, parseFilenameFromDisposition } from '../utils/deliveryPdf';
 
 const PAGE_SIZE = 4;
 const STATUS_LABELS = {
@@ -67,38 +72,6 @@ const parseDeliveryStatus = (value) => {
   return STATUS_LABELS[normalized] || toText(value);
 };
 
-const parseFilenameFromDisposition = (contentDispositionValue) => {
-  if (!contentDispositionValue) {
-    return '';
-  }
-  const utfMatch = contentDispositionValue.match(/filename\*=UTF-8''([^;]+)/i);
-  if (utfMatch?.[1]) {
-    try {
-      return decodeURIComponent(utfMatch[1]);
-    } catch (err) {
-      return utfMatch[1];
-    }
-  }
-  const simpleMatch = contentDispositionValue.match(/filename="?([^";]+)"?/i);
-  return simpleMatch?.[1] || '';
-};
-
-const openBlobInNewTab = (blob, fallbackFilename) => {
-  const objectUrl = window.URL.createObjectURL(blob);
-  const openedWindow = window.open(objectUrl, '_blank', 'noopener,noreferrer');
-  if (!openedWindow) {
-    const anchor = document.createElement('a');
-    anchor.href = objectUrl;
-    anchor.download = fallbackFilename;
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-  }
-  window.setTimeout(() => {
-    window.URL.revokeObjectURL(objectUrl);
-  }, 60000);
-};
-
 const DeliveriesHistory = () => {
   const navigate = useNavigate();
   const [deliveries, setDeliveries] = useState([]);
@@ -107,24 +80,7 @@ const DeliveriesHistory = () => {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [openingFileKey, setOpeningFileKey] = useState('');
-
-  const apiBaseUrl = api?.defaults?.baseURL
-    || process.env.REACT_APP_API_URL
-    || (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:8000');
-
-  const toAbsoluteUrl = (url) => {
-    if (!url) {
-      return '';
-    }
-    if (url.startsWith('http://') || url.startsWith('https://')) {
-      return url;
-    }
-    try {
-      return new URL(url, apiBaseUrl).toString();
-    } catch (err) {
-      return String(url);
-    }
-  };
+  const [pdfViewer, setPdfViewer] = useState({ url: '', title: '', filename: '' });
 
   const loadDeliveries = async () => {
     try {
@@ -175,14 +131,29 @@ const DeliveriesHistory = () => {
       const payloadBlob = response?.data instanceof Blob
         ? response.data
         : new Blob([response?.data], { type: response?.headers?.['content-type'] || 'application/pdf' });
-      openBlobInNewTab(payloadBlob, resolvedFilename);
+      const contentType = String(payloadBlob.type || response?.headers?.['content-type'] || '').toLowerCase();
+      if (contentType && !contentType.includes('application/pdf')) {
+        throw new Error('Resposta recebida não é um PDF.');
+      }
+      const objectUrl = window.URL.createObjectURL(payloadBlob);
+      setPdfViewer({
+        url: objectUrl,
+        title: fallbackFilename.includes('_nf.') ? 'Nota fiscal' : 'Contrato',
+        filename: resolvedFilename,
+      });
       setError('');
     } catch (err) {
-      setError('Erro ao abrir o arquivo da entrega.');
+      setError(await extractPdfRequestError(err));
     } finally {
       setOpeningFileKey('');
     }
   };
+
+  useEffect(() => () => {
+    if (pdfViewer.url) {
+      window.URL.revokeObjectURL(pdfViewer.url);
+    }
+  }, [pdfViewer.url]);
 
   const formattedDeliveries = deliveries.map((item, index) => {
     const source = item && typeof item === 'object' ? item : {};
@@ -211,8 +182,8 @@ const DeliveriesHistory = () => {
       statusLabel,
       dateLabel,
       timeLabel,
-      pdfOneHref: toAbsoluteUrl(source.pdf_one_url || source.pdfOneUrl),
-      pdfTwoHref: toAbsoluteUrl(source.pdf_two_url || source.pdfTwoUrl)
+      pdfOneHref: source.pdf_one_url || source.pdfOneUrl || '',
+      pdfTwoHref: source.pdf_two_url || source.pdfTwoUrl || ''
     };
   });
 
@@ -259,6 +230,48 @@ const DeliveriesHistory = () => {
       </Box>
 
       {error && <Alert severity="error">{error}</Alert>}
+
+      <Dialog
+        open={Boolean(pdfViewer.url)}
+        onClose={() => setPdfViewer({ url: '', title: '', filename: '' })}
+        fullWidth
+        maxWidth="lg"
+        PaperProps={{ sx: { height: { xs: '92vh', md: '88vh' } } }}
+      >
+        <DialogTitle>{pdfViewer.title || 'Visualizar PDF'}</DialogTitle>
+        <DialogContent dividers sx={{ p: 0, minHeight: 0 }}>
+          {pdfViewer.url && (
+            <Box
+              component="iframe"
+              src={pdfViewer.url}
+              title={pdfViewer.title || 'Documento PDF'}
+              sx={{ width: '100%', height: '100%', border: 0, display: 'block' }}
+            />
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button
+            component="a"
+            href={pdfViewer.url || undefined}
+            target="_blank"
+            rel="noopener noreferrer"
+            disabled={!pdfViewer.url}
+          >
+            Abrir em nova aba
+          </Button>
+          <Button
+            component="a"
+            href={pdfViewer.url || undefined}
+            download={pdfViewer.filename || 'documento.pdf'}
+            disabled={!pdfViewer.url}
+          >
+            Baixar
+          </Button>
+          <Button onClick={() => setPdfViewer({ url: '', title: '', filename: '' })} variant="contained">
+            Fechar
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <TextField
         label="Pesquisar por código ou fantasia"

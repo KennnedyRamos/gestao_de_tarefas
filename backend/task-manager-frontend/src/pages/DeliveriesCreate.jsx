@@ -3,12 +3,14 @@ import {
   Alert,
   Box,
   Button,
+  LinearProgress,
   Typography
 } from '@mui/material';
 import dayjs from 'dayjs';
 import { useNavigate } from 'react-router-dom';
 
 import api from '../services/api';
+import { formatFileSize, validatePdfFile } from '../utils/deliveryPdf';
 
 const DeliveriesCreate = () => {
   const navigate = useNavigate();
@@ -23,6 +25,7 @@ const DeliveriesCreate = () => {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [lookupInfo, setLookupInfo] = useState('');
   const [lookupLoading, setLookupLoading] = useState(false);
   const lookupRequestRef = useRef(0);
@@ -101,6 +104,24 @@ const DeliveriesCreate = () => {
     setPdfTwo(null);
     setFileInputKey((prev) => prev + 1);
     setLookupInfo('');
+    setUploadProgress(0);
+  };
+
+  const handlePdfChange = (event, setter, label) => {
+    const file = event.target.files?.[0] || null;
+    if (!file) {
+      setter(null);
+      return;
+    }
+    const validationError = validatePdfFile(file, label);
+    if (validationError) {
+      setter(null);
+      event.target.value = '';
+      setError(validationError);
+      return;
+    }
+    setter(file);
+    setError('');
   };
 
   const handleSubmit = async (event) => {
@@ -124,15 +145,17 @@ const DeliveriesCreate = () => {
       setError('Informe a data da entrega.');
       return;
     }
-    if (!pdfOne || !pdfTwo) {
-      setError('Envie os dois PDFs da entrega.');
+    const pdfOneError = validatePdfFile(pdfOne, 'A nota fiscal');
+    const pdfTwoError = validatePdfFile(pdfTwo, 'O contrato');
+    if (pdfOneError || pdfTwoError) {
+      setError(pdfOneError || pdfTwoError);
       return;
     }
 
-    const descriptionPayload = `Código do cliente: ${clientCode.trim()} | Fantasia: ${fantasyName.trim()} | Descrição: ${description.trim()}`;
-
     const formData = new FormData();
-    formData.append('description', descriptionPayload);
+    formData.append('client_code', clientCode.trim());
+    formData.append('fantasy_name', fantasyName.trim());
+    formData.append('description', description.trim());
     formData.append('delivery_date', deliveryDate);
     if (deliveryTime) {
       formData.append('delivery_time', deliveryTime);
@@ -142,8 +165,13 @@ const DeliveriesCreate = () => {
 
     try {
       setSubmitting(true);
+      setUploadProgress(0);
       await api.post('/deliveries', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
+        onUploadProgress: (progressEvent) => {
+          if (progressEvent.total) {
+            setUploadProgress(Math.round((progressEvent.loaded * 100) / progressEvent.total));
+          }
+        },
       });
       clearForm();
       setSuccess('Entrega registrada com sucesso.');
@@ -152,6 +180,7 @@ const DeliveriesCreate = () => {
       setError(typeof detail === 'string' ? detail : 'Erro ao registrar a entrega.');
     } finally {
       setSubmitting(false);
+      setUploadProgress(0);
     }
   };
 
@@ -271,10 +300,15 @@ const DeliveriesCreate = () => {
                 key={`pdf-one-${fileInputKey}`}
                 type="file"
                 accept="application/pdf,.pdf"
-                onChange={(e) => setPdfOne(e.target.files?.[0] || null)}
+                onChange={(event) => handlePdfChange(event, setPdfOne, 'A nota fiscal')}
                 style={inputStyle}
                 required
               />
+              {pdfOne && (
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.75 }}>
+                  {pdfOne.name} ({formatFileSize(pdfOne.size)})
+                </Typography>
+              )}
             </Box>
             <Box>
               <Typography variant="caption" color="text.secondary">
@@ -284,10 +318,15 @@ const DeliveriesCreate = () => {
                 key={`pdf-two-${fileInputKey}`}
                 type="file"
                 accept="application/pdf,.pdf"
-                onChange={(e) => setPdfTwo(e.target.files?.[0] || null)}
+                onChange={(event) => handlePdfChange(event, setPdfTwo, 'O contrato')}
                 style={inputStyle}
                 required
               />
+              {pdfTwo && (
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.75 }}>
+                  {pdfTwo.name} ({formatFileSize(pdfTwo.size)})
+                </Typography>
+              )}
             </Box>
           </Box>
 
@@ -308,6 +347,17 @@ const DeliveriesCreate = () => {
               Limpar
             </Button>
           </Box>
+          {submitting && (
+            <Box>
+              <LinearProgress
+                variant={uploadProgress > 0 ? 'determinate' : 'indeterminate'}
+                value={uploadProgress}
+              />
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                {uploadProgress > 0 ? `Enviando documentos: ${uploadProgress}%` : 'Preparando envio...'}
+              </Typography>
+            </Box>
+          )}
         </Box>
       </Box>
     </Box>

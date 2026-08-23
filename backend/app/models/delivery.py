@@ -7,6 +7,8 @@ class Delivery(Base):
     __tablename__ = "deliveries"
 
     id = Column(Integer, primary_key=True, index=True)
+    client_code = Column(String, nullable=False, default="")
+    fantasy_name = Column(String, nullable=False, default="")
     description = Column(String, nullable=False)
     delivery_date = Column(Date, nullable=False)
     delivery_time = Column(Time, nullable=True)

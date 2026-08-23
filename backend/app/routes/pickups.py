@@ -115,7 +115,7 @@ def ensure_image(upload: UploadFile, content_bytes: bytes) -> str:
     if not detected_suffix:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="O arquivo enviado nÃ£o Ã© uma imagem válida."
+            detail="O arquivo enviado não é uma imagem válida."
         )
     if suffix == ".jpeg" and detected_suffix == ".jpg":
         return suffix
@@ -173,16 +173,16 @@ def open_pickup_file(
     if normalized.startswith("pickups/"):
         normalized = normalized[len("pickups/"):]
     if not normalized:
-        raise HTTPException(status_code=404, detail="Arquivo nÃ£o encontrado")
+        raise HTTPException(status_code=404, detail="Arquivo não encontrado")
 
     pickups_dir = get_pickups_dir().resolve()
     target_path = (pickups_dir / normalized).resolve()
     try:
         target_path.relative_to(pickups_dir)
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail="Arquivo nÃ£o encontrado") from exc
+        raise HTTPException(status_code=404, detail="Arquivo não encontrado") from exc
     if not target_path.exists() or not target_path.is_file():
-        raise HTTPException(status_code=404, detail="Arquivo nÃ£o encontrado")
+        raise HTTPException(status_code=404, detail="Arquivo não encontrado")
 
     return FileResponse(
         path=str(target_path),

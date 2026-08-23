@@ -1,17 +1,16 @@
 import os
 import re
-import json
-from mimetypes import guess_type
 from datetime import date, datetime, time
 from pathlib import Path
 from typing import Optional
 from urllib.error import HTTPError, URLError
-from urllib.parse import quote
+from urllib.parse import quote, unquote, urlsplit
 from urllib.request import Request as UrlRequest, urlopen
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request as FastAPIRequest, UploadFile, status
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, Response
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.core.auth import require_any_permission, require_permission
@@ -29,6 +28,11 @@ get_deliveries_dashboard_viewer = require_any_permission("deliveries.manage", "c
 
 SUPABASE_REF_PREFIX = "supabase://"
 MAX_PDF_UPLOAD_BYTES = 10 * 1024 * 1024
+DELIVERY_FILE_KINDS = {
+    "nf": "pdf_one_path",
+    "contract": "pdf_two_path",
+    "contrato": "pdf_two_path",
+}
 
 
 def env_text(name: str, default: str = "") -> str:
@@ -42,18 +46,22 @@ def parse_boolean_env(name: str, default: bool = False) -> bool:
     return raw.lower() in {"1", "true", "yes", "sim", "on"}
 
 
+def get_delivery_storage_backend() -> str:
+    backend = env_text("DELIVERY_STORAGE_BACKEND", "auto").lower()
+    if backend not in {"auto", "local", "supabase"}:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="DELIVERY_STORAGE_BACKEND inválido. Use auto, local ou supabase.",
+        )
+    return backend
+
+
 def get_supabase_storage_config() -> Optional[dict]:
     url = env_text("SUPABASE_URL").rstrip("/")
     service_role_key = env_text("SUPABASE_SERVICE_ROLE_KEY")
     bucket = env_text("SUPABASE_STORAGE_BUCKET", "deliveries")
     prefix = env_text("SUPABASE_STORAGE_PREFIX", "deliveries").strip("/")
-    use_public_url = parse_boolean_env("SUPABASE_STORAGE_PUBLIC", default=True)
     legacy_paths_enabled = parse_boolean_env("SUPABASE_STORAGE_LEGACY_PATHS", default=True)
-    signed_url_ttl_raw = env_text("SUPABASE_STORAGE_SIGNED_URL_TTL", "3600")
-    try:
-        signed_url_ttl = max(60, int(signed_url_ttl_raw))
-    except ValueError:
-        signed_url_ttl = 3600
 
     if not url or not service_role_key or not bucket:
         return None
@@ -63,9 +71,7 @@ def get_supabase_storage_config() -> Optional[dict]:
         "service_role_key": service_role_key,
         "bucket": bucket,
         "prefix": prefix,
-        "use_public_url": use_public_url,
         "legacy_paths_enabled": legacy_paths_enabled,
-        "signed_url_ttl": signed_url_ttl,
     }
 
 
@@ -87,6 +93,32 @@ def parse_supabase_reference(value: Optional[str]) -> Optional[tuple[str, str]]:
 
 def build_supabase_reference(bucket: str, object_path: str) -> str:
     return f"{SUPABASE_REF_PREFIX}{bucket.strip()}/{object_path.strip().lstrip('/')}"
+
+
+def parse_supabase_object_url(value: str, config: dict) -> Optional[tuple[str, str]]:
+    parsed = urlsplit(safe_text(value))
+    configured = urlsplit(config["url"])
+    if (
+        parsed.scheme not in {"http", "https"}
+        or parsed.hostname != configured.hostname
+        or parsed.port != configured.port
+    ):
+        return None
+
+    path = unquote(parsed.path)
+    prefixes = (
+        "/storage/v1/object/public/",
+        "/storage/v1/object/sign/",
+        "/storage/v1/object/authenticated/",
+        "/storage/v1/object/",
+    )
+    payload = next((path[len(prefix):] for prefix in prefixes if path.startswith(prefix)), "")
+    if "/" not in payload:
+        return None
+    bucket, object_path = payload.split("/", 1)
+    if not bucket or not object_path:
+        return None
+    return bucket, object_path
 
 
 def supabase_storage_request(
@@ -119,43 +151,32 @@ def supabase_storage_request(
         ) from exc
 
 
-def build_supabase_signed_url(config: dict, bucket: str, object_path: str) -> str:
-    endpoint = (
-        f"{config['url']}/storage/v1/object/sign/"
-        f"{quote(bucket, safe='')}/{quote(object_path, safe='/')}"
-    )
-    payload = json.dumps({"expiresIn": int(config["signed_url_ttl"])}).encode("utf-8")
-    response_status, response_payload = supabase_storage_request(
-        method="POST",
-        endpoint=endpoint,
-        service_role_key=config["service_role_key"],
-        body=payload,
-        content_type="application/json",
-    )
-    if response_status not in {200, 201}:
-        return ""
+def supabase_storage_request_bytes(
+    *,
+    endpoint: str,
+    service_role_key: str,
+) -> tuple[int, bytes]:
+    headers = {
+        "apikey": service_role_key,
+        "Authorization": f"Bearer {service_role_key}",
+    }
+    request_obj = UrlRequest(endpoint, method="GET", headers=headers)
     try:
-        parsed = json.loads(response_payload or "{}")
-    except json.JSONDecodeError:
-        return ""
-
-    signed_url = safe_text(parsed.get("signedURL") or parsed.get("signedUrl"))
-    if not signed_url:
-        return ""
-    if signed_url.startswith("http://") or signed_url.startswith("https://"):
-        return signed_url
-    return f"{config['url']}{signed_url if signed_url.startswith('/') else f'/{signed_url}'}"
-
-
-def build_supabase_object_url(config: dict, bucket: str, object_path: str) -> str:
-    quoted_bucket = quote(bucket, safe="")
-    quoted_path = quote(object_path, safe="/")
-    if config["use_public_url"]:
-        signed_url = build_supabase_signed_url(config, bucket, object_path)
-        if signed_url:
-            return signed_url
-        return f"{config['url']}/storage/v1/object/public/{quoted_bucket}/{quoted_path}"
-    return build_supabase_signed_url(config, bucket, object_path)
+        with urlopen(request_obj, timeout=25) as response:
+            content_bytes = response.read(MAX_PDF_UPLOAD_BYTES + 1)
+            if len(content_bytes) > MAX_PDF_UPLOAD_BYTES:
+                raise HTTPException(
+                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    detail="O PDF armazenado excede o limite de 10 MB.",
+                )
+            return int(response.status), content_bytes
+    except HTTPError as exc:
+        return int(exc.code), exc.read()
+    except URLError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Falha de conexão com Supabase Storage: {exc.reason}",
+        ) from exc
 
 
 def get_uploads_base_dir() -> Path:
@@ -230,178 +251,80 @@ def build_supabase_path_candidates(object_path: str, prefix: str = "") -> list[s
     return unique_paths(candidates)
 
 
-def supabase_object_exists(config: dict, bucket: str, object_path: str) -> bool:
+def download_supabase_object(config: dict, bucket: str, object_path: str) -> tuple[int, bytes]:
     endpoint = (
-        f"{config['url']}/storage/v1/object/info/"
+        f"{config['url']}/storage/v1/object/authenticated/"
         f"{quote(bucket, safe='')}/{quote(object_path, safe='/')}"
     )
-    try:
-        response_status, _ = supabase_storage_request(
-            method="GET",
-            endpoint=endpoint,
-            service_role_key=config["service_role_key"],
-        )
-    except HTTPException:
-        return False
-    return response_status == 200
+    return supabase_storage_request_bytes(
+        endpoint=endpoint,
+        service_role_key=config["service_role_key"],
+    )
 
 
-def find_supabase_object_by_file_name(config: dict, bucket: str, file_name: str) -> str:
-    clean_file_name = safe_text(file_name)
-    if not clean_file_name:
-        return ""
-
-    endpoint = f"{config['url']}/storage/v1/object/list/{quote(bucket, safe='')}"
-    prefixes = unique_paths([
-        safe_text(config.get("prefix", "")).strip("/"),
-        "deliveries",
-        "",
-    ])
-
-    for prefix in prefixes:
-        payload = json.dumps(
-            {
-                "prefix": prefix,
-                "limit": 100,
-                "offset": 0,
-                "search": clean_file_name,
-                "sortBy": {"column": "name", "order": "asc"},
-            }
-        ).encode("utf-8")
-
-        try:
-            response_status, response_payload = supabase_storage_request(
-                method="POST",
-                endpoint=endpoint,
-                service_role_key=config["service_role_key"],
-                body=payload,
-                content_type="application/json",
-            )
-        except HTTPException:
-            continue
-
-        if response_status not in {200, 201}:
-            continue
-        try:
-            parsed_items = json.loads(response_payload or "[]")
-        except json.JSONDecodeError:
-            continue
-        if not isinstance(parsed_items, list):
-            continue
-
-        for item in parsed_items:
-            if not isinstance(item, dict):
-                continue
-            name = safe_text(item.get("name"))
-            if not name:
-                continue
-            if Path(name).name.lower() != clean_file_name.lower():
-                continue
-            if prefix and not name.startswith(f"{prefix}/"):
-                return f"{prefix}/{name}".lstrip("/")
-            return name.lstrip("/")
-    return ""
+def build_pdf_response(content_bytes: bytes, filename: str, *, download: bool = False) -> Response:
+    disposition = "attachment" if download else "inline"
+    safe_filename = quote(Path(filename).name or "documento.pdf", safe="")
+    return Response(
+        content=content_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f"{disposition}; filename*=UTF-8''{safe_filename}",
+            "Cache-Control": "private, no-store",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
 
 
-def build_upload_url(
-    relative_path: str,
-    request: Optional[FastAPIRequest] = None,
-    *,
-    allow_local_storage_path: bool = False,
-) -> str:
+def serve_delivery_reference(relative_path: str, *, download: bool = False):
     raw_path = safe_text(relative_path)
     if not raw_path:
-        return ""
-    if raw_path.startswith("http://") or raw_path.startswith("https://"):
-        return raw_path
-    if request is not None:
-        try:
-            base_url = str(request.url_for("open_delivery_file"))
-        except Exception:
-            base_url = "/deliveries/files/open"
-        return f"{base_url}?path={quote(raw_path, safe='')}"
+        raise HTTPException(status_code=404, detail="Arquivo não encontrado.")
 
-    supabase_ref = parse_supabase_reference(relative_path)
+    supabase_ref = parse_supabase_reference(raw_path)
     if supabase_ref:
-        bucket, object_path = supabase_ref
         config = get_supabase_storage_config()
-        if config:
-            prefix = safe_text(config.get("prefix", "")).strip("/")
-            candidates = build_supabase_path_candidates(object_path, prefix)
-            for candidate in candidates:
-                if not supabase_object_exists(config, bucket, candidate):
-                    continue
-                object_url = build_supabase_object_url(config, bucket, candidate)
-                if object_url:
-                    return object_url
-            discovered = find_supabase_object_by_file_name(config, bucket, Path(object_path).name)
-            if discovered and supabase_object_exists(config, bucket, discovered):
-                object_url = build_supabase_object_url(config, bucket, discovered)
-                if object_url:
-                    return object_url
-        return ""
+        if not config:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Armazenamento de documentos não configurado.",
+            )
+        bucket, object_path = supabase_ref
+        prefix = safe_text(config.get("prefix", "")).strip("/")
+        candidates = build_supabase_path_candidates(object_path, prefix)
+        for candidate in candidates:
+            response_status, content_bytes = download_supabase_object(config, bucket, candidate)
+            if response_status == 200:
+                return build_pdf_response(content_bytes, Path(candidate).name, download=download)
+            if response_status not in {400, 404}:
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail="Falha ao recuperar o PDF no armazenamento.",
+                )
+        raise HTTPException(status_code=404, detail="PDF não encontrado no armazenamento.")
 
-    normalized = raw_path.lstrip("/")
+    if raw_path.startswith("http://") or raw_path.startswith("https://"):
+        config = get_supabase_storage_config()
+        supabase_url_ref = parse_supabase_object_url(raw_path, config) if config else None
+        if not supabase_url_ref:
+            raise HTTPException(status_code=404, detail="Referência antiga de PDF não suportada.")
+        bucket, object_path = supabase_url_ref
+        return serve_delivery_reference(
+            build_supabase_reference(bucket, object_path),
+            download=download,
+        )
+
+    normalized = raw_path.lstrip("/").replace("\\", "/")
     if normalized.startswith("uploads/"):
         normalized = normalized[len("uploads/"):]
 
     config = get_supabase_storage_config()
     if config and config.get("legacy_paths_enabled") and normalized:
         prefix = safe_text(config.get("prefix", "")).strip("/")
-        candidates = build_supabase_path_candidates(normalized, prefix)
-
-        for candidate in candidates:
-            if not supabase_object_exists(config, config["bucket"], candidate):
-                continue
-            object_url = build_supabase_object_url(config, config["bucket"], candidate)
-            if object_url:
-                return object_url
-
-        file_name = Path(normalized).name
-        discovered = find_supabase_object_by_file_name(config, config["bucket"], file_name)
-        if discovered and supabase_object_exists(config, config["bucket"], discovered):
-            object_url = build_supabase_object_url(config, config["bucket"], discovered)
-            if object_url:
-                return object_url
-
-    if not normalized:
-        return ""
-    if allow_local_storage_path:
-        return f"/uploads/{normalized}"
-    if request is not None:
-        try:
-            base_url = str(request.url_for("open_delivery_file"))
-        except Exception:
-            base_url = "/deliveries/files/open"
-        return f"{base_url}?path={quote(normalized, safe='')}"
-    return f"/deliveries/files/open?path={quote(normalized, safe='')}"
-
-
-@router.get("/files/open", name="open_delivery_file")
-def open_delivery_file(
-    path: str,
-    current_user: User = Depends(get_deliveries_manager),
-):
-    raw_path = safe_text(path)
-    if not raw_path:
-        raise HTTPException(status_code=404, detail="Arquivo não encontrado.")
-
-    resolved_url = build_upload_url(raw_path, request=None, allow_local_storage_path=True)
-    if not resolved_url:
-        raise HTTPException(status_code=404, detail="Arquivo não encontrado.")
-
-    if resolved_url.startswith("http://") or resolved_url.startswith("https://"):
-        return RedirectResponse(url=resolved_url, status_code=status.HTTP_307_TEMPORARY_REDIRECT)
-
-    normalized = safe_text(resolved_url)
-    if normalized.startswith("/uploads/"):
-        normalized = normalized[len("/uploads/"):]
-    elif normalized.startswith("uploads/"):
-        normalized = normalized[len("uploads/"):]
-    else:
-        normalized = safe_text(raw_path).lstrip("/")
-        if normalized.startswith("uploads/"):
-            normalized = normalized[len("uploads/"):]
+        for candidate in build_supabase_path_candidates(normalized, prefix):
+            response_status, content_bytes = download_supabase_object(config, config["bucket"], candidate)
+            if response_status == 200:
+                return build_pdf_response(content_bytes, Path(candidate).name, download=download)
 
     base_dir = get_uploads_base_dir().resolve()
     deliveries_dir = get_deliveries_dir().resolve()
@@ -410,15 +333,38 @@ def open_delivery_file(
         target_path.relative_to(deliveries_dir)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail="Arquivo não encontrado.") from exc
-
     if not target_path.exists() or not target_path.is_file():
-        raise HTTPException(status_code=404, detail="Arquivo não encontrado.")
+        raise HTTPException(status_code=404, detail="PDF não encontrado. O arquivo pode ter sido removido do servidor.")
 
     return FileResponse(
         path=str(target_path),
-        media_type=guess_type(str(target_path))[0] or "application/pdf",
+        media_type="application/pdf",
         filename=target_path.name,
+        content_disposition_type="attachment" if download else "inline",
+        headers={
+            "Cache-Control": "private, no-store",
+            "X-Content-Type-Options": "nosniff",
+        },
     )
+
+
+@router.get("/files/open", name="open_delivery_file")
+def open_delivery_file(
+    path: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_deliveries_manager),
+):
+    raw_path = safe_text(path)
+    if not raw_path:
+        raise HTTPException(status_code=404, detail="Arquivo não encontrado.")
+    is_registered = (
+        db.query(Delivery.id)
+        .filter(or_(Delivery.pdf_one_path == raw_path, Delivery.pdf_two_path == raw_path))
+        .first()
+    )
+    if not is_registered:
+        raise HTTPException(status_code=404, detail="Arquivo não encontrado.")
+    return serve_delivery_reference(raw_path)
 
 
 def parse_date(value: str) -> date:
@@ -462,7 +408,16 @@ def save_pdf(upload: UploadFile, prefix: str, label: str) -> str:
             detail=f"{label} precisa ser um PDF válido."
         )
 
-    supabase_config = get_supabase_storage_config()
+    storage_backend = get_delivery_storage_backend()
+    supabase_config = None if storage_backend == "local" else get_supabase_storage_config()
+    if storage_backend == "supabase" and not supabase_config:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                "Armazenamento de documentos não configurado. "
+                "Defina SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY e SUPABASE_STORAGE_BUCKET."
+            ),
+        )
     original_name = upload.filename or f"{prefix}.pdf"
     stem = sanitize_stem(Path(original_name).stem)
     target_name = f"{prefix}_{uuid4().hex}_{stem}.pdf"
@@ -539,13 +494,32 @@ def remove_upload(relative_path: Optional[str]) -> None:
 def build_delivery_out(delivery: Delivery, request: Optional[FastAPIRequest] = None) -> DeliveryOut:
     return DeliveryOut(
         id=delivery.id,
+        client_code=safe_text(getattr(delivery, "client_code", "")),
+        fantasy_name=safe_text(getattr(delivery, "fantasy_name", "")),
         description=delivery.description,
         delivery_date=delivery.delivery_date,
         delivery_time=delivery.delivery_time,
-        pdf_one_url=build_upload_url(delivery.pdf_one_path, request=request),
-        pdf_two_url=build_upload_url(delivery.pdf_two_path, request=request),
+        pdf_one_url=f"/deliveries/{delivery.id}/files/nf",
+        pdf_two_url=f"/deliveries/{delivery.id}/files/contract",
         created_at=delivery.created_at
     )
+
+
+@router.get("/{delivery_id}/files/{file_kind}", name="open_delivery_attachment")
+def open_delivery_attachment(
+    delivery_id: int,
+    file_kind: str,
+    download: bool = False,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_deliveries_manager),
+):
+    field_name = DELIVERY_FILE_KINDS.get(safe_text(file_kind).lower())
+    if not field_name:
+        raise HTTPException(status_code=404, detail="Tipo de documento não encontrado.")
+    delivery = db.query(Delivery).filter(Delivery.id == delivery_id).first()
+    if not delivery:
+        raise HTTPException(status_code=404, detail="Entrega não encontrada.")
+    return serve_delivery_reference(getattr(delivery, field_name), download=download)
 
 
 @router.get("/dashboard", response_model=list[DeliveryOut])
@@ -606,6 +580,8 @@ def lookup_delivery_client(
 def create_delivery(
     request: FastAPIRequest,
     description: str = Form(...),
+    client_code: str = Form(""),
+    fantasy_name: str = Form(""),
     delivery_date: str = Form(...),
     delivery_time: Optional[str] = Form(None),
     pdf_one: UploadFile = File(...),
@@ -622,6 +598,8 @@ def create_delivery(
         pdf_one_path = save_pdf(pdf_one, "pdf1", "PDF 1")
         pdf_two_path = save_pdf(pdf_two, "pdf2", "PDF 2")
         delivery = Delivery(
+            client_code=safe_text(client_code),
+            fantasy_name=safe_text(fantasy_name),
             description=description,
             delivery_date=parsed_date,
             delivery_time=parsed_time,

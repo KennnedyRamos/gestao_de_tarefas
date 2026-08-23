@@ -1,27 +1,38 @@
 import os
 import tempfile
+from datetime import date
 from pathlib import Path
 from uuid import uuid4
 
 import pytest
+from fastapi import HTTPException
+from fastapi.testclient import TestClient
 
 TEST_DB_FILE = Path(tempfile.gettempdir()) / f"test_equipments_sync_integration_{uuid4().hex}.db"
 os.environ["DATABASE_URL"] = f"sqlite:///{TEST_DB_FILE.as_posix()}"
-os.environ.setdefault("SECRET_KEY", "test-secret-key")
+os.environ.setdefault("SECRET_KEY", "test-secret-key-at-least-32-bytes-long")
 os.environ.setdefault("ALGORITHM", "HS256")
 os.environ.setdefault("ACCESS_TOKEN_EXPIRE_MINUTES", "60")
 os.environ.setdefault("DB_BOOTSTRAP_MODE", "off")
 
-from app.core.security import get_password_hash  # noqa: E402
+from app.core.auth import get_current_user  # noqa: E402
+from app.core.security import create_access_token, get_password_hash  # noqa: E402
 from app.database.base import Base  # noqa: E402
 from app.database.session import SessionLocal, engine  # noqa: E402
+from app.main import app  # noqa: E402
 from app.models.pickup_catalog import (  # noqa: E402
     PickupCatalogClient,
     PickupCatalogInventoryItem,
     PickupCatalogOrder,
     PickupCatalogOrderItem,
 )
+from app.models.delivery import Delivery  # noqa: E402
 from app.models.user import User  # noqa: E402
+from app.routes.deliveries import (  # noqa: E402
+    build_delivery_out,
+    open_delivery_attachment,
+    parse_supabase_object_url,
+)
 from app.routes.pickup_catalog import list_orders, update_order_status  # noqa: E402
 from app.routes.equipments import (  # noqa: E402
     create_equipment,
@@ -103,6 +114,41 @@ def equipment_by_id(items, equipment_id: int):
         if int(item_id or 0) == int(equipment_id):
             return item
     return None
+
+
+def test_jwt_round_trip_and_invalid_subject(db_session):
+    user = create_admin_user(db_session)
+    token = create_access_token({"sub": str(user.id)})
+
+    assert get_current_user(token=token, db=db_session).id == user.id
+
+    invalid_token = create_access_token({"sub": "not-a-number"})
+    with pytest.raises(HTTPException) as exc_info:
+        get_current_user(token=invalid_token, db=db_session)
+    assert exc_info.value.status_code == 401
+
+
+def test_api_health_login_and_authenticated_user(db_session):
+    user = create_admin_user(db_session)
+
+    with TestClient(app) as client:
+        health_response = client.get("/health/db")
+        assert health_response.status_code == 200
+        assert health_response.json() == {"status": "ok"}
+
+        login_response = client.post(
+            "/auth/login",
+            json={"email": user.email, "password": "Admin@123"},
+        )
+        assert login_response.status_code == 200
+        token = login_response.json()["access_token"]
+
+        me_response = client.get(
+            "/auth/me",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert me_response.status_code == 200
+        assert me_response.json()["email"] == user.email
 
 
 def test_sync_allocation_status_and_hide_from_available_requests(db_session):
@@ -335,3 +381,71 @@ def test_list_orders_sorts_pending_first_then_completed_by_withdrawal_date_desc(
         "RET-CONCLUIDA-ANTIGA",
         "RET-CANCELADA",
     ]
+
+
+def test_delivery_pdf_is_served_inline_from_authenticated_endpoint(db_session, tmp_path, monkeypatch):
+    monkeypatch.setenv("UPLOADS_DIR", str(tmp_path))
+    monkeypatch.setenv("DELIVERY_STORAGE_BACKEND", "local")
+    deliveries_dir = tmp_path / "deliveries"
+    deliveries_dir.mkdir(parents=True)
+    pdf_path = deliveries_dir / "nota-fiscal.pdf"
+    pdf_path.write_bytes(b"%PDF-1.4\n%%EOF")
+
+    delivery = Delivery(
+        client_code="1001",
+        fantasy_name="Cliente Teste",
+        description="Entrega de teste",
+        delivery_date=date(2026, 3, 15),
+        pdf_one_path="deliveries/nota-fiscal.pdf",
+        pdf_two_path="deliveries/nota-fiscal.pdf",
+    )
+    db_session.add(delivery)
+    db_session.commit()
+    db_session.refresh(delivery)
+
+    response = open_delivery_attachment(
+        delivery_id=int(delivery.id),
+        file_kind="nf",
+        download=False,
+        db=db_session,
+        current_user=create_admin_user(db_session),
+    )
+
+    assert response.media_type == "application/pdf"
+    assert response.headers["content-disposition"].startswith("inline;")
+    assert response.headers["cache-control"] == "private, no-store"
+
+
+def test_delivery_output_uses_structured_fields_and_relative_file_urls(db_session):
+    delivery = Delivery(
+        client_code="2002",
+        fantasy_name="Fantasia Estruturada",
+        description="Descrição sem concatenação",
+        delivery_date=date(2026, 3, 16),
+        pdf_one_path="deliveries/nf.pdf",
+        pdf_two_path="deliveries/contrato.pdf",
+    )
+    db_session.add(delivery)
+    db_session.commit()
+    db_session.refresh(delivery)
+
+    payload = build_delivery_out(delivery)
+
+    assert payload.client_code == "2002"
+    assert payload.fantasy_name == "Fantasia Estruturada"
+    assert payload.description == "Descrição sem concatenação"
+    assert payload.pdf_one_url == f"/deliveries/{delivery.id}/files/nf"
+    assert payload.pdf_two_url == f"/deliveries/{delivery.id}/files/contract"
+
+
+def test_legacy_supabase_url_is_accepted_only_for_configured_project():
+    config = {"url": "https://project-ref.supabase.co"}
+
+    assert parse_supabase_object_url(
+        "https://project-ref.supabase.co/storage/v1/object/public/deliveries/docs/nf.pdf",
+        config,
+    ) == ("deliveries", "docs/nf.pdf")
+    assert parse_supabase_object_url(
+        "https://malicious.example/storage/v1/object/public/deliveries/docs/nf.pdf",
+        config,
+    ) is None

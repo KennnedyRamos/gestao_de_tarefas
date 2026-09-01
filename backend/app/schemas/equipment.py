@@ -148,6 +148,7 @@ class EquipmentInventoryMaterialItemOut(BaseModel):
     comodato_number: str
     invoice_issue_date: str
     invoice_month: str
+    is_search_match: bool = False
 
 
 class EquipmentInventoryMaterialListOut(BaseModel):

@@ -605,7 +605,7 @@ def _compact_code_expression(column):
     return expression
 
 
-def _inventory_search_client_ids_subquery(db: Session, search_text: str):
+def _inventory_search_matches_cte(db: Session, search_text: str):
     search = normalize_spaces(search_text)
     pattern = f"%{search}%"
     normalized_search = normalize_lookup_text(search)
@@ -653,14 +653,21 @@ def _inventory_search_client_ids_subquery(db: Session, search_text: str):
         ])
 
     equipment_match = or_(*equipment_conditions)
+    equipment_rg_compact = _compact_code_expression(Equipment.rg_code)
+    equipment_tag_compact = _compact_code_expression(Equipment.tag_code)
     matched_equipment_codes = select(
-        _compact_code_expression(Equipment.rg_code).label("equipment_code")
-    ).where(equipment_match).union(
-        select(_compact_code_expression(Equipment.tag_code).label("equipment_code")).where(equipment_match)
+        equipment_rg_compact.label("equipment_code")
+    ).where(and_(equipment_match, equipment_rg_compact != "")).union(
+        select(equipment_tag_compact.label("equipment_code")).where(
+            and_(equipment_match, equipment_tag_compact != "")
+        )
     )
 
-    matched_clients_query = _apply_inventory_base_filter(
-        db.query(PickupCatalogInventoryItem.client_id.label("client_id"))
+    matched_items_query = _apply_inventory_base_filter(
+        db.query(
+            PickupCatalogInventoryItem.id.label("inventory_item_id"),
+            PickupCatalogInventoryItem.client_id.label("client_id"),
+        )
         .join(PickupCatalogClient, PickupCatalogClient.id == PickupCatalogInventoryItem.client_id)
         .filter(
             or_(
@@ -670,7 +677,7 @@ def _inventory_search_client_ids_subquery(db: Session, search_text: str):
         ),
         db=db,
     ).distinct()
-    return matched_clients_query.subquery()
+    return matched_items_query.cte("inventory_search_matches")
 
 
 @router.get("/", response_model=list[EquipmentOut])
@@ -1253,9 +1260,19 @@ def list_inventory_materials(
     # (inclusive por modelo/RG/etiqueta do cadastro de equipamentos) e traz
     # todos os comodatos em aberto desses clientes, independentemente do mês.
     if search:
-        matched_clients = _inventory_search_client_ids_subquery(db, search)
-        base_query = base_query.filter(
-            PickupCatalogInventoryItem.client_id.in_(select(matched_clients.c.client_id))
+        matched_items = _inventory_search_matches_cte(db, search)
+        base_query = (
+            base_query
+            .outerjoin(
+                matched_items,
+                matched_items.c.inventory_item_id == PickupCatalogInventoryItem.id,
+            )
+            .add_columns(
+                matched_items.c.inventory_item_id.is_not(None).label("is_search_match")
+            )
+            .filter(
+                PickupCatalogInventoryItem.client_id.in_(select(matched_items.c.client_id))
+            )
         )
     elif normalized_month or normalized_year:
         period_condition = _inventory_issue_period_condition(normalized_year, normalized_month)
@@ -1287,6 +1304,7 @@ def list_inventory_materials(
                 "comodato_number": normalize_spaces(row.comodato_number),
                 "invoice_issue_date": normalize_spaces(row.invoice_issue_date),
                 "invoice_month": invoice_month,
+                "is_search_match": bool(getattr(row, "is_search_match", False)),
                 "sort_date": parsed_date,
             }
         )
@@ -1308,6 +1326,10 @@ def list_inventory_materials(
         ),
         reverse=reverse,
     )
+    if search:
+        # Mantém a ordenação escolhida dentro de cada grupo, mas garante que
+        # o material que originou a busca apareça antes dos demais comodatos.
+        normalized_rows.sort(key=lambda item: not item["is_search_match"])
 
     total = len(normalized_rows)
     paged_rows = normalized_rows[offset: offset + limit]
@@ -1323,6 +1345,7 @@ def list_inventory_materials(
             comodato_number=item["comodato_number"],
             invoice_issue_date=item["invoice_issue_date"],
             invoice_month=item["invoice_month"],
+            is_search_match=item["is_search_match"],
         )
         for item in paged_rows
     ]

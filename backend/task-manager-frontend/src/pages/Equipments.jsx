@@ -2451,7 +2451,8 @@ const EquipmentPage = () => {
                 <Typography variant="h6">Materiais alocados (base 02.02.20)</Typography>
                 {materialsSearchDebounced && (
                   <Typography variant="caption" color="text.secondary">
-                    Resultado agrupado pelos clientes associados à busca “{materialsSearchDebounced}”.
+                    Resultado agrupado pelos clientes associados à busca “{materialsSearchDebounced}”. O material
+                    correspondente aparece primeiro e destacado em laranja.
                   </Typography>
                 )}
                 {loadingMaterials ? (
@@ -2463,8 +2464,24 @@ const EquipmentPage = () => {
                     {isMobile ? (
                       <Box sx={SCROLLABLE_CARD_LIST_SX}>
                         {inventoryMaterials.map((item) => (
-                          <Card key={item.inventory_item_id} sx={{ border: '1px solid var(--stroke)', boxShadow: 'none' }}>
+                          <Card
+                            key={item.inventory_item_id}
+                            sx={{
+                              border: item.is_search_match ? '2px solid' : '1px solid var(--stroke)',
+                              borderColor: item.is_search_match ? 'warning.main' : 'var(--stroke)',
+                              bgcolor: item.is_search_match ? 'rgba(249, 115, 22, 0.09)' : 'background.paper',
+                              boxShadow: item.is_search_match ? '0 0 0 1px rgba(249, 115, 22, 0.12)' : 'none',
+                            }}
+                          >
                             <CardContent sx={{ display: 'grid', gap: 0.5, p: 1.25, '&:last-child': { pb: 1.25 } }}>
+                              {item.is_search_match && (
+                                <Chip
+                                  label="Material encontrado"
+                                  color="warning"
+                                  size="small"
+                                  sx={{ justifySelf: 'start', fontWeight: 700 }}
+                                />
+                              )}
                               <Typography variant="subtitle2" sx={{ wordBreak: 'break-word' }}>
                                 {item.model_name || '-'}
                               </Typography>
@@ -2500,8 +2517,24 @@ const EquipmentPage = () => {
                           </TableHead>
                           <TableBody>
                             {inventoryMaterials.map((item) => (
-                              <TableRow key={item.inventory_item_id}>
-                                <TableCell>{materialTypeByValue[item.item_type] || item.item_type || '-'}</TableCell>
+                              <TableRow
+                                key={item.inventory_item_id}
+                                sx={item.is_search_match ? {
+                                  '& > td': { bgcolor: 'rgba(249, 115, 22, 0.09)' },
+                                  '& > td:first-of-type': {
+                                    borderLeft: '4px solid',
+                                    borderLeftColor: 'warning.main',
+                                  },
+                                } : undefined}
+                              >
+                                <TableCell>
+                                  <Stack spacing={0.5} alignItems="flex-start">
+                                    <span>{materialTypeByValue[item.item_type] || item.item_type || '-'}</span>
+                                    {item.is_search_match && (
+                                      <Chip label="Material encontrado" color="warning" size="small" />
+                                    )}
+                                  </Stack>
+                                </TableCell>
                                 <TableCell>{item.nome_fantasia || '-'}</TableCell>
                                 <TableCell>{item.client_code || '-'}</TableCell>
                                 <TableCell sx={COMPACT_MODEL_CELL_SX}>{item.model_name || '-'}</TableCell>

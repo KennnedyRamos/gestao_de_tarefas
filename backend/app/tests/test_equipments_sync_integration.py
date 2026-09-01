@@ -237,7 +237,7 @@ def test_inventory_search_by_tag_returns_all_open_comodatos_for_matched_client(d
     db_session.add_all([matched_client, other_client])
     db_session.flush()
 
-    db_session.add(
+    db_session.add_all([
         Equipment(
             category="refrigerador",
             model_name="VISA COOLER CADASTRADO",
@@ -248,8 +248,19 @@ def test_inventory_search_by_tag_returns_all_open_comodatos_for_matched_client(d
             tag_code="ETQ-ABC-99",
             status="alocado",
             client_name=matched_client.nome_fantasia,
-        )
-    )
+        ),
+        Equipment(
+            category="refrigerador",
+            model_name="VISA COOLER CADASTRADO",
+            brand="BRAHMA",
+            quantity=1,
+            voltage="220v",
+            rg_code="RG-SEM-COMODATO",
+            tag_code=None,
+            status="disponivel",
+            client_name="",
+        ),
+    ])
     db_session.add_all([
         PickupCatalogInventoryItem(
             client_id=matched_client.id,
@@ -283,7 +294,7 @@ def test_inventory_search_by_tag_returns_all_open_comodatos_for_matched_client(d
             description="MATERIAL DE OUTRO CLIENTE",
             item_type="outro",
             open_quantity=1,
-            rg="RG-OUTRO",
+            rg="",
             comodato_number="CMD-OUTRO",
             invoice_issue_date="15/03/2026",
         ),
@@ -311,6 +322,61 @@ def test_inventory_search_by_tag_returns_all_open_comodatos_for_matched_client(d
         "CMD-MESA",
     }
     assert {item.invoice_month for item in result.items} == {"2026-03", "2025-01", "2024-02"}
+    assert result.items[0].comodato_number == "CMD-REFRIGERADOR"
+    assert result.items[0].is_search_match is True
+    assert sum(item.is_search_match for item in result.items) == 1
+
+    description_result = list_inventory_materials(
+        group="todos",
+        limit=50,
+        offset=0,
+        q="CAIXA TÉRMICA 12L",
+        year="2026",
+        month="2026-03",
+        item_type_filter=None,
+        sort="newest",
+        db=db_session,
+        current_user=current_user,
+    )
+
+    assert description_result.page.total == 3
+    assert description_result.items[0].comodato_number == "CMD-CAIXA"
+    assert description_result.items[0].is_search_match is True
+    assert sum(item.is_search_match for item in description_result.items) == 1
+
+    equipment_description_result = list_inventory_materials(
+        group="todos",
+        limit=50,
+        offset=0,
+        q="VISA COOLER CADASTRADO",
+        year=None,
+        month=None,
+        item_type_filter=None,
+        sort="newest",
+        db=db_session,
+        current_user=current_user,
+    )
+
+    assert equipment_description_result.page.total == 3
+    assert {item.client_code for item in equipment_description_result.items} == {"1001"}
+    assert equipment_description_result.items[0].comodato_number == "CMD-REFRIGERADOR"
+    assert equipment_description_result.items[0].is_search_match is True
+
+    rg_result = list_inventory_materials(
+        group="todos",
+        limit=50,
+        offset=0,
+        q="RG 777-9",
+        year=None,
+        month=None,
+        item_type_filter=None,
+        sort="oldest",
+        db=db_session,
+        current_user=current_user,
+    )
+
+    assert rg_result.items[0].comodato_number == "CMD-REFRIGERADOR"
+    assert rg_result.items[0].is_search_match is True
 
     march_result = list_inventory_materials(
         group="todos",

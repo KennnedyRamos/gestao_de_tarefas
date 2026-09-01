@@ -30,7 +30,7 @@ A plataforma reúne esses fluxos em uma única interface responsiva, com autenti
 
 ## Destaques técnicos
 
-- **Busca global no banco:** equipamento, modelo, marca, RG, etiqueta, observação e código do cliente são pesquisados no backend. Ao localizar um item, a consulta retorna os comodatos abertos do cliente relacionado, sem ficar limitada ao mês selecionado.
+- **Busca global no banco:** equipamento, modelo, marca, RG, etiqueta, observação e código do cliente são pesquisados no backend. Ao localizar um item, a consulta retorna os comodatos abertos do cliente relacionado, sem ficar limitada ao mês selecionado, e prioriza visualmente o material que originou a correspondência.
 - **Consultas mais eficientes:** filtros normais de competência são aplicados no SQL, resultados extensos usam paginação e o campo de pesquisa utiliza debounce para evitar requisições a cada tecla.
 - **Preenchimento consistente de clientes:** a consulta por código respeita as permissões de todos os fluxos que dependem do catálogo, evitando telas vazias para usuários autorizados.
 - **Controle de acesso:** autenticação JWT, perfis e permissões por funcionalidade, além de limitação de tentativas de login.

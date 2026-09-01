@@ -13,20 +13,18 @@ const inferBaseUrl = () => {
   if (typeof window === 'undefined') {
     return DEFAULT_LOCAL_API_URL;
   }
-  if (typeof window !== 'undefined') {
-    const host = String(window.location.hostname || '').toLowerCase();
-    const port = String(window.location.port || '').trim();
-    const protocol = window.location.protocol || 'http:';
-    if (host.includes('localhost') || host.includes('127.0.0.1')) {
-      return DEFAULT_LOCAL_API_URL;
-    }
-    // Em ambiente de desenvolvimento na rede local (ex.: celular), usa o mesmo host na porta 8000.
-    if (port === '3000') {
-      return `${protocol}//${host}:8000`;
-    }
-    return window.location.origin;
+
+  const host = String(window.location.hostname || '').toLowerCase();
+  const port = String(window.location.port || '').trim();
+  const protocol = window.location.protocol || 'http:';
+  if (host.includes('localhost') || host.includes('127.0.0.1')) {
+    return DEFAULT_LOCAL_API_URL;
   }
-  return DEFAULT_LOCAL_API_URL;
+  // Em desenvolvimento na rede local (ex.: celular), usa o mesmo host na porta 8000.
+  if (port === '3000') {
+    return `${protocol}//${host}:8000`;
+  }
+  return window.location.origin;
 };
 
 const baseURL = inferBaseUrl();
@@ -36,43 +34,6 @@ const api = axios.create({
 });
 
 let warmupRequest = null;
-
-const UNICODE_ESCAPE_PATTERN = /\\u([0-9a-fA-F]{4})/g;
-
-const decodeEscapedUnicode = (value) => {
-  const text = String(value ?? '');
-  if (!text.includes('\\u')) {
-    return text;
-  }
-  return text.replace(UNICODE_ESCAPE_PATTERN, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
-};
-
-const normalizeResponseData = (payload) => {
-  // Preserve binary payloads (PDF, images, files) and native buffers.
-  if (typeof Blob !== 'undefined' && payload instanceof Blob) {
-    return payload;
-  }
-  if (typeof ArrayBuffer !== 'undefined' && payload instanceof ArrayBuffer) {
-    return payload;
-  }
-  if (typeof FormData !== 'undefined' && payload instanceof FormData) {
-    return payload;
-  }
-  if (typeof payload === 'string') {
-    return decodeEscapedUnicode(payload);
-  }
-  if (Array.isArray(payload)) {
-    return payload.map((item) => normalizeResponseData(item));
-  }
-  if (payload && typeof payload === 'object') {
-    const normalized = {};
-    Object.keys(payload).forEach((key) => {
-      normalized[key] = normalizeResponseData(payload[key]);
-    });
-    return normalized;
-  }
-  return payload;
-};
 
 const isAuthLoginRequest = (config) => {
   const url = config?.url || '';
@@ -88,10 +49,7 @@ api.interceptors.request.use((config) => {
 });
 
 api.interceptors.response.use(
-  (response) => {
-    response.data = normalizeResponseData(response.data);
-    return response;
-  },
+  (response) => response,
   (error) => {
     const status = error?.response?.status;
     if (status === 401 && !isAuthLoginRequest(error?.config)) {

@@ -1,3 +1,4 @@
+import json
 import os
 import tempfile
 from datetime import date
@@ -20,6 +21,7 @@ from app.core.security import create_access_token, get_password_hash  # noqa: E4
 from app.database.base import Base  # noqa: E402
 from app.database.session import SessionLocal, engine  # noqa: E402
 from app.main import app  # noqa: E402
+from app.models.equipment import Equipment  # noqa: E402
 from app.models.pickup_catalog import (  # noqa: E402
     PickupCatalogClient,
     PickupCatalogInventoryItem,
@@ -38,6 +40,7 @@ from app.routes.equipments import (  # noqa: E402
     create_equipment,
     list_available_refrigerators_for_comodato,
     list_equipments,
+    list_inventory_materials,
     list_non_allocated_refrigerators,
     sync_refrigerators_allocation_status,
 )
@@ -135,6 +138,10 @@ def test_api_health_login_and_authenticated_user(db_session):
         health_response = client.get("/health/db")
         assert health_response.status_code == 200
         assert health_response.json() == {"status": "ok"}
+        assert health_response.headers["x-content-type-options"] == "nosniff"
+        assert health_response.headers["x-frame-options"] == "DENY"
+        assert health_response.headers["referrer-policy"] == "no-referrer"
+        assert health_response.headers["x-app-version"]
 
         login_response = client.post(
             "/auth/login",
@@ -149,6 +156,180 @@ def test_api_health_login_and_authenticated_user(db_session):
         )
         assert me_response.status_code == 200
         assert me_response.json()["email"] == user.email
+
+
+def test_client_lookup_allows_every_requests_screen_permission(db_session):
+    db_session.add(
+        PickupCatalogClient(
+            client_code="1234",
+            nome_fantasia="Cliente Autofill",
+            cnpj_cpf="12345678000199",
+        )
+    )
+    db_session.commit()
+
+    allowed_permissions = (
+        "pickups.create_order",
+        "pickups.withdrawals_history",
+        "equipments.view",
+        "equipments.manage",
+    )
+
+    with TestClient(app) as client:
+        for permission in allowed_permissions:
+            user = User(
+                name=f"Usuario {permission}",
+                email=f"{permission.replace('.', '-')}@test.local",
+                password="unused",
+                role="assistente",
+                permissions=json.dumps([permission]),
+            )
+            db_session.add(user)
+            db_session.commit()
+            db_session.refresh(user)
+
+            token = create_access_token({"sub": str(user.id)})
+            response = client.get(
+                "/pickup-catalog/client/001234",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+
+            assert response.status_code == 200
+            payload = response.json()
+            assert payload["found_anything"] is True
+            assert payload["client"]["client_code"] == "1234"
+            assert payload["client"]["nome_fantasia"] == "Cliente Autofill"
+            assert payload["client"]["cnpj_cpf"] == "12345678000199"
+
+
+def test_client_lookup_rejects_unrelated_permission(db_session):
+    user = User(
+        name="Usuario sem acesso a clientes",
+        email="tasks-only@test.local",
+        password="unused",
+        role="assistente",
+        permissions=json.dumps(["tasks.manage"]),
+    )
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+
+    token = create_access_token({"sub": str(user.id)})
+    with TestClient(app) as client:
+        response = client.get(
+            "/pickup-catalog/client/1234",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+    assert response.status_code == 403
+
+
+def test_inventory_search_by_tag_returns_all_open_comodatos_for_matched_client(db_session):
+    current_user = create_admin_user(db_session)
+    matched_client = PickupCatalogClient(
+        client_code="1001",
+        nome_fantasia="Cliente com vários comodatos",
+    )
+    other_client = PickupCatalogClient(
+        client_code="2002",
+        nome_fantasia="Outro cliente",
+    )
+    db_session.add_all([matched_client, other_client])
+    db_session.flush()
+
+    db_session.add(
+        Equipment(
+            category="refrigerador",
+            model_name="VISA COOLER CADASTRADO",
+            brand="BRAHMA",
+            quantity=1,
+            voltage="220v",
+            rg_code="RG 777-9",
+            tag_code="ETQ-ABC-99",
+            status="alocado",
+            client_name=matched_client.nome_fantasia,
+        )
+    )
+    db_session.add_all([
+        PickupCatalogInventoryItem(
+            client_id=matched_client.id,
+            description="VISA COOLER NA BASE",
+            item_type="refrigerador",
+            open_quantity=1,
+            rg="RG7779",
+            comodato_number="CMD-REFRIGERADOR",
+            invoice_issue_date="15/03/2026",
+        ),
+        PickupCatalogInventoryItem(
+            client_id=matched_client.id,
+            description="CAIXA TÉRMICA 12L",
+            item_type="caixa_termica",
+            open_quantity=2,
+            rg="",
+            comodato_number="CMD-CAIXA",
+            invoice_issue_date="10/01/2025",
+        ),
+        PickupCatalogInventoryItem(
+            client_id=matched_client.id,
+            description="JOGO DE MESA",
+            item_type="jogo_mesa",
+            open_quantity=3,
+            rg="",
+            comodato_number="CMD-MESA",
+            invoice_issue_date="20/02/2024",
+        ),
+        PickupCatalogInventoryItem(
+            client_id=other_client.id,
+            description="MATERIAL DE OUTRO CLIENTE",
+            item_type="outro",
+            open_quantity=1,
+            rg="RG-OUTRO",
+            comodato_number="CMD-OUTRO",
+            invoice_issue_date="15/03/2026",
+        ),
+    ])
+    db_session.commit()
+
+    result = list_inventory_materials(
+        group="todos",
+        limit=50,
+        offset=0,
+        q="ETQ ABC 99",
+        year="2026",
+        month="2026-03",
+        item_type_filter=None,
+        sort="newest",
+        db=db_session,
+        current_user=current_user,
+    )
+
+    assert result.page.total == 3
+    assert {item.client_code for item in result.items} == {"1001"}
+    assert {item.comodato_number for item in result.items} == {
+        "CMD-REFRIGERADOR",
+        "CMD-CAIXA",
+        "CMD-MESA",
+    }
+    assert {item.invoice_month for item in result.items} == {"2026-03", "2025-01", "2024-02"}
+
+    march_result = list_inventory_materials(
+        group="todos",
+        limit=50,
+        offset=0,
+        q=None,
+        year="2026",
+        month="2026-03",
+        item_type_filter=None,
+        sort="newest",
+        db=db_session,
+        current_user=current_user,
+    )
+
+    assert march_result.page.total == 2
+    assert {item.comodato_number for item in march_result.items} == {
+        "CMD-REFRIGERADOR",
+        "CMD-OUTRO",
+    }
 
 
 def test_sync_allocation_status_and_hide_from_available_requests(db_session):

@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
-from sqlalchemy import func, or_
+from sqlalchemy import and_, extract, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -424,6 +424,41 @@ def _parse_inventory_issue_date(raw_date: Optional[str], fallback: Optional[date
     return fallback or datetime(1900, 1, 1)
 
 
+def _inventory_issue_period_condition(year: str, month: str):
+    date_column = func.trim(func.coalesce(PickupCatalogInventoryItem.invoice_issue_date, ""))
+    created_at_column = PickupCatalogInventoryItem.created_at
+
+    if month:
+        resolved_year = month[:4]
+        resolved_month = month[5:7]
+        short_year = resolved_year[2:]
+        return or_(
+            date_column.ilike(f"{resolved_year}-{resolved_month}%"),
+            date_column.ilike(f"{resolved_year}/{resolved_month}%"),
+            date_column.ilike(f"%/{resolved_month}/{resolved_year}%"),
+            date_column.ilike(f"%-{resolved_month}-{resolved_year}%"),
+            date_column.ilike(f"%/{resolved_month}/{short_year}%"),
+            and_(
+                date_column == "",
+                extract("year", created_at_column) == int(resolved_year),
+                extract("month", created_at_column) == int(resolved_month),
+            ),
+        )
+
+    if year:
+        short_year = year[2:]
+        return or_(
+            date_column.ilike(f"{year}-%"),
+            date_column.ilike(f"{year}/%"),
+            date_column.ilike(f"%/{year}%"),
+            date_column.ilike(f"%-{year}%"),
+            date_column.ilike(f"%/{short_year}%"),
+            and_(date_column == "", extract("year", created_at_column) == int(year)),
+        )
+
+    return None
+
+
 def _apply_inventory_base_filter(query, db: Session):
     filtered = query.filter(PickupCatalogInventoryItem.open_quantity > 0)
     if not _inventory_uses_batches(db):
@@ -563,39 +598,79 @@ def _build_page_meta(limit: int, offset: int, total: int) -> EquipmentPageMetaOu
     )
 
 
-def _matches_inventory_search(search_text: str, row: dict[str, object]) -> bool:
-    normalized_search = normalize_lookup_text(search_text)
-    search_digits = digits_only(search_text)
+def _compact_code_expression(column):
+    expression = func.upper(func.coalesce(column, ""))
+    for separator in (" ", "-", ".", "/", "\\", "_"):
+        expression = func.replace(expression, separator, "")
+    return expression
 
-    if not normalized_search and not search_digits:
-        return True
 
-    searchable_values = [
-        normalize_spaces(row.get("item_type") or ""),
-        normalize_spaces(row.get("model_name") or ""),
-        normalize_spaces(row.get("rg_code") or ""),
-        normalize_spaces(row.get("client_code") or ""),
-        normalize_spaces(row.get("nome_fantasia") or ""),
-        normalize_spaces(row.get("comodato_number") or ""),
+def _inventory_search_client_ids_subquery(db: Session, search_text: str):
+    search = normalize_spaces(search_text)
+    pattern = f"%{search}%"
+    normalized_search = normalize_lookup_text(search)
+    normalized_pattern = f"%{normalized_search}%"
+    compact_search = re.sub(r"[^A-Za-z0-9]+", "", search).upper()
+    compact_candidates = {compact_search} if compact_search else set()
+    if compact_search.isdigit():
+        compact_candidates.add(compact_search.lstrip("0") or "0")
+
+    direct_conditions = [
+        PickupCatalogInventoryItem.item_type.ilike(pattern),
+        PickupCatalogInventoryItem.description.ilike(pattern),
+        PickupCatalogInventoryItem.rg.ilike(pattern),
+        PickupCatalogInventoryItem.comodato_number.ilike(pattern),
+        PickupCatalogClient.client_code.ilike(pattern),
+        PickupCatalogClient.nome_fantasia.ilike(pattern),
     ]
-    normalized_haystack = " ".join(
-        normalize_lookup_text(value)
-        for value in searchable_values
-        if value
+    if normalized_search:
+        direct_conditions.append(
+            func.replace(func.lower(PickupCatalogInventoryItem.item_type), "_", " ").ilike(normalized_pattern)
+        )
+
+    inventory_rg_compact = _compact_code_expression(PickupCatalogInventoryItem.rg)
+    for candidate in compact_candidates:
+        compact_pattern = f"%{candidate}%"
+        direct_conditions.extend([
+            inventory_rg_compact.ilike(compact_pattern),
+            _compact_code_expression(PickupCatalogInventoryItem.comodato_number).ilike(compact_pattern),
+            _compact_code_expression(PickupCatalogClient.client_code).ilike(compact_pattern),
+        ])
+
+    equipment_conditions = [
+        Equipment.model_name.ilike(pattern),
+        Equipment.brand.ilike(pattern),
+        Equipment.voltage.ilike(pattern),
+        Equipment.rg_code.ilike(pattern),
+        Equipment.tag_code.ilike(pattern),
+        Equipment.notes.ilike(pattern),
+    ]
+    for candidate in compact_candidates:
+        compact_pattern = f"%{candidate}%"
+        equipment_conditions.extend([
+            _compact_code_expression(Equipment.rg_code).ilike(compact_pattern),
+            _compact_code_expression(Equipment.tag_code).ilike(compact_pattern),
+        ])
+
+    equipment_match = or_(*equipment_conditions)
+    matched_equipment_codes = select(
+        _compact_code_expression(Equipment.rg_code).label("equipment_code")
+    ).where(equipment_match).union(
+        select(_compact_code_expression(Equipment.tag_code).label("equipment_code")).where(equipment_match)
     )
-    if normalized_search and normalized_search in normalized_haystack:
-        return True
 
-    if not search_digits:
-        return False
-
-    numeric_candidates = [
-        digits_only(normalize_spaces(row.get("client_code") or "")),
-        digits_only(normalize_spaces(row.get("rg_code") or "")),
-        digits_only(normalize_spaces(row.get("model_name") or "")),
-        digits_only(normalize_spaces(row.get("comodato_number") or "")),
-    ]
-    return any(search_digits in candidate for candidate in numeric_candidates if candidate)
+    matched_clients_query = _apply_inventory_base_filter(
+        db.query(PickupCatalogInventoryItem.client_id.label("client_id"))
+        .join(PickupCatalogClient, PickupCatalogClient.id == PickupCatalogInventoryItem.client_id)
+        .filter(
+            or_(
+                *direct_conditions,
+                inventory_rg_compact.in_(matched_equipment_codes),
+            )
+        ),
+        db=db,
+    ).distinct()
+    return matched_clients_query.subquery()
 
 
 @router.get("/", response_model=list[EquipmentOut])
@@ -1122,10 +1197,10 @@ def list_inventory_material_month_options(
     rows = _apply_inventory_base_filter(
         db.query(
             PickupCatalogInventoryItem.invoice_issue_date.label("invoice_issue_date"),
-            PickupCatalogInventoryItem.created_at.label("created_at"),
+            func.max(PickupCatalogInventoryItem.created_at).label("created_at"),
         ),
         db=db,
-    ).all()
+    ).group_by(PickupCatalogInventoryItem.invoice_issue_date).all()
 
     options = {
         _parse_inventory_issue_date(row.invoice_issue_date, row.created_at).strftime("%Y-%m")
@@ -1174,15 +1249,28 @@ def list_inventory_materials(
         db=db,
     )
 
+    # Durante a busca, identifica no banco os clientes associados ao termo
+    # (inclusive por modelo/RG/etiqueta do cadastro de equipamentos) e traz
+    # todos os comodatos em aberto desses clientes, independentemente do mês.
+    if search:
+        matched_clients = _inventory_search_client_ids_subquery(db, search)
+        base_query = base_query.filter(
+            PickupCatalogInventoryItem.client_id.in_(select(matched_clients.c.client_id))
+        )
+    elif normalized_month or normalized_year:
+        period_condition = _inventory_issue_period_condition(normalized_year, normalized_month)
+        if period_condition is not None:
+            base_query = base_query.filter(period_condition)
+
     rows = list(base_query.all())
     normalized_rows = []
     for row in rows:
         parsed_date = _parse_inventory_issue_date(row.invoice_issue_date, row.created_at)
         invoice_month = parsed_date.strftime("%Y-%m")
         invoice_year = invoice_month[:4]
-        if normalized_year and invoice_year != normalized_year:
+        if not search and normalized_year and invoice_year != normalized_year:
             continue
-        if normalized_month and invoice_month != normalized_month:
+        if not search and normalized_month and invoice_month != normalized_month:
             continue
         stored_bucket = _material_type_bucket(normalize_spaces(row.item_type))
         inferred_bucket = _material_type_bucket(classify_item_type(normalize_spaces(row.model_name)))
@@ -1210,12 +1298,6 @@ def list_inventory_materials(
 
     if normalized_item_type:
         normalized_rows = [item for item in normalized_rows if item["item_type"] == normalized_item_type]
-
-    if search:
-        normalized_rows = [
-            item for item in normalized_rows
-            if _matches_inventory_search(search, item)
-        ]
 
     reverse = normalized_sort == "newest"
     normalized_rows.sort(

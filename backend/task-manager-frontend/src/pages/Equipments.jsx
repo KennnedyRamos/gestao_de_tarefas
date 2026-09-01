@@ -366,6 +366,10 @@ const PaginationFooter = ({
   offset,
   limit,
   total,
+  hasPrevious,
+  hasNext,
+  onPrevious,
+  onNext,
 }) => {
   const currentPage = Math.floor(offset / limit) + 1;
   const totalPages = total > 0 ? Math.ceil(total / limit) : 1;
@@ -387,6 +391,14 @@ const PaginationFooter = ({
       <Typography variant="caption" color="text.secondary">
         {`Mostrando ${start}-${end} de ${total} | Página ${currentPage} de ${totalPages}`}
       </Typography>
+      <Stack direction="row" spacing={1}>
+        <Button size="small" variant="outlined" disabled={!hasPrevious} onClick={onPrevious}>
+          Anterior
+        </Button>
+        <Button size="small" variant="outlined" disabled={!hasNext} onClick={onNext}>
+          Próxima
+        </Button>
+      </Stack>
     </Box>
   );
 };
@@ -476,6 +488,7 @@ const EquipmentPage = () => {
   const scannerRealtimeLookupLastRgRef = useRef('');
   const tesseractLoaderRef = useRef(null);
   const bulkImportInputRef = useRef(null);
+  const inventoryRequestRef = useRef(0);
   const activeScannerArea = scannerPhase === 'tag' ? SCANNER_AREAS.tag : SCANNER_AREAS.rg;
   const scannerHasRequiredRg = Boolean(normalizeCodeInput(scannerDraft.rg_code || scannerPending.rg_code));
 
@@ -489,7 +502,7 @@ const EquipmentPage = () => {
   useEffect(() => {
     const timer = window.setTimeout(() => {
       setMaterialsSearchDebounced(normalizeTextInput(materialsFilters.q));
-    }, 320);
+    }, 250);
     return () => window.clearTimeout(timer);
   }, [materialsFilters.q]);
 
@@ -576,22 +589,25 @@ const EquipmentPage = () => {
   }, [materialsFilters.sort, newRefrigeratorsPage.offset, nonAllocatedStatusFilter, overviewSearchDebounced]);
 
   const fetchInventoryMaterials = useCallback(async () => {
+    const requestId = inventoryRequestRef.current + 1;
+    inventoryRequestRef.current = requestId;
     setLoadingMaterials(true);
 
     try {
+      const hasSearch = Boolean(materialsSearchDebounced);
       const params = {
         group: 'todos',
         limit: PAGE_SIZE,
         offset: inventoryPage.offset,
         sort: materialsFilters.sort
       };
-      if (materialsSearchDebounced) {
+      if (hasSearch) {
         params.q = materialsSearchDebounced;
       }
-      if (materialsFilters.year) {
+      if (!hasSearch && materialsFilters.year) {
         params.year = materialsFilters.year;
       }
-      if (materialsFilters.year && materialsFilters.month) {
+      if (!hasSearch && materialsFilters.year && materialsFilters.month) {
         params.month = `${materialsFilters.year}-${materialsFilters.month}`;
       }
       if (materialsFilters.item_type) {
@@ -599,6 +615,9 @@ const EquipmentPage = () => {
       }
 
       const response = await api.get('/equipments/inventory-materials', { params });
+      if (requestId !== inventoryRequestRef.current) {
+        return;
+      }
       const payload = response?.data || {};
 
       setInventoryMaterials(Array.isArray(payload.items) ? payload.items : []);
@@ -613,11 +632,16 @@ const EquipmentPage = () => {
       }));
       setError('');
     } catch (err) {
+      if (requestId !== inventoryRequestRef.current) {
+        return;
+      }
       setInventoryMaterials([]);
       setInventoryPage((prev) => ({ ...prev, total: 0, has_next: false }));
       setError('Erro ao carregar materiais da base 02.02.20.');
     } finally {
-      setLoadingMaterials(false);
+      if (requestId === inventoryRequestRef.current) {
+        setLoadingMaterials(false);
+      }
     }
   }, [
     inventoryPage.offset,
@@ -650,16 +674,23 @@ const EquipmentPage = () => {
   }, [fetchRefrigeratorsOverview]);
 
   useEffect(() => {
-    fetchNewRefrigerators();
-  }, [fetchNewRefrigerators]);
+    if (activeScreen === 'new-refrigerators') {
+      fetchNewRefrigerators();
+    }
+  }, [activeScreen, fetchNewRefrigerators]);
 
   useEffect(() => {
-    fetchInventoryMaterials();
-  }, [fetchInventoryMaterials]);
+    const hasSelectedPeriod = Boolean(materialsFilters.year && materialsFilters.month);
+    if (activeScreen === 'materials' && (materialsSearchDebounced || hasSelectedPeriod)) {
+      fetchInventoryMaterials();
+    }
+  }, [activeScreen, fetchInventoryMaterials, materialsFilters.month, materialsFilters.year, materialsSearchDebounced]);
 
   useEffect(() => {
-    fetchMaterialYearOptions();
-  }, [fetchMaterialYearOptions]);
+    if (activeScreen === 'materials') {
+      fetchMaterialYearOptions();
+    }
+  }, [activeScreen, fetchMaterialYearOptions]);
 
   const materialTypeByValue = useMemo(
     () => MATERIAL_TYPE_OPTIONS.reduce((acc, item) => ({ ...acc, [item.value]: item.label }), {}),
@@ -2167,15 +2198,16 @@ const EquipmentPage = () => {
                   >
                     <TextField
                       label="Pesquisar materiais (02.02.20)"
-                      placeholder="Modelo, RG, tipo, cliente ou comodato"
+                      placeholder="Modelo, RG, etiqueta, tipo, cliente ou comodato"
                       value={materialsFilters.q}
                       onChange={(event) => setMaterialsFilters((prev) => ({ ...prev, q: event.target.value }))}
                     />
                     <TextField
-                      label="Mês/Ano"
+                      label={materialsSearchDebounced ? 'Mês/Ano (ignorado na busca)' : 'Mês/Ano'}
                       value={selectedMonthYearValue}
                       placeholder="MM/AAAA"
                       onClick={openMonthPicker}
+                      disabled={Boolean(normalizeTextInput(materialsFilters.q))}
                       InputProps={{
                         readOnly: true,
                         endAdornment: (
@@ -2183,6 +2215,7 @@ const EquipmentPage = () => {
                             <IconButton
                               edge="end"
                               size="small"
+                              disabled={Boolean(normalizeTextInput(materialsFilters.q))}
                               onClick={(event) => {
                                 event.stopPropagation();
                                 openMonthPicker(event);
@@ -2239,6 +2272,11 @@ const EquipmentPage = () => {
                       <MenuItem value="newest">Do mais novo para o mais antigo</MenuItem>
                       <MenuItem value="oldest">Do mais antigo para o mais novo</MenuItem>
                     </TextField>
+                    {materialsSearchDebounced && (
+                      <Typography variant="caption" color="text.secondary" sx={{ gridColumn: '1 / -1' }}>
+                        Busca global na base: exibindo todos os comodatos em aberto dos clientes encontrados, sem limitar por mês.
+                      </Typography>
+                    )}
                   </Box>
                 </>
               ) : (
@@ -2390,6 +2428,16 @@ const EquipmentPage = () => {
                       offset={newRefrigeratorsPage.offset}
                       limit={newRefrigeratorsPage.limit}
                       total={newRefrigeratorsPage.total}
+                      hasPrevious={newRefrigeratorsPage.has_previous}
+                      hasNext={newRefrigeratorsPage.has_next}
+                      onPrevious={() => setNewRefrigeratorsPage((prev) => ({
+                        ...prev,
+                        offset: Math.max(0, prev.offset - prev.limit),
+                      }))}
+                      onNext={() => setNewRefrigeratorsPage((prev) => ({
+                        ...prev,
+                        offset: prev.offset + prev.limit,
+                      }))}
                     />
                   </>
                 )}
@@ -2401,6 +2449,11 @@ const EquipmentPage = () => {
             <Card sx={{ border: '1px solid var(--stroke)', boxShadow: 'var(--shadow-md)' }}>
               <CardContent sx={{ display: 'grid', gap: 1.25 }}>
                 <Typography variant="h6">Materiais alocados (base 02.02.20)</Typography>
+                {materialsSearchDebounced && (
+                  <Typography variant="caption" color="text.secondary">
+                    Resultado agrupado pelos clientes associados à busca “{materialsSearchDebounced}”.
+                  </Typography>
+                )}
                 {loadingMaterials ? (
                   <Typography color="text.secondary">Carregando materiais...</Typography>
                 ) : inventoryMaterials.length === 0 ? (
@@ -2466,6 +2519,16 @@ const EquipmentPage = () => {
                       offset={inventoryPage.offset}
                       limit={inventoryPage.limit}
                       total={inventoryPage.total}
+                      hasPrevious={inventoryPage.has_previous}
+                      hasNext={inventoryPage.has_next}
+                      onPrevious={() => setInventoryPage((prev) => ({
+                        ...prev,
+                        offset: Math.max(0, prev.offset - prev.limit),
+                      }))}
+                      onNext={() => setInventoryPage((prev) => ({
+                        ...prev,
+                        offset: prev.offset + prev.limit,
+                      }))}
                     />
                   </>
                 )}

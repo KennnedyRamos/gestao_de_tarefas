@@ -126,6 +126,12 @@ get_pickup_catalog_status_access = require_any_permission(
 )
 get_pickup_catalog_import_access = require_permission("pickups.import_base")
 get_pickup_catalog_create_access = require_permission("pickups.create_order")
+get_pickup_catalog_client_access = require_any_permission(
+    "pickups.create_order",
+    "pickups.withdrawals_history",
+    "equipments.view",
+    "equipments.manage",
+)
 get_pickup_catalog_orders_access = require_any_permission(
     "pickups.orders_history",
     "pickups.withdrawals_history",
@@ -1045,7 +1051,7 @@ async def upload_csv(
 def get_client(
     client_code: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_pickup_catalog_create_access),
+    current_user: User = Depends(get_pickup_catalog_client_access),
 ):
     search_code = canonical_code(client_code)
     if not search_code:

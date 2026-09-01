@@ -34,6 +34,8 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(title="Gestão de Tarefas", lifespan=lifespan)
 
+APP_VERSION = str(os.getenv("RENDER_GIT_COMMIT", "local") or "local").strip()
+
 cors_origins = parse_cors_origins(CORS_ORIGINS)
 
 app.add_middleware(
@@ -47,11 +49,19 @@ app.add_middleware(
 
 
 @app.middleware("http")
-async def ensure_utf8_json_charset(request: Request, call_next):
+async def apply_response_headers(request: Request, call_next):
     response = await call_next(request)
     content_type = str(response.headers.get("content-type", ""))
     if content_type.startswith("application/json") and "charset=" not in content_type.lower():
         response.headers["content-type"] = "application/json; charset=utf-8"
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    response.headers.setdefault(
+        "Permissions-Policy",
+        "camera=(), geolocation=(), microphone=()",
+    )
+    response.headers.setdefault("X-App-Version", APP_VERSION[:12])
     return response
 
 def ensure_task_columns():

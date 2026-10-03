@@ -34,12 +34,12 @@ def read_csv(raw: bytes | BinaryIO, label: str) -> tuple[list[str], Any, io.Text
     if not sample_bytes:
         raise GiroCsvError(f"O arquivo CSV de {label} está vazio.")
     encoding = _decode_encoding(sample_bytes)
-    sample = sample_bytes.decode(encoding)
+    sample = sample_bytes.decode(encoding, errors="replace")
     try:
         delimiter = csv.Sniffer().sniff(sample, delimiters=";,\t|").delimiter
     except csv.Error:
         delimiter = ";"
-    text_stream = io.TextIOWrapper(source, encoding=encoding, newline="")
+    text_stream = io.TextIOWrapper(source, encoding=encoding, errors="replace", newline="")
     reader = csv.DictReader(
         text_stream,
         delimiter=delimiter,
@@ -73,6 +73,17 @@ def resolve_column(headers: list[str], aliases: tuple[str, ...], label: str) -> 
             return found
     expected = ", ".join(aliases[:3])
     raise GiroCsvError(f"Coluna obrigatória ausente em {label}: {expected}.")
+
+
+def _resolve_sales_column(
+    headers: list[str],
+    position: int,
+    expected_header: str,
+    aliases: tuple[str, ...],
+) -> str:
+    if len(headers) > position and normalize_header(headers[position]) == normalize_header(expected_header):
+        return headers[position]
+    return resolve_column(headers, aliases, "vendas")
 
 
 def _value(row: dict[str, Any], column: str) -> str:
@@ -219,8 +230,18 @@ def _parse_sales_rows(
     reader: Any,
 ) -> tuple[dict[tuple[str, str, str], Decimal], set[str], int, int]:
     columns = {
-        "code": resolve_column(headers, ("PDV", "Cod PDV", "Codigo Cliente", "Código Cliente", "Cliente"), "vendas"),
-        "date": resolve_column(headers, ("Emissao", "Emissão", "Data Venda", "Data Operacao", "Data Operação"), "vendas"),
+        "code": _resolve_sales_column(
+            headers,
+            2,
+            "Cliente ..",
+            ("PDV", "Cod PDV", "Codigo Cliente", "Código Cliente", "Cliente"),
+        ),
+        "date": _resolve_sales_column(
+            headers,
+            5,
+            "Dt. Operacao",
+            ("Data Operacao", "Data Operação", "Data Venda", "Emissao", "Emissão"),
+        ),
         "amount": resolve_column(headers, ("Total", "Valor Total", "Faturamento", "Valor"), "vendas"),
         "origin": resolve_column(headers, ("Origem do Pedido", "Origem", "Canal de Venda"), "vendas"),
     }
@@ -229,7 +250,7 @@ def _parse_sales_rows(
             header for header in headers
             if normalize_header(header) in {
                 "codigo produto", "cod produto", "codigo material", "cod material",
-                "produto codigo", "material", "sku", "codigo item", "cod item",
+                "produto codigo", "produto", "material", "sku", "codigo item", "cod item",
             }
         ),
         None,
@@ -237,7 +258,7 @@ def _parse_sales_rows(
     description_column = next(
         (
             header for header in headers
-            if normalize_header(header) in {"descricao", "descricao produto", "produto"}
+            if normalize_header(header) in {"descricao", "descricao produto", "descri o"}
         ),
         None,
     )

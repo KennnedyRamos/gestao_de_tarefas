@@ -70,8 +70,9 @@ def test_existing_inventory_csv_import_captures_giro_equipment_fields():
 
 
 def test_reference_files_classify_sales_and_equipment_products():
-    assert len(BASKET_BY_PRODUCT_CODE) == 1688
-    assert BASKET_BY_PRODUCT_CODE["132"] == "visa"
+    assert len(BASKET_BY_PRODUCT_CODE) == 2167
+    assert BASKET_BY_PRODUCT_CODE["132"] == "sopi"
+    assert BASKET_BY_PRODUCT_CODE["80"] == "visa"
     assert BASKET_BY_PRODUCT_CODE["13859"] == "sopi"
     assert EQUIPMENT_TYPE_BY_PRODUCT_CODE["118780"] == "sopi"
     assert EQUIPMENT_TYPE_BY_PRODUCT_CODE["862277"] == "visa"
@@ -106,7 +107,7 @@ def test_sales_csv_excludes_marketplace_and_chopp_and_aggregates_baskets():
 def test_sales_csv_uses_product_reference_when_baskets_are_not_in_sales_file():
     csv_data = (
         "PDV;Emissao;Valor Total;Origem do Pedido;Cod Produto;Descricao\n"
-        "100;02/10/2026;1.500,00;B2BG;132;REFRIGERANTE LATA\n"
+        "100;02/10/2026;1.500,00;B2BG;80;REFRIGERANTE LATA\n"
         "100;02/10/2026;2.500,00;B2BG;13859;CERVEJA LATA\n"
     ).encode("utf-8")
 
@@ -122,12 +123,64 @@ def test_sales_csv_uses_product_reference_when_baskets_are_not_in_sales_file():
 def test_sales_csv_file_stream_is_parsed_without_loading_into_bytes():
     csv_data = (
         "PDV;Emissao;Total;Origem;Codigo Produto\n"
-        "100;02/10/2026;1.500,00;B2BG;132\n"
+        "100;02/10/2026;1.500,00;B2BG;80\n"
     ).encode("utf-8")
 
     totals, _, imported, ignored = parse_sales_rows(BytesIO(csv_data))
 
     assert totals[("100", "2026-10", "visa")] == Decimal("1500.00")
+    assert imported == 1
+    assert ignored == 0
+
+
+def test_sales_csv_accepts_real_product_header_and_mixed_ansi_bytes():
+    csv_data = (
+        "Cliente;Emissao;Produto;Total;Origem do Pedido;Descri\x90o;Status\n"
+        "100;02/10/2026;80;1.200,00;B2BG;REFRIGERANTE LATA;A\n"
+        "100;02/10/2026;132;2.500,00;B2BG;CERVEJA LATA;A\n"
+        "100;02/10/2026;80;9.000,00;B2BG;CHOPP BIB;A\n"
+    ).encode("latin-1")
+
+    totals, source_months, imported, ignored = parse_sales_rows(BytesIO(csv_data))
+
+    assert totals[("100", "2026-10", "visa")] == Decimal("1200.00")
+    assert totals[("100", "2026-10", "sopi")] == Decimal("2500.00")
+    assert source_months == {"2026-10"}
+    assert imported == 2
+    assert ignored == 1
+
+
+def test_sales_csv_uses_client_column_c_and_operation_date_column_f():
+    headers = [f"Extra {column}" for column in range(1, 65)]
+    headers[2] = "Cliente .."
+    headers[5] = "Dt. Operacao"
+    headers[6] = "Emissao"
+    headers[9] = "Status"
+    headers[12] = "Cliente"
+    headers[15] = "Produto"
+    headers[17] = "Descricao"
+    headers[25] = "Desconto"
+    headers[26] = "Total"
+    headers[63] = "Origem do Pedido"
+    row = [""] * len(headers)
+    row[2] = "00100"
+    row[5] = "30/09/2026"
+    row[6] = "01/10/2026"
+    row[9] = "A"
+    row[12] = "99999"
+    row[15] = "80"
+    row[17] = "REFRIGERANTE LATA"
+    row[25] = "500,00"
+    row[26] = "1.200,00"
+    row[63] = "B2BG"
+    csv_data = (
+        ";".join(headers) + "\n" + ";".join(row) + "\n"
+    ).encode("utf-8")
+
+    totals, source_months, imported, ignored = parse_sales_rows(csv_data)
+
+    assert totals[("100", "2026-09", "visa")] == Decimal("1200.00")
+    assert source_months == {"2026-09"}
     assert imported == 1
     assert ignored == 0
 

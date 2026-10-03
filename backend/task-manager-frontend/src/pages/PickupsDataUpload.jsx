@@ -19,7 +19,7 @@ const MAX_CSV_UPLOAD_BYTES = MAX_CSV_UPLOAD_MB * 1024 * 1024;
 const MAX_GIRO_SALES_UPLOAD_MB = 500;
 const ACCEPTED_UPLOAD_EXTENSIONS = ['.csv', '.txt'];
 const GIRO_DATASETS = [
-  { key: 'sales', label: 'Vendas · 03.02.37 - 3 M', hint: 'O tipo de cesta é identificado pelo código do produto usando a tabela de referência; não precisa vir no arquivo de vendas.', maxBytes: MAX_GIRO_SALES_UPLOAD_MB * 1024 * 1024 },
+  { key: 'sales', label: 'Vendas · 03.02.37 - 3 M', hint: 'O tipo de cesta é identificado pelo código do produto; no relatório 03.02.37 - 3 M, use a coluna Produto (coluna P). Não precisa incluir a cesta no arquivo.', maxBytes: MAX_GIRO_SALES_UPLOAD_MB * 1024 * 1024 },
   { key: 'targets', label: 'Metas · METAS', hint: 'Indicador, Ano (opcional), Jan a Dez, com linhas GIRO VISA e GIRO SOPI.', maxBytes: 20 * 1024 * 1024 }
 ];
 

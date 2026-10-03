@@ -36,22 +36,30 @@ def _load_reference_map(filename: str, *, equipment_map: bool = False) -> dict[s
                 if equipment_map:
                     category = normalize_header(row[1])
                     mapped_value = category if category in {"visa", "sopi"} else ""
+                    code_values = [(row[0], mapped_value)]
                 else:
-                    explicit_category = normalize_header(row[3])
-                    category = (
-                        explicit_category
-                        if explicit_category not in {"", "-"}
-                        else normalize_header(row[1])
-                    )
-                    basket_types = {"nab": "visa", "ctt": "sopi"}
-                    mapped_value = basket_types.get(category, "")
-                    if not mapped_value:
+                    primary_category = normalize_header(row[1])
+                    if primary_category not in {"ctt", "nab"}:
                         raise RuntimeError(
-                            f"Unknown basket {row[3]!r} on row {line_number} in Giro reference file {filename}."
+                            f"Unknown basket {row[1]!r} on row {line_number} in Giro reference file {filename}."
                         )
-                if code in mapping and mapping[code] != mapped_value:
-                    raise RuntimeError(f"Conflicting code {code} in Giro reference file {filename}.")
-                mapping[code] = mapped_value
+                    code_values = [(row[0], "sopi")]
+                    if len(row) > 2 and row[2].strip() not in {"", "-"}:
+                        alternate_category = normalize_header(row[3]) if len(row) > 3 else ""
+                        alternate_basket = {"nab": "visa", "ctt": "sopi"}.get(alternate_category)
+                        if not alternate_basket:
+                            raise RuntimeError(
+                                f"Unknown alternate basket {row[3]!r} on row {line_number} "
+                                f"in Giro reference file {filename}."
+                            )
+                        code_values.append((row[2], alternate_basket))
+                for raw_code, mapped_value in code_values:
+                    code = _canonical_code(raw_code)
+                    if not code or code == "-":
+                        raise RuntimeError(f"Missing code on row {line_number} in Giro reference file {filename}.")
+                    if code in mapping and mapping[code] != mapped_value:
+                        raise RuntimeError(f"Conflicting code {code} in Giro reference file {filename}.")
+                    mapping[code] = mapped_value
     except OSError as exc:
         raise RuntimeError(f"Unable to load Giro reference file: {path}") from exc
     return mapping

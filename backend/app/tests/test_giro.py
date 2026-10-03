@@ -16,8 +16,9 @@ from app.models.giro import (
     GiroMonthlySale,
     GiroMonthlyTarget,
 )
-from app.models.pickup_catalog import PickupCatalogClient
+from app.models.pickup_catalog import PickupCatalogClient, PickupCatalogInventoryItem
 from app.routes.giro import (
+    _ensure_ready,
     _make_workbook,
     _quarter_summary,
     _report_rows,
@@ -296,7 +297,7 @@ def test_giro_report_uses_strict_target_and_counts_all_client_equipment():
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
     session = sessionmaker(bind=engine)()
-    session.add(PickupCatalogClient(
+    client = PickupCatalogClient(
         client_code="100",
         nome_fantasia="Bar Central",
         cnpj_cpf="123",
@@ -304,16 +305,22 @@ def test_giro_report_uses_strict_target_and_counts_all_client_equipment():
         frequency="Semanal",
         setor="501",
         cidade="Registro",
+    )
+    session.add(client)
+    session.flush()
+    session.add(PickupCatalogInventoryItem(
+        client_id=client.id,
+        description="VISA Cooler",
+        item_type="refrigerador",
+        giro_equipment_type="visa",
+        giro_install_date=date(2023, 1, 1),
+        giro_is_refrigerator=True,
+        giro_balance=2,
     ))
-    session.add(GiroEquipment(
-        client_code="100",
-        equipment_type="visa",
-        snapshot_month="2026-10",
-        install_date=date(2023, 1, 1),
-        quantity=Decimal("2"),
-        balance=Decimal("2"),
-        is_refrigerator=True,
-    ))
+    session.add_all([
+        GiroImportStatus(dataset="sales", file_name="sales.csv"),
+        GiroImportStatus(dataset="targets", file_name="targets.csv"),
+    ])
     session.add(GiroMonthlySale(
         client_code="100",
         month="2026-10",
@@ -322,6 +329,7 @@ def test_giro_report_uses_strict_target_and_counts_all_client_equipment():
     ))
     session.commit()
 
+    _ensure_ready(session)
     months = ["2026-07", "2026-08", "2026-09", "2026-10"]
     rows = _report_rows(session, "visa", months)
     summary = _summary(rows, months[-1])
@@ -359,7 +367,7 @@ def test_quarter_meta_is_simple_mean_and_real_is_weighted_by_equipment():
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
     session = sessionmaker(bind=engine)()
-    session.add(PickupCatalogClient(
+    client = PickupCatalogClient(
         client_code="100",
         nome_fantasia="Bar Central",
         cnpj_cpf="123",
@@ -367,7 +375,9 @@ def test_quarter_meta_is_simple_mean_and_real_is_weighted_by_equipment():
         frequency="Semanal",
         setor="501",
         cidade="Registro",
-    ))
+    )
+    session.add(client)
+    session.flush()
     months = ["2026-07", "2026-08", "2026-09"]
     counts = [Decimal("1"), Decimal("2"), Decimal("1")]
     sales = [Decimal("1200.01"), Decimal("2400.00"), Decimal("1200.01")]
@@ -394,6 +404,15 @@ def test_quarter_meta_is_simple_mean_and_real_is_weighted_by_equipment():
             equipment_type="visa",
             target_percent=target,
         ))
+    session.add(PickupCatalogInventoryItem(
+        client_id=client.id,
+        description="VISA Cooler",
+        item_type="refrigerador",
+        giro_equipment_type="visa",
+        giro_install_date=date(2023, 1, 1),
+        giro_is_refrigerator=True,
+        giro_balance=1,
+    ))
     session.commit()
 
     quarter = _quarter_summary(session, "visa", ["2026-06", *months])

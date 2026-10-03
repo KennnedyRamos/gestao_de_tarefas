@@ -21,7 +21,11 @@ from app.models.giro import (
     GiroMonthlySale,
     GiroMonthlyTarget,
 )
-from app.models.pickup_catalog import PickupCatalogClient, PickupCatalogUploadBatch
+from app.models.pickup_catalog import (
+    PickupCatalogClient,
+    PickupCatalogInventoryItem,
+    PickupCatalogUploadBatch,
+)
 from app.models.user import User
 from app.schemas.giro import (
     GiroBreakdownOut,
@@ -217,37 +221,45 @@ def _ensure_ready(db: Session) -> None:
             status_code=409,
             detail="Importe as bases de vendas (03.02.37 - 3 M) e metas na área Atualizar base.",
         )
-    latest_base = db.query(PickupCatalogUploadBatch).order_by(PickupCatalogUploadBatch.id.desc()).first()
-    if latest_base is None or int(latest_base.clients_count or 0) == 0:
-        raise HTTPException(status_code=409, detail="Atualize as bases 01.20.11 e 02.02.20 na área Atualizar base.")
-    current_month = _report_months()[-1]
-    current_snapshot = (
-        db.query(GiroEquipmentSnapshot)
-        .filter(GiroEquipmentSnapshot.month == current_month)
-        .first()
-    )
-    if current_snapshot is None:
+    if not db.query(PickupCatalogClient.id).first():
+        raise HTTPException(status_code=409, detail="A base de clientes 01.20.11 não contém registros no banco de dados.")
+    if not any(_equipment_by_client(db, equipment_type) for equipment_type in MONTHLY_TARGETS):
         raise HTTPException(
             status_code=409,
-            detail=f"Atualize a base 02.02.20 na área Atualizar base para registrar os equipamentos de {current_month}.",
+            detail="A base de equipamentos 02.02.20 não contém comodatos VISA ou SOPI elegíveis no banco de dados.",
         )
 
 
-def _equipment_by_client(db: Session, equipment_type: str, snapshot_month: str) -> dict[str, Decimal]:
+def _equipment_by_client(db: Session, equipment_type: str) -> dict[str, Decimal]:
     result: dict[str, Decimal] = {}
-    records = (
-        db.query(GiroEquipment)
-        .filter(
-            GiroEquipment.equipment_type == equipment_type,
-            GiroEquipment.snapshot_month == snapshot_month,
-            GiroEquipment.install_date >= INSTALLATION_CUTOFF,
-            GiroEquipment.is_refrigerator == 1,
-            GiroEquipment.balance > 0,
+    equipment_base = db.query(PickupCatalogInventoryItem)
+    latest_equipment_batch = (
+        db.query(PickupCatalogInventoryItem.batch_id)
+        .filter(PickupCatalogInventoryItem.batch_id.isnot(None))
+        .order_by(PickupCatalogInventoryItem.batch_id.desc())
+        .first()
+    )
+    if latest_equipment_batch:
+        equipment_base = equipment_base.filter(
+            PickupCatalogInventoryItem.batch_id == latest_equipment_batch[0]
         )
+    records = (
+        equipment_base.join(
+            PickupCatalogClient,
+            PickupCatalogClient.id == PickupCatalogInventoryItem.client_id,
+        )
+        .filter(
+            PickupCatalogInventoryItem.giro_equipment_type == equipment_type,
+            PickupCatalogInventoryItem.giro_install_date >= INSTALLATION_CUTOFF,
+            PickupCatalogInventoryItem.giro_is_refrigerator == 1,
+            PickupCatalogInventoryItem.giro_balance > 0,
+        )
+        .with_entities(PickupCatalogClient.client_code, PickupCatalogInventoryItem.giro_balance)
         .all()
     )
-    for equipment in records:
-        result[equipment.client_code] = result.get(equipment.client_code, Decimal(0)) + Decimal(equipment.quantity)
+    for client_code, balance in records:
+        code = canonical_code(client_code)
+        result[code] = result.get(code, Decimal(0)) + Decimal(str(balance))
     return result
 
 
@@ -261,7 +273,7 @@ def _report_rows(
     mesa: str = "",
     search: str = "",
 ) -> list[GiroReportItemOut]:
-    equipment_counts = _equipment_by_client(db, equipment_type, months[-1])
+    equipment_counts = _equipment_by_client(db, equipment_type)
     codes = set(equipment_counts)
     if not codes:
         return []
@@ -382,27 +394,29 @@ def _quarter_summary(
     if not missing_targets:
         target_percent = round(float(sum(targets.values(), Decimal(0)) / len(quarter_months)), 2)
 
+    historical_months = [month for month in elapsed_months if month != current_month]
     snapshot_months = {
         row.month
         for row in db.query(GiroEquipmentSnapshot.month)
-        .filter(GiroEquipmentSnapshot.month.in_(elapsed_months))
+        .filter(GiroEquipmentSnapshot.month.in_(historical_months))
         .all()
-    }
-    missing_snapshots = [month for month in elapsed_months if month not in snapshot_months]
+    } if historical_months else set()
+    missing_snapshots = [month for month in historical_months if month not in snapshot_months]
     real_percent = None
     if not missing_snapshots:
         equipment_rows = (
             db.query(GiroEquipment)
             .filter(
-                GiroEquipment.snapshot_month.in_(elapsed_months),
+                GiroEquipment.snapshot_month.in_(historical_months),
                 GiroEquipment.equipment_type == equipment_type,
                 GiroEquipment.install_date >= INSTALLATION_CUTOFF,
                 GiroEquipment.is_refrigerator == 1,
                 GiroEquipment.balance > 0,
             )
             .all()
-        )
-        codes = {row.client_code for row in equipment_rows}
+        ) if historical_months else []
+        current_equipment = _equipment_by_client(db, equipment_type)
+        codes = {row.client_code for row in equipment_rows} | set(current_equipment)
         clients = {
             canonical_code(client.client_code): client
             for client in db.query(PickupCatalogClient)
@@ -421,9 +435,20 @@ def _quarter_summary(
             if mesa and mesa_for_sector(client_sector) != mesa:
                 continue
             month_counts = equipment_by_month.setdefault(equipment.snapshot_month, {})
-            month_counts[equipment.client_code] = (
-                month_counts.get(equipment.client_code, Decimal(0)) + Decimal(str(equipment.quantity))
-            )
+            code = canonical_code(equipment.client_code)
+            month_counts[code] = month_counts.get(code, Decimal(0)) + Decimal(str(equipment.quantity))
+
+        for code, count in current_equipment.items():
+            client = clients.get(code)
+            client_sector = client.setor if client else ""
+            client_city = client.cidade if client else ""
+            if sector and client_sector != sector:
+                continue
+            if city and client_city != city:
+                continue
+            if mesa and mesa_for_sector(client_sector) != mesa:
+                continue
+            equipment_by_month.setdefault(current_month, {})[code] = count
 
         sales = {
             (code, month): Decimal(amount)

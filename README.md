@@ -151,14 +151,20 @@ Os exemplos completos estão em [`backend/.env.example`](backend/.env.example) e
 | Variável | Uso |
 | --- | --- |
 | `DATABASE_URL` | conexão PostgreSQL; use `postgresql://` ou `postgresql+psycopg2://` |
-| `SECRET_KEY` | assinatura dos tokens JWT |
+| `SECRET_KEY` | segredo JWT; obrigatório e, em produção, deve ter ao menos 32 bytes aleatórios |
+| `ALGORITHM` | algoritmo JWT HMAC permitido: `HS256`, `HS384` ou `HS512` (padrão: `HS256`) |
+| `APP_ENV` | defina `production` em produção; ativa validação estrita dos segredos e origens CORS |
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | criação segura do primeiro administrador |
-| `CORS_ORIGINS` / `CORS_ORIGIN_REGEX` | origens autorizadas no backend |
+| `CORS_ORIGINS` | origens exatas autorizadas, separadas por vírgulas; sem wildcard ou regex |
+| `LOGIN_RATE_LIMIT_MAX_ATTEMPTS` | tentativas permitidas por combinação de IP e email (padrão: `5`) |
+| `LOGIN_RATE_LIMIT_WINDOW_SECONDS` | duração da janela de tentativas (padrão: `60`) |
 | `DB_BOOTSTRAP_MODE` | `sync` no deploy, `background` local ou `off` |
 | `SUPABASE_URL` | URL do projeto Supabase |
 | `SUPABASE_SERVICE_ROLE_KEY` | acesso do backend ao Storage; nunca exponha no frontend |
 | `SUPABASE_STORAGE_BUCKET` | bucket privado para os documentos |
 | `VITE_API_URL` | endereço público da API consumida pelo frontend |
+
+Senhas criadas ou redefinidas pela aplicação devem ter pelo menos 8 caracteres e no máximo 72 bytes em UTF-8, limite do bcrypt. Espaços e caracteres Unicode são preservados exatamente como informados.
 
 Arquivos `.env`, credenciais, builds e uploads locais são ignorados pelo Git.
 
@@ -190,7 +196,7 @@ npm audit --omit=dev
 
 ### Render
 
-O [`render.yaml`](render.yaml) declara o serviço FastAPI, a instalação das dependências e o health check em `/health/db`. Configure os segredos no painel do Render e mantenha `DB_BOOTSTRAP_MODE=sync`.
+O [`render.yaml`](render.yaml) declara o serviço FastAPI, a instalação das dependências e o health check em `/health/db`. Configure `SECRET_KEY`, `DATABASE_URL`, `ADMIN_EMAIL`, `ADMIN_PASSWORD` e `CORS_ORIGINS` no painel do Render; `CORS_ORIGINS` deve conter a URL exata do frontend publicado. O serviço define `APP_ENV=production` e mantém `DB_BOOTSTRAP_MODE=sync`. O limite de login usa a tabela compartilhada `login_rate_limits` no PostgreSQL do `DATABASE_URL`, com upsert atômico, chave derivada de IP e email e janela configurável; todas as instâncias do backend consultam o mesmo contador. Se o banco estiver indisponível, a tentativa falha em vez de permitir autenticação sem aplicar o limite.
 
 ### Vercel
 

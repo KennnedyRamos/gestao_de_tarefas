@@ -13,8 +13,14 @@ services:
         sync: false
       - key: ALGORITHM
         value: HS256
+      - key: APP_ENV
+        value: production
       - key: ACCESS_TOKEN_EXPIRE_MINUTES
         value: "60"
+      - key: LOGIN_RATE_LIMIT_WINDOW_SECONDS
+        value: "60"
+      - key: LOGIN_RATE_LIMIT_MAX_ATTEMPTS
+        value: "5"
       - key: ADMIN_EMAIL
         sync: false
       - key: ADMIN_PASSWORD
@@ -25,8 +31,6 @@ services:
         value: admin
       - key: CORS_ORIGINS
         sync: false
-      - key: CORS_ORIGIN_REGEX
-        value: ^https://.*\\.vercel\\.app$
       # No plano Free do Render, prefira Supabase Storage para persistir PDFs.
       # Se for usar disco persistente (pago), ajuste UPLOADS_DIR para /var/data/uploads.
       - key: UPLOADS_DIR

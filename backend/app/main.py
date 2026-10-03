@@ -30,8 +30,6 @@ from app.core.config import (
     ADMIN_NAME,
     ADMIN_ROLE,
     CORS_ORIGINS,
-    CORS_ORIGIN_REGEX,
-    parse_cors_origins,
 )
 from app.core.security import get_password_hash
 from app.models.user import User
@@ -49,15 +47,13 @@ app = FastAPI(title="Gestão de Tarefas", lifespan=lifespan)
 
 APP_VERSION = str(os.getenv("RENDER_GIT_COMMIT", "local") or "local").strip()
 
-cors_origins = parse_cors_origins(CORS_ORIGINS)
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=cors_origins,
-    allow_origin_regex=CORS_ORIGIN_REGEX or None,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"]
+    allow_origins=CORS_ORIGINS,
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "Accept", "X-Requested-With"],
+    max_age=600,
 )
 
 

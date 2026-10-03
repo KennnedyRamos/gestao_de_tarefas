@@ -1,15 +1,18 @@
+import re
+
 import jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jwt import InvalidTokenError
 from sqlalchemy.orm import Session
 
-from app.core.config import ALGORITHM, SECRET_KEY
+from app.core.config import ALGORITHM, ALLOWED_JWT_ALGORITHMS, SECRET_KEY
 from app.core.permissions import has_permission
 from app.database.deps import get_db
 from app.models.user import User
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
+JWT_SUBJECT_PATTERN = re.compile(r"^[1-9][0-9]*$")
 
 def get_current_user(
     token: str = Depends(oauth2_scheme),
@@ -21,9 +24,16 @@ def get_current_user(
         headers={"WWW-Authenticate": "Bearer"}
     )
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        if ALGORITHM not in ALLOWED_JWT_ALGORITHMS:
+            raise InvalidTokenError("Unsupported JWT algorithm configuration.")
+        payload = jwt.decode(
+            token,
+            SECRET_KEY,
+            algorithms=[ALGORITHM],
+            options={"require": ["exp", "sub"], "verify_exp": True},
+        )
         user_id = payload.get("sub")
-        if user_id is None:
+        if not isinstance(user_id, str) or not JWT_SUBJECT_PATTERN.fullmatch(user_id):
             raise credentials_exception
         parsed_user_id = int(user_id)
     except (InvalidTokenError, TypeError, ValueError) as exc:
@@ -60,7 +70,7 @@ def require_any_permission(*permissions: str):
 
     def dependency(current_user: User = Depends(get_current_user)):
         if not clean_permissions:
-            return current_user
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
         if any(has_permission(current_user, permission) for permission in clean_permissions):
             return current_user
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")

@@ -1,14 +1,17 @@
 import json
 import os
 import tempfile
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from uuid import uuid4
 
+import jwt
 import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
+from starlette.middleware.cors import CORSMiddleware
 
 TEST_DB_FILE = Path(tempfile.gettempdir()) / f"test_equipments_sync_integration_{uuid4().hex}.db"
 os.environ["DATABASE_URL"] = f"sqlite:///{TEST_DB_FILE.as_posix()}"
@@ -17,17 +20,33 @@ os.environ.setdefault("ALGORITHM", "HS256")
 os.environ.setdefault("ACCESS_TOKEN_EXPIRE_MINUTES", "60")
 os.environ.setdefault("DB_BOOTSTRAP_MODE", "off")
 
-from app.core.auth import get_current_user  # noqa: E402
-from app.core.security import create_access_token, get_password_hash  # noqa: E402
+from app.core.auth import get_current_user, require_any_permission  # noqa: E402
+from app.core.config import (  # noqa: E402
+    ALGORITHM,
+    CORS_ORIGINS,
+    SECRET_KEY,
+    parse_cors_origins,
+    validate_security_settings,
+)
+from app.core.permissions import ALLOWED_PERMISSIONS, serialize_permissions  # noqa: E402
+from app.core.security import (  # noqa: E402
+    create_access_token,
+    get_password_hash,
+    validate_password,
+    verify_password,
+)
 from app.database.base import Base  # noqa: E402
 from app.database.session import SessionLocal, engine  # noqa: E402
 import app.main as app_main  # noqa: E402
 from app.main import app  # noqa: E402
 from app.routes.auth import (  # noqa: E402
     LOGIN_RATE_LIMIT_MAX_ATTEMPTS,
+    _login_rate_limit_key,
+    _login_rate_limit_settings,
     _consume_login_attempt,
 )
 from app.models.equipment import Equipment  # noqa: E402
+from app.models.assignment import Assignment  # noqa: E402
 from app.models.pickup_catalog import (  # noqa: E402
     PickupCatalogClient,
     PickupCatalogInventoryItem,
@@ -36,6 +55,7 @@ from app.models.pickup_catalog import (  # noqa: E402
 )
 from app.models.delivery import Delivery  # noqa: E402
 from app.models.user import User  # noqa: E402
+from app.models.task import Task  # noqa: E402
 from app.routes.deliveries import (  # noqa: E402
     build_delivery_out,
     open_delivery_attachment,
@@ -52,6 +72,7 @@ from app.routes.equipments import (  # noqa: E402
 )
 from app.schemas.equipment import EquipmentCreate  # noqa: E402
 from app.schemas.pickup_catalog import PickupCatalogOrderStatusUpdateIn  # noqa: E402
+from app.schemas.user import UserCreate, UserLogin, UserPasswordReset  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -86,6 +107,21 @@ def create_admin_user(db) -> User:
         password=get_password_hash("Admin@123"),
         role="admin",
         permissions="[]",
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+def create_assistant_user(db, *, name: str, permissions: list[str] | None = None) -> User:
+    suffix = uuid4().hex[:8]
+    user = User(
+        name=name,
+        email=f"{name.lower().replace(' ', '.')}.{suffix}@test.local",
+        password=get_password_hash("Assistant@123"),
+        role="assistente",
+        permissions=serialize_permissions(permissions or []),
     )
     db.add(user)
     db.commit()
@@ -137,6 +173,252 @@ def test_jwt_round_trip_and_invalid_subject(db_session):
     assert exc_info.value.status_code == 401
 
 
+def _encode_test_token(payload: dict, *, key: str = SECRET_KEY, algorithm: str = ALGORITHM) -> str:
+    return jwt.encode(payload, key, algorithm=algorithm)
+
+
+def test_auth_requires_a_bearer_token_and_keeps_health_endpoints_public():
+    with TestClient(app) as client:
+        assert client.get("/auth/me").status_code == 401
+        assert client.get("/auth/me", headers={"Authorization": "Bearer "}).status_code == 401
+        assert client.get("/health").status_code == 200
+        assert client.get("/health/db").status_code == 200
+
+
+@pytest.mark.parametrize("token", ["not-a-jwt", "random-token-value"])
+def test_auth_rejects_malformed_and_random_tokens(token):
+    with TestClient(app) as client:
+        response = client.get("/auth/me", headers={"Authorization": f"Bearer {token}"})
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Credenciais inválidas"
+
+
+def test_auth_rejects_expired_token(db_session):
+    user = create_admin_user(db_session)
+    token = _encode_test_token({
+        "sub": str(user.id),
+        "exp": datetime.now(timezone.utc) - timedelta(minutes=1),
+    })
+
+    with TestClient(app) as client:
+        response = client.get("/auth/me", headers={"Authorization": f"Bearer {token}"})
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Credenciais inválidas"
+
+
+def test_auth_rejects_invalid_signature(db_session):
+    user = create_admin_user(db_session)
+    token = _encode_test_token(
+        {
+            "sub": str(user.id),
+            "exp": datetime.now(timezone.utc) + timedelta(minutes=5),
+        },
+        key="different-test-signing-key-with-enough-entropy-for-test-only",
+    )
+
+    with TestClient(app) as client:
+        response = client.get("/auth/me", headers={"Authorization": f"Bearer {token}"})
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Credenciais inválidas"
+
+
+@pytest.mark.parametrize("subject", [None, "", "not-a-number", "1.5", True, 123, "0"])
+def test_auth_rejects_missing_or_invalid_subject(subject):
+    payload = {"exp": datetime.now(timezone.utc) + timedelta(minutes=5)}
+    if subject is not None:
+        payload["sub"] = subject
+    token = _encode_test_token(payload)
+
+    with TestClient(app) as client:
+        response = client.get("/auth/me", headers={"Authorization": f"Bearer {token}"})
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Credenciais inválidas"
+
+
+def test_auth_rejects_token_for_nonexistent_user():
+    token = create_access_token({"sub": "99999999", "token_version": 0})
+
+    with TestClient(app) as client:
+        response = client.get("/auth/me", headers={"Authorization": f"Bearer {token}"})
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Credenciais inválidas"
+
+
+def test_auth_rejects_jwt_signed_with_unauthorized_algorithm(db_session):
+    user = create_admin_user(db_session)
+    token = _encode_test_token(
+        {
+            "sub": str(user.id),
+            "exp": datetime.now(timezone.utc) + timedelta(minutes=5),
+        },
+        key="test-signing-key-with-more-than-forty-eight-bytes-for-hmac",
+        algorithm="HS384" if ALGORITHM != "HS384" else "HS512",
+    )
+
+    with TestClient(app) as client:
+        response = client.get("/auth/me", headers={"Authorization": f"Bearer {token}"})
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Credenciais inválidas"
+
+
+def test_auth_rejects_jwt_without_expiration(db_session):
+    user = create_admin_user(db_session)
+    token = _encode_test_token({"sub": str(user.id)})
+
+    with TestClient(app) as client:
+        response = client.get("/auth/me", headers={"Authorization": f"Bearer {token}"})
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Credenciais inválidas"
+
+
+def test_auth_returns_database_user_for_a_valid_signed_token(db_session):
+    user = User(
+        name="Assistant JWT",
+        email="assistant.jwt@test.local",
+        password=get_password_hash("Assistant@123"),
+        role="assistente",
+        permissions='["tasks.manage"]',
+    )
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+    token = create_access_token({
+        "sub": str(user.id),
+        "token_version": user.token_version,
+        "role": "admin",
+        "permissions": ["users.manage"],
+    })
+
+    with TestClient(app) as client:
+        response = client.get("/auth/me", headers={"Authorization": f"Bearer {token}"})
+
+    assert response.status_code == 200
+    assert response.json()["role"] == "assistente"
+    assert response.json()["permissions"] == ["tasks.manage"]
+
+
+def test_admin_route_allows_admin_and_rejects_assistant_even_with_spoofed_admin_claims(db_session):
+    admin = create_admin_user(db_session)
+    assistant = create_assistant_user(
+        db_session,
+        name="Assistant With Permissions",
+        permissions=sorted(ALLOWED_PERMISSIONS),
+    )
+    admin_token = create_access_token({"sub": str(admin.id), "token_version": admin.token_version})
+    assistant_token = create_access_token({
+        "sub": str(assistant.id),
+        "token_version": assistant.token_version,
+        "role": "admin",
+        "permissions": sorted(ALLOWED_PERMISSIONS),
+    })
+
+    with TestClient(app) as client:
+        admin_response = client.get(
+            "/users/permissions",
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        assistant_response = client.get(
+            "/users/permissions",
+            headers={"Authorization": f"Bearer {assistant_token}"},
+        )
+
+    assert admin_response.status_code == 200
+    assert assistant_response.status_code == 403
+
+
+def test_empty_any_permission_guard_fails_closed():
+    assistant = User(
+        id=1,
+        name="Assistant",
+        email="assistant.guard@test.local",
+        password="not-used",
+        role="assistente",
+    )
+    dependency = require_any_permission()
+
+    with pytest.raises(HTTPException) as exc_info:
+        dependency(current_user=assistant)
+
+    assert exc_info.value.status_code == 403
+
+
+def test_user_without_permission_is_forbidden_from_routines(db_session):
+    assistant = create_assistant_user(db_session, name="Assistant Without Permission")
+    token = create_access_token({"sub": str(assistant.id), "token_version": assistant.token_version})
+
+    with TestClient(app) as client:
+        response = client.get("/routines/", headers={"Authorization": f"Bearer {token}"})
+
+    assert response.status_code == 403
+
+
+def test_revoked_permission_blocks_the_same_existing_jwt(db_session):
+    assistant = create_assistant_user(
+        db_session,
+        name="Assistant Routine Manager",
+        permissions=["routines.manage"],
+    )
+    token = create_access_token({
+        "sub": str(assistant.id),
+        "token_version": assistant.token_version,
+        "permissions": ["routines.manage"],
+    })
+    headers = {"Authorization": f"Bearer {token}"}
+
+    with TestClient(app) as client:
+        assert client.get("/routines/", headers=headers).status_code == 200
+        assistant.permissions = serialize_permissions([])
+        db_session.commit()
+        response = client.get("/routines/", headers=headers)
+
+    assert response.status_code == 403
+
+
+def test_task_ownership_allows_only_assigned_user_to_read_and_complete(db_session):
+    user_a = create_assistant_user(db_session, name="Task Owner A")
+    user_b = create_assistant_user(db_session, name="Task Owner B")
+    task_a = Task(title="Task belonging to A", completed=False)
+    task_b = Task(title="Task belonging to B", completed=False)
+    db_session.add_all([task_a, task_b])
+    db_session.flush()
+    db_session.add_all([
+        Assignment(task_id=task_a.id, user_id=user_a.id),
+        Assignment(task_id=task_b.id, user_id=user_b.id),
+    ])
+    db_session.commit()
+    token_a = create_access_token({"sub": str(user_a.id), "token_version": user_a.token_version})
+    headers = {"Authorization": f"Bearer {token_a}"}
+
+    with TestClient(app) as client:
+        own_read = client.get(f"/tasks/{task_a.id}", headers=headers)
+        other_read = client.get(f"/tasks/{task_b.id}", headers=headers)
+        own_update = client.put(
+            f"/tasks/{task_a.id}",
+            json={"completed": True},
+            headers=headers,
+        )
+        other_update = client.put(
+            f"/tasks/{task_b.id}",
+            json={"completed": True},
+            headers=headers,
+        )
+
+    assert own_read.status_code == 200
+    assert other_read.status_code == 403
+    assert own_update.status_code == 200
+    assert other_update.status_code == 403
+    db_session.refresh(task_a)
+    db_session.refresh(task_b)
+    assert task_a.completed is True
+    assert task_b.completed is False
+
+
 def test_bootstrap_adds_token_version_to_legacy_users_table(monkeypatch):
     legacy_engine = create_engine("sqlite:///:memory:")
     with legacy_engine.begin() as connection:
@@ -175,6 +457,54 @@ def test_login_rate_limit_is_shared_and_expires_after_window(db_session):
         other_session.close()
 
     assert not _consume_login_attempt(db_session, rate_limit_key, now_ts=now_ts + 60)
+
+
+def test_login_rate_limit_has_independent_counters_for_users_and_ips(db_session):
+    request_a = SimpleNamespace(client=SimpleNamespace(host="192.0.2.10"))
+    request_b = SimpleNamespace(client=SimpleNamespace(host="192.0.2.11"))
+
+    user_a_ip_a = _login_rate_limit_key(request_a, "user-a@example.test")
+    user_b_ip_a = _login_rate_limit_key(request_a, "user-b@example.test")
+    user_a_ip_b = _login_rate_limit_key(request_b, "user-a@example.test")
+
+    assert len({user_a_ip_a, user_b_ip_a, user_a_ip_b}) == 3
+    for key in (user_a_ip_a, user_b_ip_a, user_a_ip_b):
+        for _ in range(LOGIN_RATE_LIMIT_MAX_ATTEMPTS):
+            assert not _consume_login_attempt(db_session, key, now_ts=1_800_000_000)
+        assert _consume_login_attempt(db_session, key, now_ts=1_800_000_000)
+
+
+def test_login_rate_limit_is_configurable_and_expires_counters(monkeypatch, db_session):
+    monkeypatch.setenv("LOGIN_RATE_LIMIT_WINDOW_SECONDS", "30")
+    monkeypatch.setenv("LOGIN_RATE_LIMIT_MAX_ATTEMPTS", "2")
+    key = "b" * 64
+    now_ts = 1_800_000_000
+
+    assert _login_rate_limit_settings() == (30, 2)
+    assert not _consume_login_attempt(db_session, key, now_ts=now_ts)
+    assert not _consume_login_attempt(db_session, key, now_ts=now_ts)
+    assert _consume_login_attempt(db_session, key, now_ts=now_ts)
+    assert not _consume_login_attempt(db_session, key, now_ts=now_ts + 30)
+
+
+def test_invalid_rate_limit_configuration_uses_safe_defaults(monkeypatch):
+    monkeypatch.setenv("LOGIN_RATE_LIMIT_WINDOW_SECONDS", "0")
+    monkeypatch.setenv("LOGIN_RATE_LIMIT_MAX_ATTEMPTS", "not-a-number")
+
+    assert _login_rate_limit_settings() == (60, 5)
+
+
+def test_successful_login_clears_the_shared_failure_counter(db_session):
+    rate_limit_key = "c" * 64
+    now_ts = 1_800_000_000
+    for _ in range(LOGIN_RATE_LIMIT_MAX_ATTEMPTS):
+        assert not _consume_login_attempt(db_session, rate_limit_key, now_ts=now_ts)
+
+    from app.routes.auth import _clear_login_failures
+
+    _clear_login_failures(db_session, rate_limit_key)
+
+    assert not _consume_login_attempt(db_session, rate_limit_key, now_ts=now_ts)
 
 
 def test_login_endpoint_returns_429_after_five_attempts(db_session):
@@ -220,6 +550,106 @@ def test_api_health_login_and_authenticated_user(db_session):
         assert me_response.json()["email"] == user.email
 
 
+def test_cors_allows_configured_origin_and_authorization_preflight():
+    cors_options = next(
+        middleware.kwargs
+        for middleware in app.user_middleware
+        if middleware.cls is CORSMiddleware
+    )
+    allowed_origin = CORS_ORIGINS[0]
+
+    with TestClient(app) as client:
+        response = client.get("/health", headers={"Origin": allowed_origin})
+        preflight = client.options(
+            "/auth/login",
+            headers={
+                "Origin": allowed_origin,
+                "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Headers": "authorization,content-type",
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == allowed_origin
+    assert "access-control-allow-credentials" not in response.headers
+    assert preflight.status_code == 200
+    assert preflight.headers["access-control-allow-origin"] == allowed_origin
+    assert "access-control-allow-credentials" not in preflight.headers
+    assert "authorization" in preflight.headers["access-control-allow-headers"].lower()
+    assert "POST" in preflight.headers["access-control-allow-methods"]
+    assert cors_options["allow_origins"] == CORS_ORIGINS
+    assert "allow_origin_regex" not in cors_options
+    assert cors_options["allow_credentials"] is False
+
+
+def test_cors_rejects_unconfigured_origin_and_preserves_public_health():
+    with TestClient(app) as client:
+        response = client.get(
+            "/health",
+            headers={"Origin": "https://untrusted.invalid"},
+        )
+        preflight = client.options(
+            "/auth/login",
+            headers={
+                "Origin": "https://untrusted.invalid",
+                "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Headers": "authorization",
+            },
+        )
+
+    assert response.status_code == 200
+    assert "access-control-allow-origin" not in response.headers
+    assert preflight.status_code == 400
+    assert "access-control-allow-origin" not in preflight.headers
+
+
+@pytest.mark.parametrize(
+    ("secret_key", "algorithm", "production"),
+    [
+        ("", "HS256", False),
+        ("strong-test-secret-with-at-least-32-bytes", "", False),
+        ("strong-test-secret-with-at-least-32-bytes", "none", False),
+        ("short", "HS256", True),
+        ("troque-por-uma-chave-segura", "HS256", True),
+    ],
+)
+def test_invalid_security_configuration_is_rejected(secret_key, algorithm, production):
+    with pytest.raises(ValueError):
+        validate_security_settings(secret_key, algorithm, production=production)
+
+
+def test_valid_security_configuration_accepts_supported_algorithm():
+    validate_security_settings(
+        "secure-production-secret-with-more-than-32-bytes",
+        "HS256",
+        production=True,
+    )
+
+
+@pytest.mark.parametrize(
+    "origins",
+    [
+        "*",
+        "https://frontend.example.test/path",
+        "ftp://frontend.example.test",
+        "https://user:password@frontend.example.test",
+        "https://frontend.example.test:99999",
+    ],
+)
+def test_cors_rejects_wildcard_or_invalid_origin_configuration(origins):
+    with pytest.raises(ValueError):
+        parse_cors_origins(origins)
+
+
+def test_cors_requires_explicit_origin_in_production():
+    with pytest.raises(ValueError):
+        parse_cors_origins("", production=True)
+
+    assert parse_cors_origins("https://frontend.example.test", production=True) == [
+        "https://frontend.example.test"
+    ]
+
+
 def test_password_reset_revokes_existing_access_tokens(db_session):
     admin = create_admin_user(db_session)
     user = User(
@@ -260,6 +690,110 @@ def test_password_reset_revokes_existing_access_tokens(db_session):
             headers={"Authorization": f"Bearer {login_response.json()['access_token']}"},
         )
         assert new_token_response.status_code == 200
+
+
+@pytest.mark.parametrize(
+    "password",
+    [
+        "ASCII-password-123",
+        "Senhaáéíóú",
+        "Senha-ç-Ç",
+        "日本語のパスワード",
+        "Senha-😀-🙂",
+        "a" * 72,
+        "😀" * 18,
+        "  senha com espaços  ",
+    ],
+)
+def test_password_hashing_preserves_supported_utf8_passwords(password):
+    assert len(password.encode("utf-8")) <= 72
+    password_hash = get_password_hash(password)
+
+    assert password_hash != password
+    assert verify_password(password, password_hash)
+    if password != password.strip():
+        assert not verify_password(password.strip(), password_hash)
+
+
+@pytest.mark.parametrize("password", ["a" * 73, "😀" * 19, "a" * 71 + "é"])
+def test_passwords_over_bcrypt_utf8_limit_are_rejected(password):
+    assert len(password.encode("utf-8")) > 72
+
+    with pytest.raises(ValueError, match="72 bytes em UTF-8"):
+        validate_password(password)
+    with pytest.raises(ValueError, match="72 bytes em UTF-8"):
+        get_password_hash(password)
+    with pytest.raises(ValueError, match="72 bytes em UTF-8"):
+        verify_password(password, "unused-hash")
+
+
+def test_password_schemas_preserve_exact_value_and_enforce_byte_limit():
+    password = "  Senha-ç-😀  "
+    user_values = {
+        "name": "Usuário Teste",
+        "email": "password.schema@test.local",
+        "password": password,
+    }
+
+    assert UserCreate(**user_values).password == password
+    assert UserLogin(email=user_values["email"], password=password).password == password
+    assert UserPasswordReset(password=password).password == password
+
+    oversized_password = "😀" * 19
+    for schema, values in (
+        (UserCreate, {**user_values, "password": oversized_password}),
+        (UserLogin, {"email": user_values["email"], "password": oversized_password}),
+        (UserPasswordReset, {"password": oversized_password}),
+    ):
+        with pytest.raises(ValueError, match="72 bytes em UTF-8"):
+            schema(**values)
+
+
+def test_user_creation_login_and_password_reset_preserve_unicode_password(db_session):
+    admin = create_admin_user(db_session)
+    admin_token = create_access_token({"sub": str(admin.id), "token_version": admin.token_version})
+    original_password = "  Senha-ç-😀  "
+
+    with TestClient(app) as client:
+        create_response = client.post(
+            "/users/",
+            json={
+                "name": "Senha Unicode",
+                "email": "senha.unicode@test.local",
+                "password": original_password,
+            },
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        assert create_response.status_code == 201
+
+        user = db_session.query(User).filter_by(email="senha.unicode@test.local").one()
+        assert user.password != original_password
+        assert verify_password(original_password, user.password)
+        assert not verify_password(original_password.strip(), user.password)
+
+        login_response = client.post(
+            "/auth/login",
+            json={"email": user.email, "password": original_password},
+        )
+        assert login_response.status_code == 200
+
+        reset_password = "  Nova-senha-á-🧡  "
+        reset_response = client.put(
+            f"/users/{user.id}/password",
+            json={"password": reset_password},
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        assert reset_response.status_code == 204
+        db_session.refresh(user)
+        assert user.password != reset_password
+        assert verify_password(reset_password, user.password)
+        assert not verify_password(reset_password.strip(), user.password)
+
+        reset_login_response = client.post(
+            "/auth/login",
+            json={"email": user.email, "password": reset_password},
+        )
+        assert reset_login_response.status_code == 200
 
 
 def test_client_lookup_allows_every_requests_screen_permission(db_session):

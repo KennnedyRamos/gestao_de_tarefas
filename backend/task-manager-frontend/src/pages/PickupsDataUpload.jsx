@@ -22,6 +22,11 @@ const GIRO_DATASETS = [
   { key: 'sales', label: 'Vendas · 03.02.37 - 3 M', hint: 'O tipo de cesta é identificado pelo código do produto; no relatório 03.02.37 - 3 M, use a coluna Produto (coluna P). Não precisa incluir a cesta no arquivo.', maxBytes: MAX_GIRO_SALES_UPLOAD_MB * 1024 * 1024 },
   { key: 'targets', label: 'Metas · METAS', hint: 'Indicador, Ano (opcional), Jan a Dez, com linhas GIRO VISA e GIRO SOPI.', maxBytes: 20 * 1024 * 1024 }
 ];
+const GIRO_TARGETS_TEMPLATE = [
+  'Indicador;Ano;Jan;Fev;Mar;Abr;Mai;Jun;Jul;Ago;Set;Out;Nov;Dez',
+  'GIRO VISA;;9%;8,5%;7,5%;;;;;;;;;',
+  'GIRO SOPI;;9%;8,5%;7,5%;;;;;;;;;',
+].join('\r\n');
 
 const formatFileSize = (bytes) => {
   const normalized = Number(bytes || 0);
@@ -52,6 +57,20 @@ const validateUploadFile = (file, label, maximumBytes = MAX_CSV_UPLOAD_BYTES) =>
   }
 
   return '';
+};
+
+const downloadGiroTargetsTemplate = () => {
+  const blob = new Blob([`\uFEFF${GIRO_TARGETS_TEMPLATE}\r\n`], {
+    type: 'text/csv;charset=utf-8;',
+  });
+  const url = window.URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = 'modelo_metas_giro.csv';
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.URL.revokeObjectURL(url);
 };
 
 const PickupsDataUpload = () => {
@@ -375,7 +394,7 @@ const PickupsDataUpload = () => {
             Clientes (01.20.11) e equipamentos (02.02.20) usam as bases compartilhadas acima. Aqui, envie somente vendas (03.02.37 - 3 M) e metas.
           </Typography>
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
-            Formatos aceitos: .csv e .txt. Limites: vendas 500 MB; metas 20 MB.
+            Formatos aceitos: .csv e .txt. Limites: vendas 500 MB; metas 20 MB. O modelo de metas contém percentuais ilustrativos: substitua-os pelos valores oficiais antes de enviar.
           </Typography>
           {giroError && <Alert severity="error" sx={{ mb: 2 }}>{giroError}</Alert>}
           {giroSuccess && <Alert severity="success" sx={{ mb: 2 }}>{giroSuccess}</Alert>}
@@ -433,6 +452,15 @@ const PickupsDataUpload = () => {
                       >
                         Atualizar status
                       </Button>
+                      {dataset.key === 'targets' && (
+                        <Button
+                          variant="outlined"
+                          disabled={Boolean(importingGiroDataset)}
+                          onClick={downloadGiroTargetsTemplate}
+                        >
+                          Baixar modelo de metas
+                        </Button>
+                      )}
                     </Stack>
                   </Stack>
                 </Paper>

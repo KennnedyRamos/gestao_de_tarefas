@@ -3,7 +3,7 @@ from io import BytesIO
 from datetime import date
 from decimal import Decimal
 
-from fastapi import UploadFile
+from fastapi import HTTPException, UploadFile
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from openpyxl import load_workbook
@@ -22,13 +22,16 @@ from app.routes.giro import (
     _quarter_summary,
     _report_rows,
     _summary,
+    _validate_upload_size,
     import_sales,
+    MAX_SALES_CSV_BYTES,
     mesa_for_sector,
 )
 from app.services.giro_csv import (
     parse_sales_rows,
     parse_target_rows,
 )
+from app.services.giro_reference import BASKET_BY_PRODUCT_CODE, EQUIPMENT_TYPE_BY_PRODUCT_CODE
 from app.services.pickup_catalog_csv import load_clients_csv, load_inventory_csv
 
 
@@ -66,6 +69,22 @@ def test_existing_inventory_csv_import_captures_giro_equipment_fields():
     assert refrigerator["giro_balance"] == 2
 
 
+def test_reference_files_classify_sales_and_equipment_products():
+    assert len(BASKET_BY_PRODUCT_CODE) == 1688
+    assert BASKET_BY_PRODUCT_CODE["132"] == "visa"
+    assert BASKET_BY_PRODUCT_CODE["13859"] == "sopi"
+    assert EQUIPMENT_TYPE_BY_PRODUCT_CODE["118780"] == "sopi"
+    assert EQUIPMENT_TYPE_BY_PRODUCT_CODE["862277"] == "visa"
+
+    inventory_csv = (
+        "Codigo Cliente;Descricao;Saldo;Codigo Produto;Data Operacao\n"
+        "100;Expositor vertical; -2;118780;02/10/2026\n"
+    ).encode("utf-8")
+    item = load_inventory_csv(inventory_csv)["100"][0]
+    assert item["giro_equipment_type"] == "sopi"
+    assert item["giro_is_refrigerator"] is True
+
+
 def test_sales_csv_excludes_marketplace_and_chopp_and_aggregates_baskets():
     csv_data = (
         "NAB;CERVEJA;PDV;Emissao;Total;Origem do Pedido;Descrição;Status;Indicador Cancelamento\n"
@@ -82,6 +101,65 @@ def test_sales_csv_excludes_marketplace_and_chopp_and_aggregates_baskets():
     assert source_months == {"2026-10"}
     assert imported == 2
     assert ignored == 2
+
+
+def test_sales_csv_uses_product_reference_when_baskets_are_not_in_sales_file():
+    csv_data = (
+        "PDV;Emissao;Valor Total;Origem do Pedido;Cod Produto;Descricao\n"
+        "100;02/10/2026;1.500,00;B2BG;132;REFRIGERANTE LATA\n"
+        "100;02/10/2026;2.500,00;B2BG;13859;CERVEJA LATA\n"
+    ).encode("utf-8")
+
+    totals, source_months, imported, ignored = parse_sales_rows(csv_data)
+
+    assert totals[("100", "2026-10", "visa")] == Decimal("1500.00")
+    assert totals[("100", "2026-10", "sopi")] == Decimal("2500.00")
+    assert source_months == {"2026-10"}
+    assert imported == 2
+    assert ignored == 0
+
+
+def test_sales_csv_file_stream_is_parsed_without_loading_into_bytes():
+    csv_data = (
+        "PDV;Emissao;Total;Origem;Codigo Produto\n"
+        "100;02/10/2026;1.500,00;B2BG;132\n"
+    ).encode("utf-8")
+
+    totals, _, imported, ignored = parse_sales_rows(BytesIO(csv_data))
+
+    assert totals[("100", "2026-10", "visa")] == Decimal("1500.00")
+    assert imported == 1
+    assert ignored == 0
+
+
+def test_sales_upload_limit_accepts_files_over_200_mb_and_rejects_above_500_mb():
+    class SizedFile:
+        def __init__(self, size):
+            self.size = size
+            self.position = 0
+
+        def seek(self, offset, whence=0):
+            self.position = self.size if whence == 2 else offset
+
+        def tell(self):
+            return self.position
+
+    over_200_mb = UploadFile(
+        filename="sales.csv",
+        file=SizedFile(201 * 1024 * 1024),
+    )
+    assert _validate_upload_size(over_200_mb, MAX_SALES_CSV_BYTES, "vendas") == 201 * 1024 * 1024
+
+    over_limit = UploadFile(
+        filename="sales.csv",
+        file=SizedFile(MAX_SALES_CSV_BYTES + 1),
+    )
+    try:
+        _validate_upload_size(over_limit, MAX_SALES_CSV_BYTES, "vendas")
+    except HTTPException as exc:
+        assert exc.status_code == 413
+    else:
+        raise AssertionError("Expected oversized sales upload to be rejected.")
 
 
 def test_sales_csv_normalizes_client_codes_and_keeps_months_with_no_eligible_sales():

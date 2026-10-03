@@ -7,6 +7,8 @@ import unicodedata
 from datetime import date, datetime, timedelta
 from typing import Any
 
+from app.services.giro_reference import EQUIPMENT_TYPE_BY_PRODUCT_CODE
+
 
 CLIENT_FORM_FIELDS = [
     "client_code",
@@ -536,6 +538,16 @@ def load_inventory_csv(raw_bytes: bytes) -> dict[str, list[dict[str, Any]]]:
         issue_date = _compact_spaces(row.get(issue_date_col or "", "")) if issue_date_col else ""
         product_code = _compact_spaces(row.get(product_col or "", "")) if product_col else ""
         item_type = classify_item_type(description)
+        equipment_type = normalize_header(row.get(giro_type_col or "", "")) if giro_type_col else ""
+        mapped_equipment_type = EQUIPMENT_TYPE_BY_PRODUCT_CODE.get(canonical_code(product_code), "")
+        if equipment_type not in {"visa", "sopi"}:
+            equipment_type = mapped_equipment_type
+        is_refrigerator = (
+            normalize_header(row.get(giro_refrigerator_col or "", ""))
+            in {"sim", "s", "1", "true", "visa", "sopi"}
+            if giro_refrigerator_col else item_type == "refrigerador"
+        )
+        is_refrigerator = is_refrigerator or bool(mapped_equipment_type)
         volume_key = detect_volume_key(description)
 
         item = {
@@ -549,16 +561,12 @@ def load_inventory_csv(raw_bytes: bytes) -> dict[str, list[dict[str, Any]]]:
             "volume_key": volume_key,
             "source_baixados": open_balance,
             "product_code": product_code,
-            "giro_equipment_type": normalize_header(row.get(giro_type_col or "", "")),
+            "giro_equipment_type": equipment_type,
             "giro_install_date": (
                 _parse_giro_date(row.get(giro_date_col or "", ""))
                 if giro_date_col else None
             ),
-            "giro_is_refrigerator": (
-                normalize_header(row.get(giro_refrigerator_col or "", ""))
-                in {"sim", "s", "1", "true", "visa", "sopi"}
-                if giro_refrigerator_col else item_type == "refrigerador"
-            ),
+            "giro_is_refrigerator": is_refrigerator,
             "giro_balance": (
                 abs(parse_integer(row.get(giro_balance_col or "", "0")))
                 if giro_balance_col else open_quantity

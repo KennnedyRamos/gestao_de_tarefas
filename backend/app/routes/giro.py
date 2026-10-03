@@ -49,7 +49,7 @@ BRAZIL_TZ = ZoneInfo("America/Sao_Paulo")
 INSTALLATION_CUTOFF = date(2023, 1, 1)
 MONTHLY_TARGETS = {"visa": Decimal("1200.00"), "sopi": Decimal("2000.00")}
 CENT = Decimal("0.01")
-MAX_SALES_CSV_BYTES = 125 * 1024 * 1024
+MAX_SALES_CSV_BYTES = 500 * 1024 * 1024
 MAX_MASTER_CSV_BYTES = 20 * 1024 * 1024
 ALLOWED_UPLOAD_SUFFIXES = {".csv", ".txt"}
 MESA_6_SECTORS = {"501", "502", "601", "602", "603", "605", "606"}
@@ -87,16 +87,24 @@ def _as_float(value: Decimal) -> float:
     return float(_money(value))
 
 
-async def _read_upload(upload: UploadFile, maximum_bytes: int, label: str) -> bytes:
+def _validate_upload_size(upload: UploadFile, maximum_bytes: int, label: str) -> int:
     filename = str(upload.filename or "").strip()
     if Path(filename).suffix.lower() not in ALLOWED_UPLOAD_SUFFIXES:
         raise HTTPException(status_code=400, detail=f"Envie o arquivo de {label} em formato CSV.")
-    content = await upload.read(maximum_bytes + 1)
-    if len(content) > maximum_bytes:
+    upload.file.seek(0, 2)
+    size = upload.file.tell()
+    upload.file.seek(0)
+    if size > maximum_bytes:
         limit_mb = maximum_bytes // (1024 * 1024)
         raise HTTPException(status_code=413, detail=f"O CSV de {label} excede o limite de {limit_mb} MB.")
-    if not content:
+    if size == 0:
         raise HTTPException(status_code=400, detail=f"O CSV de {label} está vazio.")
+    return size
+
+
+async def _read_upload(upload: UploadFile, maximum_bytes: int, label: str) -> bytes:
+    size = _validate_upload_size(upload, maximum_bytes, label)
+    content = await upload.read(size + 1)
     return content
 
 
@@ -141,9 +149,9 @@ async def import_sales(
     current_user: User = Depends(get_giro_manager),
 ):
     del current_user
-    raw = await _read_upload(file, MAX_SALES_CSV_BYTES, "vendas")
+    _validate_upload_size(file, MAX_SALES_CSV_BYTES, "vendas")
     try:
-        totals, source_months, imported, ignored = parse_sales_rows(raw)
+        totals, source_months, imported, ignored = parse_sales_rows(file.file)
     except GiroCsvError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 

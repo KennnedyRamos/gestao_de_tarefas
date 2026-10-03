@@ -3,23 +3,17 @@ from __future__ import annotations
 import csv
 import io
 import re
-import unicodedata
 from collections import defaultdict
 from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
-from typing import Any
+from typing import Any, BinaryIO
 
 from app.services.pickup_catalog_csv import canonical_code
+from app.services.giro_reference import BASKET_BY_PRODUCT_CODE, normalize_header
 
 
 class GiroCsvError(ValueError):
     pass
-
-
-def normalize_header(value: str) -> str:
-    text = unicodedata.normalize("NFKD", str(value or "").strip().lower())
-    text = "".join(character for character in text if not unicodedata.combining(character))
-    return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9]+", " ", text)).strip()
 
 
 def _decode_encoding(raw: bytes) -> str:
@@ -32,25 +26,32 @@ def _decode_encoding(raw: bytes) -> str:
     raise GiroCsvError("Não foi possível ler o CSV. Salve o arquivo em UTF-8 ou ANSI.")
 
 
-def read_csv(raw: bytes, label: str) -> tuple[list[str], Any]:
-    if not raw:
+def read_csv(raw: bytes | BinaryIO, label: str) -> tuple[list[str], Any, io.TextIOWrapper]:
+    source = io.BytesIO(raw) if isinstance(raw, bytes) else raw
+    start_position = source.tell()
+    sample_bytes = source.read(8192)
+    source.seek(start_position)
+    if not sample_bytes:
         raise GiroCsvError(f"O arquivo CSV de {label} está vazio.")
-    encoding = _decode_encoding(raw)
-    sample = raw[:8192].decode(encoding)
+    encoding = _decode_encoding(sample_bytes)
+    sample = sample_bytes.decode(encoding)
     try:
         delimiter = csv.Sniffer().sniff(sample, delimiters=";,\t|").delimiter
     except csv.Error:
         delimiter = ";"
+    text_stream = io.TextIOWrapper(source, encoding=encoding, newline="")
     reader = csv.DictReader(
-        io.TextIOWrapper(io.BytesIO(raw), encoding=encoding, newline=""),
+        text_stream,
         delimiter=delimiter,
         strict=True,
     )
     if not reader.fieldnames:
+        text_stream.detach()
         raise GiroCsvError(f"O CSV de {label} precisa ter uma linha de cabeçalho.")
     if len(reader.fieldnames) > 512:
+        text_stream.detach()
         raise GiroCsvError(f"O CSV de {label} tem colunas demais para ser importado.")
-    return reader.fieldnames, reader
+    return reader.fieldnames, reader, text_stream
 
 
 def _iter_rows(reader: Any, label: str) -> Any:
@@ -58,6 +59,10 @@ def _iter_rows(reader: Any, label: str) -> Any:
         yield from reader
     except csv.Error as exc:
         raise GiroCsvError(f"CSV inválido na base de {label}: {exc}") from exc
+    except UnicodeDecodeError as exc:
+        raise GiroCsvError(
+            f"Não foi possível decodificar o CSV de {label}. Salve o arquivo em UTF-8 ou ANSI."
+        ) from exc
 
 
 def resolve_column(headers: list[str], aliases: tuple[str, ...], label: str) -> str:
@@ -120,7 +125,14 @@ def parse_date(value: str, field: str, line: int) -> date:
 
 
 def parse_target_rows(raw: bytes) -> list[dict[str, Any]]:
-    headers, reader = read_csv(raw, "metas")
+    headers, reader, text_stream = read_csv(raw, "metas")
+    try:
+        return _parse_target_rows(headers, reader)
+    finally:
+        text_stream.detach()
+
+
+def _parse_target_rows(headers: list[str], reader: Any) -> list[dict[str, Any]]:
     indicator_column = resolve_column(headers, ("Indicador", "Métrica", "Metrica"), "metas")
     year_column = next(
         (header for header in headers if normalize_header(header) in {"ano", "year"}),
@@ -193,17 +205,49 @@ def _is_chopp(value: str) -> bool:
 
 
 def parse_sales_rows(
-    raw: bytes,
+    raw: bytes | BinaryIO,
 ) -> tuple[dict[tuple[str, str, str], Decimal], set[str], int, int]:
-    headers, reader = read_csv(raw, "vendas")
+    headers, reader, text_stream = read_csv(raw, "vendas")
+    try:
+        return _parse_sales_rows(headers, reader)
+    finally:
+        text_stream.detach()
+
+
+def _parse_sales_rows(
+    headers: list[str],
+    reader: Any,
+) -> tuple[dict[tuple[str, str, str], Decimal], set[str], int, int]:
     columns = {
         "code": resolve_column(headers, ("PDV", "Cod PDV", "Codigo Cliente", "Código Cliente", "Cliente"), "vendas"),
         "date": resolve_column(headers, ("Emissao", "Emissão", "Data Venda", "Data Operacao", "Data Operação"), "vendas"),
         "amount": resolve_column(headers, ("Total", "Valor Total", "Faturamento", "Valor"), "vendas"),
         "origin": resolve_column(headers, ("Origem do Pedido", "Origem", "Canal de Venda"), "vendas"),
-        "description": resolve_column(headers, ("Descrição", "Descricao", "Produto"), "vendas"),
-        "status": resolve_column(headers, ("Status", "Status NF-e", "Status NFe"), "vendas"),
     }
+    product_column = next(
+        (
+            header for header in headers
+            if normalize_header(header) in {
+                "codigo produto", "cod produto", "codigo material", "cod material",
+                "produto codigo", "material", "sku", "codigo item", "cod item",
+            }
+        ),
+        None,
+    )
+    description_column = next(
+        (
+            header for header in headers
+            if normalize_header(header) in {"descricao", "descricao produto", "produto"}
+        ),
+        None,
+    )
+    status_column = next(
+        (
+            header for header in headers
+            if normalize_header(header) in {"status", "status nfe", "status nota fiscal"}
+        ),
+        None,
+    )
     basket_column = None
     for candidate in ("Cesta", "Categoria", "Grupo Produto"):
         basket_column = next((header for header in headers if normalize_header(header) == normalize_header(candidate)), None)
@@ -214,8 +258,10 @@ def parse_sales_rows(
         header for header in headers
         if normalize_header(header) in {"cerveja", "match"}
     ]
-    if not basket_column and (not nab_column or not beer_columns):
-        raise GiroCsvError("O CSV de vendas precisa ter a coluna Cesta ou as colunas NAB e CERVEJA.")
+    if not product_column and not basket_column and (not nab_column or not beer_columns):
+        raise GiroCsvError(
+            "O CSV de vendas precisa ter código do produto, coluna Cesta ou as colunas NAB e CERVEJA."
+        )
     packaging_column = next((header for header in headers if normalize_header(header) in {"embalagem", "tipo embalagem"}), None)
     cancel_column = next((header for header in headers if "cancelamento" in normalize_header(header)), None)
 
@@ -224,13 +270,13 @@ def parse_sales_rows(
     ignored = 0
     imported = 0
     for line, row in enumerate(_iter_rows(reader, "vendas"), start=2):
-        if line > 500_001:
-            raise GiroCsvError("A base de vendas excede o limite de 500.000 linhas.")
+        if line > 3_000_001:
+            raise GiroCsvError("A base de vendas excede o limite de 3.000.000 linhas.")
         if not any(str(value or "").strip() for value in row.values()):
             continue
         sale_date = parse_date(_value(row, columns["date"]), columns["date"], line)
         source_months.add(sale_date.strftime("%Y-%m"))
-        status = normalize_header(_value(row, columns["status"]))
+        status = normalize_header(_value(row, status_column)) if status_column else ""
         if status and status not in {"a", "ativo", "autorizada", "autorizado", "ok", "1"}:
             ignored += 1
             continue
@@ -240,31 +286,30 @@ def parse_sales_rows(
         if _is_marketplace(_value(row, columns["origin"])):
             ignored += 1
             continue
-        description = " ".join(
-            value for value in (
-                _value(row, columns["description"]),
-                _value(row, packaging_column) if packaging_column else "",
-            ) if value
-        )
+        product_code = _clean_code(_value(row, product_column)) if product_column else ""
+        description = " ".join(value for value in (
+            _value(row, description_column) if description_column else "",
+            _value(row, packaging_column) if packaging_column else "",
+        ) if value)
         if _is_chopp(description):
             ignored += 1
             continue
-        if basket_column:
-            basket_value = normalize_header(_value(row, basket_column))
-            if basket_value == "nab":
-                basket = "visa"
-            elif basket_value in {"cerveja", "match", "sopi"}:
-                basket = "sopi"
-            else:
-                ignored += 1
-                continue
-        else:
-            has_nab = _is_filled(_value(row, nab_column))
-            has_beer = any(_is_filled(_value(row, column)) for column in beer_columns)
-            if has_nab == has_beer:
-                ignored += 1
-                continue
-            basket = "visa" if has_nab else "sopi"
+        basket = BASKET_BY_PRODUCT_CODE.get(product_code) if product_code else None
+        if not basket:
+            if basket_column:
+                basket_value = normalize_header(_value(row, basket_column))
+                if basket_value == "nab":
+                    basket = "visa"
+                elif basket_value in {"cerveja", "match", "sopi"}:
+                    basket = "sopi"
+            elif nab_column and beer_columns:
+                has_nab = _is_filled(_value(row, nab_column))
+                has_beer = any(_is_filled(_value(row, column)) for column in beer_columns)
+                if has_nab != has_beer:
+                    basket = "visa" if has_nab else "sopi"
+        if not basket:
+            ignored += 1
+            continue
         client_code = _clean_code(_value(row, columns["code"]))
         if not client_code:
             raise GiroCsvError(f"Código de PDV vazio na linha {line} da base de vendas.")

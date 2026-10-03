@@ -16,9 +16,10 @@ import { hasPermission } from '../utils/auth';
 
 const MAX_CSV_UPLOAD_MB = 200;
 const MAX_CSV_UPLOAD_BYTES = MAX_CSV_UPLOAD_MB * 1024 * 1024;
+const MAX_GIRO_SALES_UPLOAD_MB = 500;
 const ACCEPTED_UPLOAD_EXTENSIONS = ['.csv', '.txt'];
 const GIRO_DATASETS = [
-  { key: 'sales', label: 'Vendas · 03.02.37 - 3 M', hint: 'PDV, Emissao, NAB, CERVEJA, Total, Origem do Pedido, Descricao e Status.', maxBytes: 125 * 1024 * 1024 },
+  { key: 'sales', label: 'Vendas · 03.02.37 - 3 M', hint: 'O tipo de cesta é identificado pelo código do produto usando a tabela de referência; não precisa vir no arquivo de vendas.', maxBytes: MAX_GIRO_SALES_UPLOAD_MB * 1024 * 1024 },
   { key: 'targets', label: 'Metas · METAS', hint: 'Indicador, Ano (opcional), Jan a Dez, com linhas GIRO VISA e GIRO SOPI.', maxBytes: 20 * 1024 * 1024 }
 ];
 
@@ -36,7 +37,7 @@ const formatFileSize = (bytes) => {
   return `${normalized} B`;
 };
 
-const validateUploadFile = (file, label) => {
+const validateUploadFile = (file, label, maximumBytes = MAX_CSV_UPLOAD_BYTES) => {
   if (!file) {
     return '';
   }
@@ -46,8 +47,8 @@ const validateUploadFile = (file, label) => {
     return `${label} deve estar em formato CSV ou TXT.`;
   }
 
-  if ((Number(file.size) || 0) > MAX_CSV_UPLOAD_BYTES) {
-    return `${label} excede o limite de ${MAX_CSV_UPLOAD_MB} MB.`;
+  if ((Number(file.size) || 0) > maximumBytes) {
+    return `${label} excede o limite de ${Math.floor(maximumBytes / (1024 * 1024))} MB.`;
   }
 
   return '';
@@ -221,13 +222,10 @@ const PickupsDataUpload = () => {
       return;
     }
 
-    const fileError = validateUploadFile(file, dataset.label);
-    const sizeError = file.size > dataset.maxBytes
-      ? `${dataset.label} excede o limite de ${Math.round(dataset.maxBytes / (1024 * 1024))} MB.`
-      : '';
-    if (fileError || sizeError) {
+    const fileError = validateUploadFile(file, dataset.label, dataset.maxBytes);
+    if (fileError) {
       setGiroFiles((current) => ({ ...current, [dataset.key]: null }));
-      setGiroError(fileError || sizeError);
+      setGiroError(fileError);
       event.target.value = '';
       return;
     }
@@ -241,13 +239,9 @@ const PickupsDataUpload = () => {
       setGiroError(`Selecione o CSV de ${dataset.label} antes de importar.`);
       return;
     }
-    const fileError = validateUploadFile(file, dataset.label);
+    const fileError = validateUploadFile(file, dataset.label, dataset.maxBytes);
     if (fileError) {
       setGiroError(fileError);
-      return;
-    }
-    if (file.size > dataset.maxBytes) {
-      setGiroError(`${dataset.label} excede o limite de ${Math.round(dataset.maxBytes / (1024 * 1024))} MB.`);
       return;
     }
     const formData = new FormData();
@@ -381,7 +375,7 @@ const PickupsDataUpload = () => {
             Clientes (01.20.11) e equipamentos (02.02.20) usam as bases compartilhadas acima. Aqui, envie somente vendas (03.02.37 - 3 M) e metas.
           </Typography>
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
-            Formatos aceitos: .csv e .txt. Limites: vendas 125 MB; metas 20 MB.
+            Formatos aceitos: .csv e .txt. Limites: vendas 500 MB; metas 20 MB.
           </Typography>
           {giroError && <Alert severity="error" sx={{ mb: 2 }}>{giroError}</Alert>}
           {giroSuccess && <Alert severity="success" sx={{ mb: 2 }}>{giroSuccess}</Alert>}

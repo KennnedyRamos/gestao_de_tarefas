@@ -19,6 +19,7 @@ from app.models.giro import (
 from app.models.pickup_catalog import PickupCatalogClient, PickupCatalogInventoryItem
 from app.routes.giro import (
     _ensure_ready,
+    _equipment_by_client,
     _make_workbook,
     _quarter_summary,
     _report_rows,
@@ -98,6 +99,53 @@ def test_reference_files_classify_sales_and_equipment_products():
     item = load_inventory_csv(inventory_csv)["100"][0]
     assert item["giro_equipment_type"] == "sopi"
     assert item["giro_is_refrigerator"] is True
+
+
+def test_giro_uses_equipment_mapping_for_legacy_inventory_rows():
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine)()
+    client = PickupCatalogClient(client_code="00100", nome_fantasia="Bar Central")
+    session.add(client)
+    session.add_all([
+        GiroImportStatus(dataset="sales", file_name="sales.csv"),
+        GiroImportStatus(dataset="targets", file_name="targets.csv"),
+    ])
+    session.flush()
+
+    def add_inventory(
+        product_code: str,
+        *,
+        issue_date: str = "02/10/2026",
+        balance: int = -2,
+    ) -> None:
+        quantity = abs(balance)
+        session.add(PickupCatalogInventoryItem(
+            client_id=client.id,
+            description="Comodato",
+            item_type="outro",
+            product_code=product_code,
+            invoice_issue_date=issue_date,
+            source_baixados=balance,
+            open_quantity=quantity,
+            giro_equipment_type="",
+            giro_install_date=None,
+            giro_is_refrigerator=False,
+            giro_balance=0,
+        ))
+
+    add_inventory("118724")
+    add_inventory("118780")
+    add_inventory("188005")
+    add_inventory("118724", issue_date="31/12/2022")
+    add_inventory("118780", balance=0)
+    session.commit()
+
+    _ensure_ready(session)
+    assert _equipment_by_client(session, "visa") == {"100": Decimal(2)}
+    assert _equipment_by_client(session, "sopi") == {"100": Decimal(2)}
+    session.close()
+    engine.dispose()
 
 
 def test_sales_csv_excludes_marketplace_and_chopp_and_aggregates_baskets():

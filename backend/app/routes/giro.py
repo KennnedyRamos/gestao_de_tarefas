@@ -43,7 +43,8 @@ from app.services.giro_csv import (
     parse_sales_rows,
     parse_target_rows,
 )
-from app.services.pickup_catalog_csv import canonical_code
+from app.services.giro_reference import EQUIPMENT_TYPE_BY_PRODUCT_CODE
+from app.services.pickup_catalog_csv import canonical_code, parse_giro_date
 
 router = APIRouter(prefix="/giro", tags=["Giro"])
 get_giro_viewer = require_any_permission("giro.view", "giro.manage")
@@ -248,18 +249,54 @@ def _equipment_by_client(db: Session, equipment_type: str) -> dict[str, Decimal]
             PickupCatalogClient,
             PickupCatalogClient.id == PickupCatalogInventoryItem.client_id,
         )
-        .filter(
-            PickupCatalogInventoryItem.giro_equipment_type == equipment_type,
-            PickupCatalogInventoryItem.giro_install_date >= INSTALLATION_CUTOFF,
-            PickupCatalogInventoryItem.giro_is_refrigerator == 1,
-            PickupCatalogInventoryItem.giro_balance > 0,
+        .with_entities(
+            PickupCatalogClient.client_code,
+            PickupCatalogInventoryItem.giro_equipment_type,
+            PickupCatalogInventoryItem.product_code,
+            PickupCatalogInventoryItem.giro_install_date,
+            PickupCatalogInventoryItem.invoice_issue_date,
+            PickupCatalogInventoryItem.giro_is_refrigerator,
+            PickupCatalogInventoryItem.giro_balance,
+            PickupCatalogInventoryItem.open_quantity,
+            PickupCatalogInventoryItem.source_baixados,
         )
-        .with_entities(PickupCatalogClient.client_code, PickupCatalogInventoryItem.giro_balance)
         .all()
     )
-    for client_code, balance in records:
+    for (
+        client_code,
+        stored_equipment_type,
+        product_code,
+        stored_install_date,
+        issue_date,
+        is_refrigerator,
+        stored_balance,
+        open_quantity,
+        source_baixados,
+    ) in records:
+        mapped_type = EQUIPMENT_TYPE_BY_PRODUCT_CODE.get(canonical_code(product_code), "")
+        row_equipment_type = str(stored_equipment_type or "").strip().lower()
+        if row_equipment_type not in MONTHLY_TARGETS:
+            row_equipment_type = mapped_type
+        if row_equipment_type != equipment_type:
+            continue
+
+        install_date = stored_install_date or parse_giro_date(issue_date)
+        if not install_date or install_date < INSTALLATION_CUTOFF:
+            continue
+        if not bool(is_refrigerator) and not mapped_type:
+            continue
+
+        balance = int(stored_balance or 0)
+        if balance <= 0:
+            balance = int(open_quantity or 0)
+        if balance <= 0:
+            balance = abs(int(source_baixados or 0))
+        if balance <= 0:
+            continue
+
         code = canonical_code(client_code)
-        result[code] = result.get(code, Decimal(0)) + Decimal(str(balance))
+        if code:
+            result[code] = result.get(code, Decimal(0)) + Decimal(balance)
     return result
 
 

@@ -421,8 +421,8 @@ def _report_rows(
         month_sales = {month: _as_float(sales.get((code, month), Decimal(0))) for month in months}
         current_sales = Decimal(str(month_sales[months[-1]]))
         monthly_target = _money(count * target_per_equipment)
-        meets = current_sales > monthly_target
-        gap = max(Decimal(0), _money(monthly_target + CENT - current_sales))
+        meets = current_sales >= monthly_target
+        gap = max(Decimal(0), _money(monthly_target - current_sales))
         rows.append(
             GiroReportItemOut(
                 client_code=code,
@@ -670,9 +670,13 @@ def get_import_status(
         row.month
         for row in db.query(GiroEquipmentSnapshot.month).order_by(GiroEquipmentSnapshot.month.desc()).all()
     ]
-    sales_months = {
-        row.month for row in db.query(GiroMonthlySale.month).distinct().all()
-    }
+    sales_by_equipment: dict[str, set[str]] = {"visa": set(), "sopi": set()}
+    for month, equipment_type in (
+        db.query(GiroMonthlySale.month, GiroMonthlySale.basket).distinct().all()
+    ):
+        if equipment_type in sales_by_equipment:
+            sales_by_equipment[equipment_type].add(month)
+    sales_months = set.union(*sales_by_equipment.values())
     current_month = _current_month()
     available_months = sorted(
         {month for month in snapshot_months if month <= current_month} | {current_month},
@@ -693,6 +697,10 @@ def get_import_status(
         equipment_snapshot_months=snapshot_months,
         available_months=available_months,
         months_without_equipment_snapshot=months_without_snapshot,
+        sales_months_by_equipment={
+            equipment_type: sorted(months, reverse=True)
+            for equipment_type, months in sales_by_equipment.items()
+        },
         target_years=target_years,
     )
 

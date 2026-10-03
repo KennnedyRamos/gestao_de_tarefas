@@ -52,6 +52,7 @@ from app.models.pickup_catalog import (  # noqa: E402
     PickupCatalogInventoryItem,
     PickupCatalogOrder,
     PickupCatalogOrderItem,
+    PickupCatalogUploadBatch,
 )
 from app.models.delivery import Delivery  # noqa: E402
 from app.models.user import User  # noqa: E402
@@ -127,6 +128,81 @@ def create_assistant_user(db, *, name: str, permissions: list[str] | None = None
     db.commit()
     db.refresh(user)
     return user
+
+
+def test_equipment_client_lookup_searches_by_compact_document_and_returns_only_active_comodatos(db_session):
+    old_batch = PickupCatalogUploadBatch(inventory_file_name="old.csv")
+    current_batch = PickupCatalogUploadBatch(inventory_file_name="current.csv")
+    db_session.add_all([old_batch, current_batch])
+    db_session.flush()
+    client = PickupCatalogClient(
+        client_code="00123",
+        nome_fantasia="Bar Central",
+        razao_social="Central de Bebidas LTDA",
+        cnpj_cpf="12.345.678/0001-90",
+        setor="501",
+        frequency="Quarta-feira",
+        cidade="Registro",
+    )
+    db_session.add(client)
+    db_session.flush()
+    db_session.add_all([
+        PickupCatalogInventoryItem(
+            client_id=client.id,
+            batch_id=old_batch.id,
+            description="Comodato ativo da base anterior",
+            comodato_number="NF-098",
+            invoice_issue_date="01/07/2026",
+            open_quantity=8,
+        ),
+        PickupCatalogInventoryItem(
+            client_id=client.id,
+            batch_id=current_batch.id,
+            description="Refrigerador VISA",
+            comodato_number="NF-100",
+            invoice_issue_date="10/09/2026",
+            open_quantity=2,
+        ),
+        PickupCatalogInventoryItem(
+            client_id=client.id,
+            batch_id=current_batch.id,
+            description="Item baixado",
+            comodato_number="NF-099",
+            invoice_issue_date="01/08/2026",
+            open_quantity=0,
+        ),
+    ])
+    db_session.commit()
+
+    user = create_assistant_user(
+        db_session,
+        name="Equipments Viewer",
+        permissions=["equipments.view"],
+    )
+    token = create_access_token({"sub": str(user.id), "token_version": user.token_version})
+    headers = {"Authorization": f"Bearer {token}"}
+    with TestClient(app) as http:
+        response = http.get("/equipments/clients/lookup?q=12345678000190", headers=headers)
+        name_response = http.get("/equipments/clients/lookup?q=Central%20de%20Bebidas", headers=headers)
+        blank_response = http.get("/equipments/clients/lookup?q=%20%20", headers=headers)
+
+    assert response.status_code == 200
+    assert name_response.status_code == 200
+    assert blank_response.status_code == 422
+    assert response.json()["total"] == 1
+    assert response.json()["has_more"] is False
+    found = response.json()["items"][0]
+    assert found["client_code"] == "00123"
+    assert found["name"] == "Central de Bebidas LTDA"
+    assert found["fantasy_name"] == "Bar Central"
+    assert found["document"] == "12.345.678/0001-90"
+    assert found["sector"] == "501"
+    assert found["visit_day"] == "Quarta-feira"
+    assert found["city"] == "Registro"
+    assert len(found["active_comodatos"]) == 1
+    assert found["active_comodatos"][0]["comodato_number"] == "NF-100"
+    assert found["active_comodatos"][0]["quantity"] == 2
+    assert name_response.json()["items"][0]["client_code"] == "00123"
 
 
 def seed_020220_allocation(db, tag_code: str, client_code: str = "1001") -> None:

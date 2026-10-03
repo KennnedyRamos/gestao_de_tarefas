@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
+  Autocomplete,
   Box,
   Button,
   Card,
@@ -165,6 +166,9 @@ const COMPACT_MODEL_CELL_SX = {
 
 const normalizeCodeInput = (value) => String(value || '').trim().toUpperCase();
 const normalizeTextInput = (value) => String(value || '').trim();
+const clientLookupLabel = (client) => (
+  `${client.client_code} · ${client.fantasy_name || client.name || 'Cliente sem nome'} · ${client.document || 'Sem CPF/CNPJ'}`
+);
 const normalizeNonAllocatedStatus = (value) => normalizeTextInput(value).toLowerCase();
 
 const normalizeQuantityInput = (value) => {
@@ -410,6 +414,12 @@ const EquipmentPage = () => {
 
   const [activeScreen, setActiveScreen] = useState('dashboard');
   const [refrigeratorsOverview, setRefrigeratorsOverview] = useState(null);
+  const [clientSearch, setClientSearch] = useState('');
+  const [clientSearchDebounced, setClientSearchDebounced] = useState('');
+  const [clientSearchOptions, setClientSearchOptions] = useState([]);
+  const [selectedClient, setSelectedClient] = useState(null);
+  const [loadingClientSearch, setLoadingClientSearch] = useState(false);
+  const [clientSearchHasMore, setClientSearchHasMore] = useState(false);
 
   const [overviewSearch, setOverviewSearch] = useState('');
   const [overviewSearchDebounced, setOverviewSearchDebounced] = useState('');
@@ -498,6 +508,13 @@ const EquipmentPage = () => {
     }, 320);
     return () => window.clearTimeout(timer);
   }, [overviewSearch]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setClientSearchDebounced(normalizeTextInput(clientSearch));
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [clientSearch]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -691,6 +708,36 @@ const EquipmentPage = () => {
       fetchMaterialYearOptions();
     }
   }, [activeScreen, fetchMaterialYearOptions]);
+
+  useEffect(() => {
+    if (activeScreen !== 'clients' || clientSearchDebounced.length < 2) {
+      setClientSearchOptions([]);
+      setClientSearchHasMore(false);
+      setLoadingClientSearch(false);
+      return undefined;
+    }
+    let cancelled = false;
+    setLoadingClientSearch(true);
+    api.get('/equipments/clients/lookup', { params: { q: clientSearchDebounced } })
+      .then((response) => {
+        if (!cancelled) {
+          setClientSearchOptions(response.data.items || []);
+          setClientSearchHasMore(Boolean(response.data.has_more));
+          setError('');
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setClientSearchOptions([]);
+          setClientSearchHasMore(false);
+          setError('Erro ao consultar clientes e comodatos ativos.');
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingClientSearch(false);
+      });
+    return () => { cancelled = true; };
+  }, [activeScreen, clientSearchDebounced]);
 
   const materialTypeByValue = useMemo(
     () => MATERIAL_TYPE_OPTIONS.reduce((acc, item) => ({ ...acc, [item.value]: item.label }), {}),
@@ -907,11 +954,13 @@ const EquipmentPage = () => {
     { value: 'dashboard', label: 'Painel' },
     { value: 'new-refrigerators', label: 'Não alocados' },
     { value: 'materials', label: 'Geral' },
+    { value: 'clients', label: 'Clientes' },
     ...(canManageEquipments ? [{ value: 'manage', label: 'Cadastrar' }] : [])
   ];
   const isDashboardScreen = activeScreen === 'dashboard';
   const isNewRefrigeratorsScreen = activeScreen === 'new-refrigerators';
   const isMaterialsScreen = activeScreen === 'materials';
+  const isClientsScreen = activeScreen === 'clients';
   const isManageScreen = activeScreen === 'manage';
 
   const resetForm = () => {
@@ -1790,6 +1839,105 @@ const EquipmentPage = () => {
           </Tabs>
         </CardContent>
       </Card>
+
+      {isClientsScreen && (
+        <Card sx={{ border: '1px solid var(--stroke)', boxShadow: 'var(--shadow-md)' }}>
+          <CardContent sx={{ display: 'grid', gap: 2 }}>
+            <Box>
+              <Typography variant="h6">Consulta de clientes</Typography>
+              <Typography variant="body2" color="text.secondary">
+                Pesquise pelo código, CPF/CNPJ ou nome fantasia. São exibidos somente comodatos ativos na base 02.02.20.
+              </Typography>
+            </Box>
+            <Autocomplete
+              options={clientSearchOptions}
+              value={selectedClient}
+              inputValue={clientSearch}
+              loading={loadingClientSearch}
+              filterOptions={(options) => options}
+              getOptionLabel={clientLookupLabel}
+              isOptionEqualToValue={(option, value) => option.client_code === value.client_code}
+              noOptionsText={clientSearch.length < 2 ? 'Digite ao menos 2 caracteres para pesquisar.' : 'Nenhum cliente encontrado.'}
+              loadingText="Buscando clientes..."
+              onInputChange={(_, value, reason) => {
+                if (reason === 'input' || reason === 'clear') {
+                  setClientSearch(value);
+                  setSelectedClient(null);
+                }
+              }}
+              onChange={(_, value) => {
+                setSelectedClient(value);
+                setClientSearch(value ? clientLookupLabel(value) : '');
+              }}
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  label="Código, CPF/CNPJ ou nome fantasia"
+                  placeholder="Ex.: 12345, 12.345.678/0001-90 ou Bar Central"
+                />
+              )}
+            />
+            {clientSearchHasMore && (
+              <Alert severity="info">Há mais de 25 clientes correspondentes. Refine a busca para localizar o cliente desejado.</Alert>
+            )}
+            {selectedClient && (
+              <>
+                <Box
+                  sx={{
+                    display: 'grid',
+                    gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', lg: 'repeat(3, minmax(0, 1fr))' },
+                    gap: 1.5
+                  }}
+                >
+                  {[
+                    ['NOME', selectedClient.name],
+                    ['Fantasia', selectedClient.fantasy_name],
+                    ['CPF/CNPJ', selectedClient.document],
+                    ['Setor', selectedClient.sector],
+                    ['Dia de visita', selectedClient.visit_day],
+                    ['Cidade', selectedClient.city]
+                  ].map(([label, value]) => (
+                    <Box key={label} sx={{ p: 1.5, border: '1px solid var(--stroke)', borderRadius: 1.5 }}>
+                      <Typography variant="caption" color="text.secondary">{label}</Typography>
+                      <Typography variant="body1" sx={{ fontWeight: 600 }}>{value || '-'}</Typography>
+                    </Box>
+                  ))}
+                </Box>
+                <Box>
+                  <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 1 }}>
+                    Comodatos ativos ({selectedClient.active_comodatos.length})
+                  </Typography>
+                  {selectedClient.active_comodatos.length === 0 ? (
+                    <Alert severity="info">Este cliente não possui comodatos ativos na base 02.02.20.</Alert>
+                  ) : (
+                    <TableContainer sx={TABLE_CONTAINER_SX}>
+                      <Table size="small" stickyHeader>
+                        <TableHead>
+                          <TableRow>
+                            {['Número da nota', 'Data de emissão', 'Descrição do comodato', 'Quantidade'].map((label) => (
+                              <TableCell key={label} sx={{ whiteSpace: 'nowrap', fontWeight: 700 }}>{label}</TableCell>
+                            ))}
+                          </TableRow>
+                        </TableHead>
+                        <TableBody>
+                          {selectedClient.active_comodatos.map((item) => (
+                            <TableRow key={item.inventory_item_id} hover>
+                              <TableCell>{item.comodato_number || '-'}</TableCell>
+                              <TableCell>{item.invoice_issue_date || '-'}</TableCell>
+                              <TableCell>{item.description || '-'}</TableCell>
+                              <TableCell>{item.quantity}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </TableContainer>
+                  )}
+                </Box>
+              </>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {isDashboardScreen && (
         <>
@@ -2810,5 +2958,3 @@ const EquipmentPage = () => {
 };
 
 export default EquipmentPage;
-
-

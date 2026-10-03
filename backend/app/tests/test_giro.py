@@ -355,7 +355,7 @@ def test_targets_csv_reads_percentages_for_visa_and_sopi():
     assert values[("2026-01", "sopi")] == Decimal("73.00")
 
 
-def test_giro_report_uses_strict_target_and_counts_all_client_equipment():
+def test_giro_report_counts_exact_target_as_meeting_and_counts_all_client_equipment():
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
     session = sessionmaker(bind=engine)()
@@ -398,19 +398,19 @@ def test_giro_report_uses_strict_target_and_counts_all_client_equipment():
 
     assert rows[0].equipment_count == 2
     assert rows[0].monthly_target == 2400
-    assert rows[0].giro_status == "Não atingiu"
-    assert rows[0].gap == 0.01
-    assert summary.clients_not_meeting == 1
-    assert summary.giro_ok_percent == 0
-    assert summary.giro_nok_equipment == 2
+    assert rows[0].giro_status == "Atingindo"
+    assert rows[0].gap == 0
+    assert summary.clients_not_meeting == 0
+    assert summary.giro_ok_percent == 100
+    assert summary.giro_nok_equipment == 0
     assert summary.target_percent == 8.5
 
     sale = session.query(GiroMonthlySale).one()
-    sale.amount = Decimal("2400.01")
+    sale.amount = Decimal("2399.99")
     session.commit()
-    passing_row = _report_rows(session, "visa", months)[0]
-    assert passing_row.giro_status == "Atingindo"
-    assert passing_row.gap == 0
+    below_target_row = _report_rows(session, "visa", months)[0]
+    assert below_target_row.giro_status == "Não atingiu"
+    assert below_target_row.gap == 0.01
     assert mesa_for_sector("601") == "Mesa 6"
     assert mesa_for_sector("604") == "Mesa 5"
     assert mesa_for_sector("11") == "Outros"
@@ -420,7 +420,7 @@ def test_giro_report_uses_strict_target_and_counts_all_client_equipment():
     assert sheet.cell(1, 1).value == "Código do PDV"
     assert sheet.cell(1, 12).value == "Meta do PDV"
     assert sheet.cell(2, 1).value == "100"
-    assert sheet.cell(2, 13).value == 0.01
+    assert sheet.cell(2, 13).value == 0
 
     workbook.close()
     session.close()

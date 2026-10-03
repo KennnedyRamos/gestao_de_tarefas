@@ -128,6 +128,7 @@ const GiroManagement = () => {
   const [cities, setCities] = useState([]);
   const [availableMonths, setAvailableMonths] = useState([]);
   const [monthsWithoutSnapshot, setMonthsWithoutSnapshot] = useState([]);
+  const [salesMonthsByEquipment, setSalesMonthsByEquipment] = useState({ visa: [], sopi: [] });
   const [selectedMonth, setSelectedMonth] = useState('');
   const [loadingImports, setLoadingImports] = useState(true);
   const [error, setError] = useState('');
@@ -164,7 +165,14 @@ const GiroManagement = () => {
       const months = response.data.available_months || [];
       setAvailableMonths(months);
       setMonthsWithoutSnapshot(response.data.months_without_equipment_snapshot || []);
-      setSelectedMonth((current) => months.includes(current) ? current : (months[0] || ''));
+      const salesMonths = response.data.sales_months_by_equipment || { visa: [], sopi: [] };
+      setSalesMonthsByEquipment(salesMonths);
+      const latestMonthWithSales = months.find((month) => (
+        Object.values(salesMonths).some((equipmentMonths) => equipmentMonths.includes(month))
+      ));
+      setSelectedMonth((current) => (
+        months.includes(current) ? current : (latestMonthWithSales || months[0] || '')
+      ));
       setError('');
     } catch (requestError) {
       setError(apiError(requestError));
@@ -272,11 +280,21 @@ const GiroManagement = () => {
         value={selectedMonth}
         onChange={(event) => { setSelectedMonth(event.target.value); setPage(1); }}
       >
-        {availableMonths.map((option) => (
-          <MenuItem key={option} value={option}>{monthLabel(option)}</MenuItem>
-        ))}
+          {[...new Set([...availableMonths, ...monthsWithoutSnapshot])]
+            .sort((left, right) => right.localeCompare(left))
+            .map((option) => {
+              const missingSnapshot = monthsWithoutSnapshot.includes(option);
+              return (
+                <MenuItem key={option} value={option} disabled={missingSnapshot}>
+                  {monthLabel(option)}{missingSnapshot ? ' · sem snapshot de equipamentos' : ''}
+                </MenuItem>
+              );
+            })}
       </Select>
-    </FormControl>
+      </FormControl>
+  );
+  const missingSalesTypes = ['visa', 'sopi'].filter(
+      (type) => !salesMonthsByEquipment[type]?.includes(selectedMonth)
   );
 
   return (
@@ -333,6 +351,11 @@ const GiroManagement = () => {
               Não há snapshot de equipamentos para as competências {monthsWithoutSnapshot.map(monthLabel).join(', ')}; elas não podem ser comparadas historicamente.
             </Alert>
           )}
+          {missingSalesTypes.length > 0 && selectedMonth && (
+            <Alert severity="warning">
+              Não há faturamento {missingSalesTypes.map((type) => type.toUpperCase()).join(' ou ')} importado para {monthLabel(selectedMonth)}; o cálculo desse tipo considera faturamento zero.
+            </Alert>
+          )}
           {loadingReport && <CircularProgress size={28} />}
           {overview && (
             <>
@@ -354,6 +377,11 @@ const GiroManagement = () => {
           {monthsWithoutSnapshot.length > 0 && (
             <Alert severity="info">
               Não há snapshot de equipamentos para as competências {monthsWithoutSnapshot.map(monthLabel).join(', ')}; elas não podem ser comparadas historicamente.
+            </Alert>
+          )}
+          {!salesMonthsByEquipment[equipmentType]?.includes(selectedMonth) && selectedMonth && (
+            <Alert severity="warning">
+              Não há faturamento {equipmentType.toUpperCase()} importado para {monthLabel(selectedMonth)}; o cálculo considera faturamento zero.
             </Alert>
           )}
           <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} flexWrap="wrap">

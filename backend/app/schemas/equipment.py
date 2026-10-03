@@ -156,6 +156,31 @@ class EquipmentInventoryMaterialListOut(BaseModel):
     page: EquipmentPageMetaOut
 
 
+class EquipmentClientActiveComodatoOut(BaseModel):
+    inventory_item_id: int
+    comodato_number: str
+    invoice_issue_date: str
+    description: str
+    quantity: int
+
+
+class EquipmentClientLookupItemOut(BaseModel):
+    client_code: str
+    name: str
+    fantasy_name: str
+    document: str
+    sector: str
+    visit_day: str
+    city: str
+    active_comodatos: list[EquipmentClientActiveComodatoOut]
+
+
+class EquipmentClientLookupOut(BaseModel):
+    items: list[EquipmentClientLookupItemOut]
+    total: int
+    has_more: bool
+
+
 class EquipmentBulkImportResultOut(BaseModel):
     total_rows: int
     imported_count: int

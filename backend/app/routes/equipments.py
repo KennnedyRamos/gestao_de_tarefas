@@ -29,6 +29,9 @@ from app.schemas.equipment import (
     EquipmentAllocationLookupOut,
     EquipmentAllocationSyncOut,
     EquipmentBulkImportResultOut,
+    EquipmentClientActiveComodatoOut,
+    EquipmentClientLookupItemOut,
+    EquipmentClientLookupOut,
     EquipmentCreate,
     EquipmentInventoryMaterialItemOut,
     EquipmentInventoryMaterialListOut,
@@ -600,7 +603,7 @@ def _build_page_meta(limit: int, offset: int, total: int) -> EquipmentPageMetaOu
 
 def _compact_code_expression(column):
     expression = func.upper(func.coalesce(column, ""))
-    for separator in (" ", "-", ".", "/", "\\", "_"):
+    for separator in (" ", "-", ".", "/", "\\", "_", "(", ")"):
         expression = func.replace(expression, separator, "")
     return expression
 
@@ -1353,6 +1356,88 @@ def list_inventory_materials(
     return EquipmentInventoryMaterialListOut(
         items=items,
         page=_build_page_meta(limit=limit, offset=offset, total=total),
+    )
+
+
+@router.get("/clients/lookup", response_model=EquipmentClientLookupOut)
+def lookup_equipment_client(
+    q: str = Query(min_length=2, max_length=120),
+    limit: int = Query(default=25, ge=1, le=50),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_equipments_viewer),
+):
+    del current_user
+    search = normalize_spaces(q)
+    if len(search) < 2:
+        raise HTTPException(status_code=422, detail="Informe ao menos 2 caracteres para pesquisar.")
+    pattern = f"%{search}%"
+    compact_search = re.sub(r"[^A-Za-z0-9]+", "", search).upper()
+    client_conditions = [
+        PickupCatalogClient.client_code.ilike(pattern),
+        PickupCatalogClient.nome_fantasia.ilike(pattern),
+        PickupCatalogClient.razao_social.ilike(pattern),
+        PickupCatalogClient.cnpj_cpf.ilike(pattern),
+    ]
+    if compact_search:
+        client_conditions.append(
+            _compact_code_expression(PickupCatalogClient.cnpj_cpf).ilike(f"%{compact_search}%")
+        )
+    clients_query = db.query(PickupCatalogClient).filter(or_(*client_conditions))
+    total = clients_query.count()
+    clients = (
+        clients_query.order_by(
+            PickupCatalogClient.nome_fantasia.asc(),
+            PickupCatalogClient.client_code.asc(),
+        )
+        .limit(limit)
+        .all()
+    )
+    client_ids = [client.id for client in clients]
+    comodatos_by_client: dict[int, list[EquipmentClientActiveComodatoOut]] = {
+        client_id: [] for client_id in client_ids
+    }
+    if client_ids:
+        inventory_query = _apply_inventory_base_filter(
+            db.query(
+                PickupCatalogInventoryItem.id,
+                PickupCatalogInventoryItem.client_id,
+                PickupCatalogInventoryItem.comodato_number,
+                PickupCatalogInventoryItem.invoice_issue_date,
+                PickupCatalogInventoryItem.description,
+                PickupCatalogInventoryItem.open_quantity,
+            ).filter(PickupCatalogInventoryItem.client_id.in_(client_ids)),
+            db=db,
+        ).order_by(
+            PickupCatalogInventoryItem.invoice_issue_date.desc(),
+            PickupCatalogInventoryItem.id.desc(),
+        )
+        for row in inventory_query.all():
+            comodatos_by_client[row.client_id].append(
+                EquipmentClientActiveComodatoOut(
+                    inventory_item_id=row.id,
+                    comodato_number=normalize_spaces(row.comodato_number),
+                    invoice_issue_date=normalize_spaces(row.invoice_issue_date),
+                    description=normalize_spaces(row.description),
+                    quantity=int(row.open_quantity or 0),
+                )
+            )
+
+    return EquipmentClientLookupOut(
+        items=[
+            EquipmentClientLookupItemOut(
+                client_code=normalize_spaces(client.client_code),
+                name=normalize_spaces(client.razao_social),
+                fantasy_name=normalize_spaces(client.nome_fantasia),
+                document=normalize_spaces(client.cnpj_cpf),
+                sector=normalize_spaces(client.setor),
+                visit_day=normalize_spaces(client.frequency),
+                city=normalize_spaces(client.cidade),
+                active_comodatos=comodatos_by_client[client.id],
+            )
+            for client in clients
+        ],
+        total=total,
+        has_more=total > len(clients),
     )
 
 

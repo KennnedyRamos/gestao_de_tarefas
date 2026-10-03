@@ -95,4 +95,5 @@ class GiroImportStatusListOut(BaseModel):
     equipment_snapshot_months: list[str]
     available_months: list[str]
     months_without_equipment_snapshot: list[str]
+    sales_months_by_equipment: dict[str, list[str]]
     target_years: list[int]

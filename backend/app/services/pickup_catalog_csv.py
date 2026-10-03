@@ -537,6 +537,10 @@ def load_inventory_csv(raw_bytes: bytes) -> dict[str, list[dict[str, Any]]]:
         comodato_number = _compact_spaces(row.get(comodato_col or "", "")) if comodato_col else ""
         issue_date = _compact_spaces(row.get(issue_date_col or "", "")) if issue_date_col else ""
         product_code = _compact_spaces(row.get(product_col or "", "")) if product_col else ""
+        operation_date = (
+            _parse_giro_date(row.get(giro_date_col or "", ""))
+            if giro_date_col else None
+        )
         item_type = classify_item_type(description)
         equipment_type = normalize_header(row.get(giro_type_col or "", "")) if giro_type_col else ""
         mapped_equipment_type = EQUIPMENT_TYPE_BY_PRODUCT_CODE.get(canonical_code(product_code), "")
@@ -562,10 +566,7 @@ def load_inventory_csv(raw_bytes: bytes) -> dict[str, list[dict[str, Any]]]:
             "source_baixados": open_balance,
             "product_code": product_code,
             "giro_equipment_type": equipment_type,
-            "giro_install_date": (
-                _parse_giro_date(row.get(giro_date_col or "", ""))
-                if giro_date_col else None
-            ),
+            "giro_install_date": operation_date or _parse_giro_date(issue_date),
             "giro_is_refrigerator": is_refrigerator,
             "giro_balance": (
                 abs(parse_integer(row.get(giro_balance_col or "", "0")))

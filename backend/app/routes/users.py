@@ -127,5 +127,6 @@ def reset_password(
     if not user:
         raise HTTPException(status_code=404, detail='Usuário não encontrado')
     user.password = get_password_hash(payload.password)
+    user.token_version += 1
     db.commit()
     return None

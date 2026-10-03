@@ -8,6 +8,7 @@ from app.models.giro import (  # noqa: F401
     GiroMonthlySale,
     GiroMonthlyTarget,
 )
+from app.models.login_rate_limit import LoginRateLimit  # noqa: F401
 from app.models.pickup import Pickup  # noqa: F401
 from app.models.pickup_catalog import (  # noqa: F401
     PickupCatalogClient,

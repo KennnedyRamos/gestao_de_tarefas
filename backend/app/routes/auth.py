@@ -1,16 +1,18 @@
+import hashlib
 import re
-import threading
 import time
-from collections import defaultdict
 
 from fastapi import APIRouter, Depends, HTTPException, Request as FastAPIRequest, status
-from sqlalchemy import func
+from sqlalchemy import case, delete, func
+from sqlalchemy.dialects.postgresql import insert as postgresql_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
 from app.core.auth import get_current_user
 from app.core.permissions import permissions_for_user
 from app.core.security import create_access_token, verify_password
 from app.database.deps import get_db
+from app.models.login_rate_limit import LoginRateLimit
 from app.models.user import User
 from app.schemas.token import Token
 from app.schemas.user import UserLogin, UserOut
@@ -20,8 +22,6 @@ EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 INVALID_CREDENTIALS_DETAIL = "Email ou senha incorretos."
 LOGIN_RATE_LIMIT_WINDOW_SECONDS = 60
 LOGIN_RATE_LIMIT_MAX_ATTEMPTS = 5
-_login_attempts_lock = threading.Lock()
-_login_attempts: dict[str, list[float]] = defaultdict(list)
 
 
 def is_valid_email(value: str) -> bool:
@@ -33,39 +33,47 @@ def is_valid_email(value: str) -> bool:
 def _login_rate_limit_key(request: FastAPIRequest, email: str) -> str:
     client_host = str(getattr(getattr(request, "client", None), "host", "") or "unknown").strip().lower()
     normalized_email = str(email or "").strip().lower()
-    return f"{client_host}:{normalized_email}"
+    return hashlib.sha256(f"{client_host}:{normalized_email}".encode("utf-8")).hexdigest()
 
 
-def _prune_login_attempts(now_ts: float) -> None:
-    cutoff = now_ts - LOGIN_RATE_LIMIT_WINDOW_SECONDS
-    expired_keys = []
-    for key, attempts in _login_attempts.items():
-        fresh_attempts = [attempt for attempt in attempts if attempt >= cutoff]
-        if fresh_attempts:
-            _login_attempts[key] = fresh_attempts
-            continue
-        expired_keys.append(key)
-    for key in expired_keys:
-        _login_attempts.pop(key, None)
+def _consume_login_attempt(db: Session, key: str, *, now_ts: int | None = None) -> bool:
+    now = int(time.time()) if now_ts is None else now_ts
+    cutoff = now - LOGIN_RATE_LIMIT_WINDOW_SECONDS
+    dialect = db.get_bind().dialect.name
+    if dialect == "postgresql":
+        insert = postgresql_insert
+    elif dialect == "sqlite":
+        insert = sqlite_insert
+    else:
+        raise RuntimeError(f"Unsupported database dialect for login rate limiting: {dialect}")
+
+    statement = insert(LoginRateLimit).values(
+        key=key,
+        window_started_at=now,
+        attempts=1,
+    )
+    statement = statement.on_conflict_do_update(
+        index_elements=[LoginRateLimit.key],
+        set_={
+            "attempts": case(
+                (LoginRateLimit.window_started_at <= cutoff, 1),
+                else_=LoginRateLimit.attempts + 1,
+            ),
+            "window_started_at": case(
+                (LoginRateLimit.window_started_at <= cutoff, now),
+                else_=LoginRateLimit.window_started_at,
+            ),
+        },
+    )
+    attempts = db.execute(statement.returning(LoginRateLimit.attempts)).scalar_one()
+    db.execute(delete(LoginRateLimit).where(LoginRateLimit.window_started_at <= cutoff))
+    db.commit()
+    return attempts > LOGIN_RATE_LIMIT_MAX_ATTEMPTS
 
 
-def _is_login_rate_limited(key: str) -> bool:
-    now_ts = time.time()
-    with _login_attempts_lock:
-        _prune_login_attempts(now_ts)
-        return len(_login_attempts.get(key, [])) >= LOGIN_RATE_LIMIT_MAX_ATTEMPTS
-
-
-def _register_login_failure(key: str) -> None:
-    now_ts = time.time()
-    with _login_attempts_lock:
-        _prune_login_attempts(now_ts)
-        _login_attempts.setdefault(key, []).append(now_ts)
-
-
-def _clear_login_failures(key: str) -> None:
-    with _login_attempts_lock:
-        _login_attempts.pop(key, None)
+def _clear_login_failures(db: Session, key: str) -> None:
+    db.query(LoginRateLimit).filter(LoginRateLimit.key == key).delete(synchronize_session=False)
+    db.commit()
 
 
 @router.post("/login", response_model=Token)
@@ -76,23 +84,22 @@ def login(
 ):
     email = credentials.email.strip().lower()
     rate_limit_key = _login_rate_limit_key(request, email)
-    if _is_login_rate_limited(rate_limit_key):
+    if _consume_login_attempt(db, rate_limit_key):
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Muitas tentativas de login. Aguarde 1 minuto e tente novamente.",
         )
     if not is_valid_email(email):
-        _register_login_failure(rate_limit_key)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=INVALID_CREDENTIALS_DETAIL)
 
     user = db.query(User).filter(func.lower(User.email) == email).first()
     if not user or not verify_password(credentials.password, user.password):
-        _register_login_failure(rate_limit_key)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=INVALID_CREDENTIALS_DETAIL)
 
-    _clear_login_failures(rate_limit_key)
+    _clear_login_failures(db, rate_limit_key)
     token = create_access_token({
         "sub": str(user.id),
+        "token_version": user.token_version,
         "role": user.role,
         "name": user.name,
         "email": user.email,

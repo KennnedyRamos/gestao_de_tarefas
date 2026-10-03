@@ -1,6 +1,7 @@
 from sqlalchemy import Column, Integer, String, Text
 from app.database.base import Base
 
+
 class User(Base):
     __tablename__ = "users"
 
@@ -10,3 +11,4 @@ class User(Base):
     password = Column(String, nullable=False)
     role = Column(String, default="assistente")
     permissions = Column(Text, default="[]")
+    token_version = Column(Integer, default=0, server_default="0", nullable=False)

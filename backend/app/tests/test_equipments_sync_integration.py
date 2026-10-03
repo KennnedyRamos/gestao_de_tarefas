@@ -8,6 +8,7 @@ from uuid import uuid4
 import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
+from sqlalchemy import create_engine, text
 
 TEST_DB_FILE = Path(tempfile.gettempdir()) / f"test_equipments_sync_integration_{uuid4().hex}.db"
 os.environ["DATABASE_URL"] = f"sqlite:///{TEST_DB_FILE.as_posix()}"
@@ -20,7 +21,12 @@ from app.core.auth import get_current_user  # noqa: E402
 from app.core.security import create_access_token, get_password_hash  # noqa: E402
 from app.database.base import Base  # noqa: E402
 from app.database.session import SessionLocal, engine  # noqa: E402
+import app.main as app_main  # noqa: E402
 from app.main import app  # noqa: E402
+from app.routes.auth import (  # noqa: E402
+    LOGIN_RATE_LIMIT_MAX_ATTEMPTS,
+    _consume_login_attempt,
+)
 from app.models.equipment import Equipment  # noqa: E402
 from app.models.pickup_catalog import (  # noqa: E402
     PickupCatalogClient,
@@ -131,6 +137,62 @@ def test_jwt_round_trip_and_invalid_subject(db_session):
     assert exc_info.value.status_code == 401
 
 
+def test_bootstrap_adds_token_version_to_legacy_users_table(monkeypatch):
+    legacy_engine = create_engine("sqlite:///:memory:")
+    with legacy_engine.begin() as connection:
+        connection.execute(text("CREATE TABLE users (id INTEGER PRIMARY KEY)"))
+        connection.execute(text("INSERT INTO users (id) VALUES (1)"))
+
+    monkeypatch.setattr(app_main, "engine", legacy_engine)
+    try:
+        app_main.ensure_user_token_version_column()
+        with legacy_engine.connect() as connection:
+            token_version = connection.execute(
+                text("SELECT token_version FROM users WHERE id = 1")
+            ).scalar_one()
+        assert token_version == 0
+    finally:
+        legacy_engine.dispose()
+
+
+def test_login_rate_limit_is_shared_and_expires_after_window(db_session):
+    rate_limit_key = "a" * 64
+    now_ts = 1_800_000_000
+
+    for _ in range(LOGIN_RATE_LIMIT_MAX_ATTEMPTS):
+        assert not _consume_login_attempt(db_session, rate_limit_key, now_ts=now_ts)
+    assert _consume_login_attempt(db_session, rate_limit_key, now_ts=now_ts)
+
+    other_session = SessionLocal()
+    try:
+        assert _consume_login_attempt(other_session, rate_limit_key, now_ts=now_ts)
+        assert not _consume_login_attempt(
+            other_session,
+            rate_limit_key,
+            now_ts=now_ts + 60,
+        )
+    finally:
+        other_session.close()
+
+    assert not _consume_login_attempt(db_session, rate_limit_key, now_ts=now_ts + 60)
+
+
+def test_login_endpoint_returns_429_after_five_attempts(db_session):
+    with TestClient(app) as client:
+        for _ in range(LOGIN_RATE_LIMIT_MAX_ATTEMPTS):
+            response = client.post(
+                "/auth/login",
+                json={"email": "rate-limit@test.local", "password": "WrongPassword@123"},
+            )
+            assert response.status_code == 401
+
+        response = client.post(
+            "/auth/login",
+            json={"email": "rate-limit@test.local", "password": "WrongPassword@123"},
+        )
+        assert response.status_code == 429
+
+
 def test_api_health_login_and_authenticated_user(db_session):
     user = create_admin_user(db_session)
 
@@ -156,6 +218,48 @@ def test_api_health_login_and_authenticated_user(db_session):
         )
         assert me_response.status_code == 200
         assert me_response.json()["email"] == user.email
+
+
+def test_password_reset_revokes_existing_access_tokens(db_session):
+    admin = create_admin_user(db_session)
+    user = User(
+        name="Assistente Reset",
+        email="assistente.reset@test.local",
+        password=get_password_hash("OldPassword@123"),
+        role="assistente",
+        permissions="[]",
+    )
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+
+    old_token = create_access_token({"sub": str(user.id), "token_version": user.token_version})
+    admin_token = create_access_token({"sub": str(admin.id), "token_version": admin.token_version})
+
+    with TestClient(app) as client:
+        reset_response = client.put(
+            f"/users/{user.id}/password",
+            json={"password": "NewPassword@123"},
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        assert reset_response.status_code == 204
+
+        old_token_response = client.get(
+            "/auth/me",
+            headers={"Authorization": f"Bearer {old_token}"},
+        )
+        assert old_token_response.status_code == 401
+
+        login_response = client.post(
+            "/auth/login",
+            json={"email": user.email, "password": "NewPassword@123"},
+        )
+        assert login_response.status_code == 200
+        new_token_response = client.get(
+            "/auth/me",
+            headers={"Authorization": f"Bearer {login_response.json()['access_token']}"},
+        )
+        assert new_token_response.status_code == 200
 
 
 def test_client_lookup_allows_every_requests_screen_permission(db_session):

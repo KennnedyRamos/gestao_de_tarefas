@@ -12,7 +12,18 @@ from app.routes import tasks, auth, users, routines, deliveries, pickups, pickup
 from app.database.base import Base
 from app.database.session import engine, SessionLocal
 # Importa os modulos para registrar todos os models no metadata do SQLAlchemy.
-from app.models import assignment, delivery, equipment, giro as giro_models, pickup, pickup_catalog, routine, task, user  # noqa: F401
+from app.models import (  # noqa: F401
+    assignment,
+    delivery,
+    equipment,
+    giro as giro_models,
+    login_rate_limit,
+    pickup,
+    pickup_catalog,
+    routine,
+    task,
+    user,
+)
 from app.core.config import (
     ADMIN_EMAIL,
     ADMIN_PASSWORD,
@@ -125,6 +136,22 @@ def ensure_user_permissions_column():
                 "UPDATE users "
                 "SET permissions = '[]' "
                 "WHERE permissions IS NULL OR TRIM(permissions) = ''"
+            )
+        )
+
+
+def ensure_user_token_version_column():
+    inspector = inspect(engine)
+    if "users" not in inspector.get_table_names():
+        return
+    columns = [col["name"] for col in inspector.get_columns("users")]
+    if "token_version" in columns:
+        return
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "ALTER TABLE users "
+                "ADD COLUMN token_version INTEGER NOT NULL DEFAULT 0"
             )
         )
 
@@ -481,6 +508,7 @@ def run_db_bootstrap(*, strict: bool = False) -> None:
         ("ensure_pickup_columns", ensure_pickup_columns),
         ("ensure_delivery_columns", ensure_delivery_columns),
         ("ensure_user_permissions_column", ensure_user_permissions_column),
+        ("ensure_user_token_version_column", ensure_user_token_version_column),
         ("ensure_pickup_catalog_columns", ensure_pickup_catalog_columns),
         ("ensure_pickup_catalog_item_type_overrides", ensure_pickup_catalog_item_type_overrides),
         ("ensure_pickup_catalog_order_columns", ensure_pickup_catalog_order_columns),

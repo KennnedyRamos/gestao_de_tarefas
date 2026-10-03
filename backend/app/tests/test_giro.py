@@ -70,6 +70,19 @@ def test_existing_inventory_csv_import_captures_giro_equipment_fields():
     assert refrigerator["giro_balance"] == 2
 
 
+def test_inventory_csv_uses_issue_date_when_operation_date_is_invalid():
+    csv_data = (
+        "Codigo Cliente;Descricao;Saldo;Codigo Produto;Data Operacao;Data Emissao\n"
+        "100;REFRIGERADOR SKOL;-1;0118780;00/00/0000;10/09/2026\n"
+    ).encode("utf-8")
+
+    item = load_inventory_csv(csv_data)["100"][0]
+
+    assert item["giro_equipment_type"] == "sopi"
+    assert item["giro_is_refrigerator"] is True
+    assert item["giro_install_date"] == date(2026, 9, 10)
+
+
 def test_reference_files_classify_sales_and_equipment_products():
     assert len(BASKET_BY_PRODUCT_CODE) == 2167
     assert BASKET_BY_PRODUCT_CODE["132"] == "sopi"

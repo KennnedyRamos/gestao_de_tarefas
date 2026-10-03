@@ -30,7 +30,13 @@ def get_current_user(
         raise credentials_exception from exc
 
     user = db.query(User).filter(User.id == parsed_user_id).first()
-    if not user:
+    token_version = payload.get("token_version", 0)
+    if (
+        not user
+        or isinstance(token_version, bool)
+        or not isinstance(token_version, int)
+        or token_version != user.token_version
+    ):
         raise credentials_exception
     return user
 

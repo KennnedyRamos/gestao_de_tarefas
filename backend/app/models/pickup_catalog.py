@@ -1,4 +1,4 @@
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import Column, Date, DateTime, ForeignKey, Integer, String, Text, func
 
 from app.database.base import Base
 
@@ -11,6 +11,8 @@ class PickupCatalogClient(Base):
     nome_fantasia = Column(String(255), default="")
     razao_social = Column(String(255), default="")
     cnpj_cpf = Column(String(64), default="")
+    status = Column(String(80), default="")
+    frequency = Column(String(120), default="")
     setor = Column(String(80), default="")
     telefone = Column(String(80), default="")
     endereco = Column(String(255), default="")
@@ -54,6 +56,10 @@ class PickupCatalogInventoryItem(Base):
     volume_key = Column(String(20), default="")
     source_baixados = Column(Integer, default=0)
     product_code = Column(String(120), default="")
+    giro_equipment_type = Column(String(12), default="", index=True)
+    giro_install_date = Column(Date, nullable=True)
+    giro_is_refrigerator = Column(Integer, nullable=False, default=0)
+    giro_balance = Column(Integer, nullable=False, default=0)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)

@@ -1,8 +1,12 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert,
   Box,
   Button,
+  CircularProgress,
+  Divider,
+  Paper,
+  Stack,
   Typography,
 } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
@@ -13,6 +17,10 @@ import { hasPermission } from '../utils/auth';
 const MAX_CSV_UPLOAD_MB = 200;
 const MAX_CSV_UPLOAD_BYTES = MAX_CSV_UPLOAD_MB * 1024 * 1024;
 const ACCEPTED_UPLOAD_EXTENSIONS = ['.csv', '.txt'];
+const GIRO_DATASETS = [
+  { key: 'sales', label: 'Vendas · 03.02.37 - 3 M', hint: 'PDV, Emissao, NAB, CERVEJA, Total, Origem do Pedido, Descricao e Status.', maxBytes: 125 * 1024 * 1024 },
+  { key: 'targets', label: 'Metas · METAS', hint: 'Indicador, Ano (opcional), Jan a Dez, com linhas GIRO VISA e GIRO SOPI.', maxBytes: 20 * 1024 * 1024 }
+];
 
 const formatFileSize = (bytes) => {
   const normalized = Number(bytes || 0);
@@ -48,8 +56,12 @@ const validateUploadFile = (file, label) => {
 const PickupsDataUpload = () => {
   const navigate = useNavigate();
   const canCreatePickupOrder = hasPermission('pickups.create_order');
+  const canImportPickupBase = hasPermission('pickups.import_base');
+  const canManageGiro = hasPermission('giro.manage');
+  const canImportSharedBase = canImportPickupBase || canManageGiro;
   const clientsFileInputRef = useRef(null);
   const inventoryFileInputRef = useRef(null);
+  const giroFileInputRefs = useRef({});
   const [statusInfo, setStatusInfo] = useState(null);
   const [loadingStatus, setLoadingStatus] = useState(true);
   const [clientsFile, setClientsFile] = useState(null);
@@ -57,6 +69,12 @@ const PickupsDataUpload = () => {
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [giroImports, setGiroImports] = useState([]);
+  const [loadingGiroImports, setLoadingGiroImports] = useState(false);
+  const [giroFiles, setGiroFiles] = useState({});
+  const [importingGiroDataset, setImportingGiroDataset] = useState('');
+  const [giroSuccess, setGiroSuccess] = useState('');
+  const [giroError, setGiroError] = useState('');
 
   const panelSx = {
     backgroundColor: 'var(--surface)',
@@ -66,7 +84,11 @@ const PickupsDataUpload = () => {
     boxShadow: 'var(--shadow-md)',
   };
 
-  const loadStatus = async () => {
+  const loadStatus = useCallback(async () => {
+    if (!canImportSharedBase) {
+      setLoadingStatus(false);
+      return;
+    }
     try {
       setLoadingStatus(true);
       const response = await api.get('/pickup-catalog/status');
@@ -77,11 +99,30 @@ const PickupsDataUpload = () => {
     } finally {
       setLoadingStatus(false);
     }
-  };
+  }, [canImportSharedBase]);
+
+  const loadGiroImports = useCallback(async () => {
+    if (!canManageGiro) {
+      setLoadingGiroImports(false);
+      return;
+    }
+    try {
+      setLoadingGiroImports(true);
+      const response = await api.get('/giro/imports');
+      setGiroImports(response.data.imports || []);
+      setGiroError('');
+    } catch (err) {
+      const detail = err?.response?.data?.detail;
+      setGiroError(typeof detail === 'string' ? detail : 'Erro ao carregar o status das bases de Giro.');
+    } finally {
+      setLoadingGiroImports(false);
+    }
+  }, [canManageGiro]);
 
   useEffect(() => {
     loadStatus();
-  }, []);
+    loadGiroImports();
+  }, [loadGiroImports, loadStatus]);
 
   const clearSelectedFiles = () => {
     setClientsFile(null);
@@ -168,11 +209,77 @@ const PickupsDataUpload = () => {
   const loadedAt = statusInfo?.loaded_at
     ? new Date(statusInfo.loaded_at).toLocaleString('pt-BR')
     : '-';
+  const giroImportsByDataset = Object.fromEntries(giroImports.map((item) => [item.dataset, item]));
+
+  const handleGiroFileSelection = (dataset) => (event) => {
+    const file = event.target.files?.[0] || null;
+    setGiroError('');
+    setGiroSuccess('');
+
+    if (!file) {
+      setGiroFiles((current) => ({ ...current, [dataset.key]: null }));
+      return;
+    }
+
+    const fileError = validateUploadFile(file, dataset.label);
+    const sizeError = file.size > dataset.maxBytes
+      ? `${dataset.label} excede o limite de ${Math.round(dataset.maxBytes / (1024 * 1024))} MB.`
+      : '';
+    if (fileError || sizeError) {
+      setGiroFiles((current) => ({ ...current, [dataset.key]: null }));
+      setGiroError(fileError || sizeError);
+      event.target.value = '';
+      return;
+    }
+
+    setGiroFiles((current) => ({ ...current, [dataset.key]: file }));
+  };
+
+  const handleGiroImport = async (dataset) => {
+    const file = giroFiles[dataset.key];
+    if (!file) {
+      setGiroError(`Selecione o CSV de ${dataset.label} antes de importar.`);
+      return;
+    }
+    const fileError = validateUploadFile(file, dataset.label);
+    if (fileError) {
+      setGiroError(fileError);
+      return;
+    }
+    if (file.size > dataset.maxBytes) {
+      setGiroError(`${dataset.label} excede o limite de ${Math.round(dataset.maxBytes / (1024 * 1024))} MB.`);
+      return;
+    }
+    const formData = new FormData();
+    formData.append('file', file);
+    setImportingGiroDataset(dataset.key);
+    setGiroError('');
+    setGiroSuccess('');
+    try {
+      const response = await api.post(`/giro/imports/${dataset.key}`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      setGiroSuccess(
+        `${dataset.label}: ${Number(response.data.rows_imported || 0).toLocaleString('pt-BR')} registros importados; `
+        + `${Number(response.data.rows_ignored || 0).toLocaleString('pt-BR')} ignorados.`
+      );
+      setGiroFiles((current) => ({ ...current, [dataset.key]: null }));
+      if (giroFileInputRefs.current[dataset.key]) {
+        giroFileInputRefs.current[dataset.key].value = '';
+      }
+      await loadGiroImports();
+    } catch (err) {
+      const detail = err?.response?.data?.detail;
+      setGiroError(typeof detail === 'string' ? detail : `Erro ao importar ${dataset.label}.`);
+    } finally {
+      setImportingGiroDataset('');
+    }
+  };
 
   return (
     <Box sx={{ p: 3, display: 'grid', gap: 2 }}>
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
-        <Typography variant="h5">Atualizar base de retiradas</Typography>
+        <Typography variant="h5">Atualizar bases</Typography>
         {canCreatePickupOrder && (
           <Button variant="outlined" onClick={() => navigate('/operacoes/ordens/nova')}>
             Ir para retiradas
@@ -180,10 +287,10 @@ const PickupsDataUpload = () => {
         )}
       </Box>
 
-      {error && <Alert severity="error">{error}</Alert>}
-      {success && <Alert severity="success">{success}</Alert>}
+      {canImportSharedBase && error && <Alert severity="error">{error}</Alert>}
+      {canImportSharedBase && success && <Alert severity="success">{success}</Alert>}
 
-      <Box sx={panelSx}>
+      {canImportSharedBase && <Box sx={panelSx}>
         <Typography variant="subtitle1" sx={{ mb: 1 }}>Carga diária de CSV</Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
           Envie 01.20.11 (clientes), 02.02.20 (itens emprestados) ou ambos no mesmo envio.
@@ -246,9 +353,9 @@ const PickupsDataUpload = () => {
             </Button>
           </Box>
         </Box>
-      </Box>
+      </Box>}
 
-      <Box sx={panelSx}>
+      {canImportSharedBase && <Box sx={panelSx}>
         <Typography variant="subtitle1" sx={{ mb: 1 }}>Status atual</Typography>
         {loadingStatus ? (
           <Typography color="text.secondary">Carregando status...</Typography>
@@ -263,7 +370,83 @@ const PickupsDataUpload = () => {
             <Typography variant="body2">Última carga: <strong>{loadedAt}</strong></Typography>
           </Box>
         )}
-      </Box>
+      </Box>}
+
+      {canImportSharedBase && canManageGiro && <Divider />}
+
+      {canManageGiro && (
+        <Box sx={panelSx}>
+          <Typography variant="h6" sx={{ mb: 0.5 }}>Bases de Giro</Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Clientes (01.20.11) e equipamentos (02.02.20) usam as bases compartilhadas acima. Aqui, envie somente vendas (03.02.37 - 3 M) e metas.
+          </Typography>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
+            Formatos aceitos: .csv e .txt. Limites: vendas 125 MB; metas 20 MB.
+          </Typography>
+          {giroError && <Alert severity="error" sx={{ mb: 2 }}>{giroError}</Alert>}
+          {giroSuccess && <Alert severity="success" sx={{ mb: 2 }}>{giroSuccess}</Alert>}
+          {loadingGiroImports && <CircularProgress size={24} sx={{ mb: 2 }} />}
+          <Stack spacing={2}>
+            {GIRO_DATASETS.map((dataset) => {
+              const imported = giroImportsByDataset[dataset.key];
+              const file = giroFiles[dataset.key];
+              return (
+                <Paper key={dataset.key} variant="outlined" sx={{ p: 2 }}>
+                  <Stack spacing={1.25}>
+                    <Box>
+                      <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>{dataset.label}</Typography>
+                      <Typography variant="body2" color="text.secondary">{dataset.hint}</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {imported
+                          ? `Última carga: ${imported.file_name || 'arquivo compartilhado'} · ${imported.imported_at ? new Date(imported.imported_at).toLocaleString('pt-BR') : 'data indisponível'} · ${Number(imported.rows_imported || 0).toLocaleString('pt-BR')} registros importados · ${Number(imported.rows_ignored || 0).toLocaleString('pt-BR')} ignorados`
+                          : 'Ainda não há carga registrada.'}
+                      </Typography>
+                    </Box>
+                    <Box>
+                      <Typography variant="caption" color="text.secondary">Arquivo CSV</Typography>
+                      <input
+                        ref={(element) => { giroFileInputRefs.current[dataset.key] = element; }}
+                        type="file"
+                        accept=".csv,.txt,text/csv,text/plain"
+                        onChange={handleGiroFileSelection(dataset)}
+                        disabled={Boolean(importingGiroDataset)}
+                        style={{
+                          width: '100%',
+                          marginTop: 6,
+                          padding: 10,
+                          borderRadius: 12,
+                          border: '1px solid var(--stroke)',
+                          background: 'var(--surface)',
+                          fontFamily: 'var(--font-sans)',
+                        }}
+                      />
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.75 }}>
+                        {file ? `Selecionado: ${file.name} (${formatFileSize(file.size)})` : 'Nenhum arquivo selecionado.'}
+                      </Typography>
+                    </Box>
+                    <Stack direction="row" spacing={1} flexWrap="wrap">
+                      <Button
+                        variant="contained"
+                        disabled={Boolean(importingGiroDataset) || !file}
+                        onClick={() => handleGiroImport(dataset)}
+                      >
+                        {importingGiroDataset === dataset.key ? 'Atualizando...' : 'Atualizar base'}
+                      </Button>
+                      <Button
+                        variant="outlined"
+                        disabled={loadingGiroImports || Boolean(importingGiroDataset)}
+                        onClick={loadGiroImports}
+                      >
+                        Atualizar status
+                      </Button>
+                    </Stack>
+                  </Stack>
+                </Paper>
+              );
+            })}
+          </Stack>
+        </Box>
+      )}
     </Box>
   );
 };

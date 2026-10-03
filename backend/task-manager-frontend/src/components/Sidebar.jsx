@@ -23,7 +23,9 @@ const Sidebar = () => {
   const canManageDeliveries = hasPermission('deliveries.manage');
   const canViewComodatos = hasPermission('comodatos.view');
   const canAccessEquipments = hasAnyPermission(['equipments.view', 'equipments.manage']);
+  const canAccessGiro = hasAnyPermission(['giro.view', 'giro.manage']);
   const canImportPickupBase = hasPermission('pickups.import_base');
+  const canManageGiro = hasPermission('giro.manage');
   const hasPickupAreaAccess = hasAnyPermission([
     'pickups.create_order',
     'pickups.orders_history',
@@ -79,6 +81,7 @@ const Sidebar = () => {
     ? new URLSearchParams(location.search).get('user')
     : null;
   const isActive = (path) => location.pathname === path;
+  const isGiroActive = location.pathname.startsWith('/giro');
   const isProductivityActive = (
     location.pathname.startsWith('/produtividade')
     || location.pathname === '/assignments'
@@ -242,6 +245,16 @@ const Sidebar = () => {
           </ListItemButton>
         )}
 
+        {canAccessGiro && (
+          <ListItemButton
+            onClick={() => navigate('/giro')}
+            selected={isGiroActive}
+            sx={navItemSx}
+          >
+            <ListItemText primary='Gestão de Giro' />
+          </ListItemButton>
+        )}
+
         {canAccessRequests && (
           <ListItemButton
             onClick={() => navigate('/requests')}
@@ -253,10 +266,10 @@ const Sidebar = () => {
         )}
       </List>
 
-            {(canImportPickupBase || showAdmin) && (
+            {(canImportPickupBase || canManageGiro || showAdmin) && (
         <Box sx={{ mt: 'auto', px: 1, pb: 1, display: 'grid', gap: 1 }}>
           <Divider sx={{ my: 0.5 }} />
-          {canImportPickupBase && (
+          {(canImportPickupBase || canManageGiro) && (
             <ListItemButton
               onClick={() => navigate('/base-retiradas')}
               selected={isActive('/base-retiradas')}
@@ -346,4 +359,3 @@ const Sidebar = () => {
 };
 
 export default Sidebar;
-

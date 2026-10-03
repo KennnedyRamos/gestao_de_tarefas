@@ -2,15 +2,17 @@ import logging
 import os
 import threading
 from contextlib import asynccontextmanager
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import inspect, text
-from app.routes import tasks, auth, users, routines, deliveries, pickups, pickup_catalog as pickup_catalog_routes, equipments
+from app.routes import tasks, auth, users, routines, deliveries, pickups, pickup_catalog as pickup_catalog_routes, equipments, giro
 from app.database.base import Base
 from app.database.session import engine, SessionLocal
 # Importa os modulos para registrar todos os models no metadata do SQLAlchemy.
-from app.models import assignment, delivery, equipment, pickup, pickup_catalog, routine, task, user  # noqa: F401
+from app.models import assignment, delivery, equipment, giro as giro_models, pickup, pickup_catalog, routine, task, user  # noqa: F401
 from app.core.config import (
     ADMIN_EMAIL,
     ADMIN_PASSWORD,
@@ -137,6 +139,20 @@ def ensure_pickup_catalog_columns():
             conn.execute(text("ALTER TABLE pickup_catalog_inventory_items ADD COLUMN comodato_number VARCHAR"))
         if "invoice_issue_date" not in columns:
             conn.execute(text("ALTER TABLE pickup_catalog_inventory_items ADD COLUMN invoice_issue_date VARCHAR"))
+        if "giro_equipment_type" not in columns:
+            conn.execute(text("ALTER TABLE pickup_catalog_inventory_items ADD COLUMN giro_equipment_type VARCHAR(12) DEFAULT ''"))
+        if "giro_install_date" not in columns:
+            conn.execute(text("ALTER TABLE pickup_catalog_inventory_items ADD COLUMN giro_install_date DATE"))
+        if "giro_is_refrigerator" not in columns:
+            conn.execute(text("ALTER TABLE pickup_catalog_inventory_items ADD COLUMN giro_is_refrigerator INTEGER DEFAULT 0"))
+        if "giro_balance" not in columns:
+            conn.execute(text("ALTER TABLE pickup_catalog_inventory_items ADD COLUMN giro_balance INTEGER DEFAULT 0"))
+    client_columns = [col["name"] for col in inspector.get_columns("pickup_catalog_clients")]
+    with engine.begin() as conn:
+        if "status" not in client_columns:
+            conn.execute(text("ALTER TABLE pickup_catalog_clients ADD COLUMN status VARCHAR(80) DEFAULT ''"))
+        if "frequency" not in client_columns:
+            conn.execute(text("ALTER TABLE pickup_catalog_clients ADD COLUMN frequency VARCHAR(120) DEFAULT ''"))
 
 
 def ensure_pickup_catalog_item_type_overrides():
@@ -332,6 +348,25 @@ def ensure_equipment_columns():
             pass
 
 
+def ensure_giro_equipment_snapshot_column():
+    inspector = inspect(engine)
+    if "giro_equipment" not in inspector.get_table_names():
+        return
+    columns = [column["name"] for column in inspector.get_columns("giro_equipment")]
+    if "snapshot_month" in columns:
+        return
+    current_month = datetime.now(ZoneInfo("America/Sao_Paulo")).strftime("%Y-%m")
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE giro_equipment ADD COLUMN snapshot_month VARCHAR(7)"))
+        conn.execute(
+            text(
+                "UPDATE giro_equipment SET snapshot_month = :month "
+                "WHERE snapshot_month IS NULL OR TRIM(snapshot_month) = ''"
+            ),
+            {"month": current_month},
+        )
+
+
 def _has_index_with_columns(indexes: list[dict], columns: list[str]) -> bool:
     target = tuple(columns)
     for index in indexes:
@@ -451,6 +486,7 @@ def run_db_bootstrap(*, strict: bool = False) -> None:
         ("ensure_pickup_catalog_order_columns", ensure_pickup_catalog_order_columns),
         ("ensure_pickup_catalog_order_item_columns", ensure_pickup_catalog_order_item_columns),
         ("ensure_equipment_columns", ensure_equipment_columns),
+        ("ensure_giro_equipment_snapshot_column", ensure_giro_equipment_snapshot_column),
         ("ensure_pickup_catalog_indexes", ensure_pickup_catalog_indexes),
         ("ensure_admin_user", ensure_admin_user),
     ]
@@ -501,6 +537,7 @@ app.include_router(deliveries.router)
 app.include_router(pickups.router)
 app.include_router(pickup_catalog_routes.router)
 app.include_router(equipments.router)
+app.include_router(giro.router)
 
 @app.get("/")
 def root():
@@ -517,5 +554,3 @@ def healthcheck_db():
     with engine.connect() as connection:
         connection.execute(text("SELECT 1"))
     return {"status": "ok"}
-
-

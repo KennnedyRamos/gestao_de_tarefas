@@ -21,6 +21,7 @@ const PickupsCenter = lazy(() => import('./pages/PickupsCenter'));
 const OperationsHub = lazy(() => import('./pages/OperationsHub'));
 const Equipments = lazy(() => import('./pages/Equipments'));
 const Requests = lazy(() => import('./pages/Requests'));
+const GiroManagement = lazy(() => import('./pages/GiroManagement'));
 
 const RequireAuth = ({ children }) => {
   const token = getToken();
@@ -79,10 +80,22 @@ function App() {
           <Route path="routines" element={<Navigate to="/produtividade/rotinas" replace />} />
 
           <Route path="users" element={<RequireAdmin><Users /></RequireAdmin>} />
+          <Route
+            path="giro/*"
+            element={(
+              <RequireAnyPermission permissions={['giro.view', 'giro.manage']}>
+                <GiroManagement />
+              </RequireAnyPermission>
+            )}
+          />
           <Route path="comodatos" element={<RequirePermission permission="comodatos.view"><ComodatosDashboard /></RequirePermission>} />
           <Route
             path="base-retiradas"
-            element={<RequirePermission permission="pickups.import_base"><PickupsDataUpload /></RequirePermission>}
+            element={(
+              <RequireAnyPermission permissions={['pickups.import_base', 'giro.manage']}>
+                <PickupsDataUpload />
+              </RequireAnyPermission>
+            )}
           />
 
           <Route
@@ -169,5 +182,3 @@ function App() {
 }
 
 export default App;
-
-

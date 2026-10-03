@@ -6,7 +6,8 @@ python-dotenv==1.2.3
 python-multipart==0.0.32
 passlib[bcrypt]==1.7.4
 bcrypt==3.2.2
-PyJWT==2.13.0
+PyJWT==2.15.1
 pydantic==2.12.5
 reportlab==4.4.10
 tzdata==2025.3
+openpyxl==3.1.5

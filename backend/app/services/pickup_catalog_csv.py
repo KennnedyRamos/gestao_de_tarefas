@@ -4,6 +4,7 @@ import csv
 import io
 import re
 import unicodedata
+from datetime import date, datetime, timedelta
 from typing import Any
 
 
@@ -12,6 +13,8 @@ CLIENT_FORM_FIELDS = [
     "nome_fantasia",
     "razao_social",
     "cnpj_cpf",
+    "status",
+    "frequency",
     "setor",
     "telefone",
     "endereco",
@@ -38,6 +41,8 @@ CLIENT_FIELD_ALIASES = {
     "nome_fantasia": ["nome fantasia", "fantasia"],
     "razao_social": ["razao social", "razão social", "razao"],
     "cnpj_cpf": ["cnpj/cpf", "cnpj cpf", "cnpj", "cpf"],
+    "status": ["status do cliente", "status cliente", "status"],
+    "frequency": ["frequencia visita", "frequência visita", "frequencia", "frequência"],
     "setor": [
         "setor",
         "cod setor",
@@ -90,6 +95,10 @@ INVENTORY_ALIASES = {
     "comodato_number": ["nro comodato", "numero comodato", "n comodat", "nr comodato"],
     "issue_date": ["data emissao", "data emissão", "emissao", "emissão"],
     "product_code": ["codigo produto", "cod produto", "material codigo", "codigo material"],
+    "giro_equipment_type": ["categoria", "tipo comodato", "tipo equipamento"],
+    "giro_install_date": ["data operacao", "data operação", "data instalacao", "data instalação"],
+    "giro_is_refrigerator": ["equipamento", "refrigerador", "refri"],
+    "giro_balance": ["saldo"],
 }
 
 ITEM_TYPE_LABELS = {
@@ -183,6 +192,24 @@ def _normalize_client_field(field: str, value: str) -> str:
     if field == "setor":
         return _normalize_setor(value)
     return _compact_spaces(value)
+
+
+def _parse_giro_date(value: str) -> date | None:
+    token = _compact_spaces(value)
+    if not token:
+        return None
+    for date_format in ("%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y", "%d/%m/%y", "%Y/%m/%d"):
+        try:
+            return datetime.strptime(token, date_format).date()
+        except ValueError:
+            continue
+    try:
+        serial = int(float(token))
+    except ValueError:
+        return None
+    if 20000 <= serial <= 80000:
+        return (datetime(1899, 12, 30) + timedelta(days=serial)).date()
+    return None
 
 
 def item_type_label(item_type: str) -> str:
@@ -470,6 +497,10 @@ def load_inventory_csv(raw_bytes: bytes) -> dict[str, list[dict[str, Any]]]:
     comodato_col = _pick_column(header_map, INVENTORY_ALIASES["comodato_number"], required=False)
     issue_date_col = _pick_column(header_map, INVENTORY_ALIASES["issue_date"], required=False)
     product_col = _pick_column(header_map, INVENTORY_ALIASES["product_code"], required=False)
+    giro_type_col = _pick_column(header_map, INVENTORY_ALIASES["giro_equipment_type"], required=False)
+    giro_date_col = _pick_column(header_map, INVENTORY_ALIASES["giro_install_date"], required=False)
+    giro_refrigerator_col = _pick_column(header_map, INVENTORY_ALIASES["giro_is_refrigerator"], required=False)
+    giro_balance_col = _pick_column(header_map, INVENTORY_ALIASES["giro_balance"], required=False)
 
     result: dict[str, list[dict[str, Any]]] = {}
     row_number = 0
@@ -518,6 +549,20 @@ def load_inventory_csv(raw_bytes: bytes) -> dict[str, list[dict[str, Any]]]:
             "volume_key": volume_key,
             "source_baixados": open_balance,
             "product_code": product_code,
+            "giro_equipment_type": normalize_header(row.get(giro_type_col or "", "")),
+            "giro_install_date": (
+                _parse_giro_date(row.get(giro_date_col or "", ""))
+                if giro_date_col else None
+            ),
+            "giro_is_refrigerator": (
+                normalize_header(row.get(giro_refrigerator_col or "", ""))
+                in {"sim", "s", "1", "true", "visa", "sopi"}
+                if giro_refrigerator_col else item_type == "refrigerador"
+            ),
+            "giro_balance": (
+                abs(parse_integer(row.get(giro_balance_col or "", "0")))
+                if giro_balance_col else open_quantity
+            ),
             "client_snapshot": _extract_client_payload_from_row(row, header_map),
         }
         result.setdefault(code, []).append(item)

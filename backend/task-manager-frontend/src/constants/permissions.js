@@ -9,7 +9,9 @@ export const PERMISSION_OPTIONS = [
   { code: 'pickups.withdrawals_history', label: 'Histórico de retiradas' },
   { code: 'comodatos.view', label: 'Dashboard de comodatos' },
   { code: 'equipments.view', label: 'Visualizar equipamentos' },
-  { code: 'equipments.manage', label: 'Gerenciar equipamentos' }
+  { code: 'equipments.manage', label: 'Gerenciar equipamentos' },
+  { code: 'giro.view', label: 'Visualizar gestão de Giro' },
+  { code: 'giro.manage', label: 'Importar bases de Giro' }
 ];
 
 const LABEL_BY_PERMISSION = PERMISSION_OPTIONS.reduce((acc, item) => {

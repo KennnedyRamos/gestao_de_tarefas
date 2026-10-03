@@ -69,6 +69,7 @@ flowchart LR
 - retiradas, acompanhamento diário e geração de documentos;
 - importação controlada das bases de clientes e inventário por CSV;
 - gestão de refrigeradores e outros equipamentos;
+- gestão do Giro VISA/SOPI com meta por equipamento, GAP por PDV, visão mensal por setor/mesa/cidade e exportação em Excel;
 - leitura de RG e etiqueta com suporte a OCR;
 - busca de equipamentos e comodatos por múltiplos identificadores;
 - sincronização do status de alocação;
@@ -94,6 +95,12 @@ gestao_de_tarefas/
 ├── render.yaml                    # infraestrutura do backend
 └── README.md
 ```
+
+### Relatórios de Giro
+
+A tela **Gestão de Giro** exige as permissões `giro.view` e/ou `giro.manage`. As bases `01.20.11` (clientes) e `02.02.20` (equipamentos) são as mesmas já atualizadas na área **Atualizar base**; não precisam ser enviadas novamente na seção de Giro. Ao importar `02.02.20`, o sistema também registra o snapshot mensal dos refrigeradores para o TRI. Um usuário com `giro.manage` atualiza somente os dois arquivos adicionais nessa seção: `03.02.37 - 3 M` (vendas) e `METAS` (percentuais mensais). O arquivo METAS deve conter um cabeçalho `Indicador`, `Ano` opcional e as colunas Jan a Dez, com linhas `GIRO VISA` e `GIRO SOPI`. O CSV de vendas deve conter os campos de PDV, emissão, NAB, CERVEJA, total, status, origem do pedido e descrição do produto; a tela VISA considera a cesta NAB e a SOPI considera CERVEJA/MATCH. Marketplace e embalagens de chopp (Bag, Barril e BIB) não entram no cálculo.
+
+São contabilizados refrigeradores VISA/SOPI com saldo positivo e data de operação a partir de 01/01/2023. Os limites mensais são R$ 1.200 por equipamento VISA e R$ 2.000 por equipamento SOPI; o Giro OK segue a regra estrita de faturamento acima da meta. Os relatórios mostram os quatro meses mais recentes e podem ser filtrados por setor, cidade ou mesa e exportados em XLSX. A Mesa 6 reúne os setores 501, 502, 601, 602, 603, 605 e 606; a Mesa 5 reúne 503, 504, 505, 506, 507 e 604. A Meta TRI é a média simples das metas mensais do trimestre vigente; o Real TRI é ponderado pelos equipamentos de cada mês e considera os meses já iniciados. Importe um snapshot de equipamentos por competência para que o Real TRI fique completo.
 
 ## Executando localmente
 
@@ -210,4 +217,3 @@ Se este projeto trouxe alguma ideia útil, uma estrela no repositório ajuda out
 ## Licença
 
 Distribuído sob a licença [MIT](LICENSE).
-

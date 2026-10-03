@@ -1,6 +1,13 @@
 from app.models.assignment import Assignment  # noqa: F401
 from app.models.delivery import Delivery  # noqa: F401
 from app.models.equipment import Equipment  # noqa: F401
+from app.models.giro import (  # noqa: F401
+    GiroEquipment,
+    GiroEquipmentSnapshot,
+    GiroImportStatus,
+    GiroMonthlySale,
+    GiroMonthlyTarget,
+)
 from app.models.pickup import Pickup  # noqa: F401
 from app.models.pickup_catalog import (  # noqa: F401
     PickupCatalogClient,

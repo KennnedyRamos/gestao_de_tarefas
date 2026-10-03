@@ -15,6 +15,8 @@ PERMISSION_DEFINITIONS = [
     {"code": "comodatos.view", "label": "Dashboard de comodatos"},
     {"code": "equipments.view", "label": "Visualizar equipamentos"},
     {"code": "equipments.manage", "label": "Gerenciar equipamentos"},
+    {"code": "giro.view", "label": "Visualizar gestão de Giro"},
+    {"code": "giro.manage", "label": "Importar bases de Giro"},
 ]
 ALLOWED_PERMISSIONS = {item["code"] for item in PERMISSION_DEFINITIONS}
 

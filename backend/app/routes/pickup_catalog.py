@@ -1,5 +1,5 @@
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from io import BytesIO
 from pathlib import Path
 import re
@@ -30,6 +30,7 @@ from app.models.pickup_catalog import (
     PickupCatalogUploadBatch,
 )
 from app.models.equipment import Equipment
+from app.models.giro import GiroEquipment, GiroEquipmentSnapshot
 from app.models.user import User
 from app.schemas.pickup_catalog import (
     PickupCatalogClientData,
@@ -118,13 +119,14 @@ MAX_CLIENTS_CSV_UPLOAD_BYTES = PICKUP_CATALOG_CLIENTS_CSV_MAX_BYTES
 MAX_INVENTORY_CSV_UPLOAD_BYTES = PICKUP_CATALOG_INVENTORY_CSV_MAX_BYTES
 MAX_CLIENTS_CSV_LINES = PICKUP_CATALOG_CLIENTS_CSV_MAX_LINES
 MAX_INVENTORY_CSV_LINES = PICKUP_CATALOG_INVENTORY_CSV_MAX_LINES
+get_pickup_catalog_import_access = require_any_permission("pickups.import_base", "giro.manage")
 get_pickup_catalog_status_access = require_any_permission(
     "pickups.create_order",
     "pickups.import_base",
     "pickups.orders_history",
     "pickups.withdrawals_history",
+    "giro.manage",
 )
-get_pickup_catalog_import_access = require_permission("pickups.import_base")
 get_pickup_catalog_create_access = require_permission("pickups.create_order")
 get_pickup_catalog_client_access = require_any_permission(
     "pickups.create_order",
@@ -372,6 +374,8 @@ def _client_payload_from_model(client: PickupCatalogClient | None, fallback_code
         "nome_fantasia": _safe_text(client.nome_fantasia),
         "razao_social": _safe_text(client.razao_social),
         "cnpj_cpf": _safe_text(client.cnpj_cpf),
+        "status": _safe_text(client.status),
+        "frequency": _safe_text(client.frequency),
         "setor": _safe_text(client.setor),
         "telefone": _safe_text(client.telefone),
         "endereco": _safe_text(client.endereco),
@@ -389,6 +393,8 @@ def _apply_payload_to_client(client: PickupCatalogClient, payload: dict[str, str
     client.nome_fantasia = _safe_text(payload.get("nome_fantasia"))
     client.razao_social = _safe_text(payload.get("razao_social"))
     client.cnpj_cpf = _safe_text(payload.get("cnpj_cpf"))
+    client.status = _safe_text(payload.get("status"))
+    client.frequency = _safe_text(payload.get("frequency"))
     client.setor = _safe_text(payload.get("setor"))
     client.telefone = _safe_text(payload.get("telefone"))
     client.endereco = _safe_text(payload.get("endereco"))
@@ -881,6 +887,10 @@ def _load_existing_inventory_rows(db: Session) -> dict[str, list[dict[str, Any]]
             "volume_key": _safe_text(item.volume_key),
             "source_baixados": int(item.source_baixados or 0),
             "product_code": _safe_text(item.product_code),
+            "giro_equipment_type": _safe_text(item.giro_equipment_type),
+            "giro_install_date": item.giro_install_date,
+            "giro_is_refrigerator": bool(item.giro_is_refrigerator),
+            "giro_balance": int(item.giro_balance or 0),
             "client_snapshot": client_snapshot,
         })
 
@@ -1016,9 +1026,58 @@ async def upload_csv(
                     volume_key=_safe_text(item.get("volume_key")),
                     source_baixados=int(item.get("source_baixados", 0) or 0),
                     product_code=_safe_text(item.get("product_code")),
+                    giro_equipment_type=_safe_text(item.get("giro_equipment_type")),
+                    giro_install_date=item.get("giro_install_date"),
+                    giro_is_refrigerator=bool(item.get("giro_is_refrigerator")),
+                    giro_balance=int(item.get("giro_balance", 0) or 0),
                 )
             )
             open_items += 1
+
+    if has_inventory_upload:
+        snapshot_month = datetime.now(BRAZIL_TZ).strftime("%Y-%m")
+        db.query(GiroEquipment).filter(
+            GiroEquipment.snapshot_month == snapshot_month
+        ).delete(synchronize_session=False)
+        valid_equipment = 0
+        ignored_equipment = 0
+        for code, items in inventory_rows.items():
+            for item in items:
+                equipment_type = _safe_text(item.get("giro_equipment_type")).lower()
+                install_date = item.get("giro_install_date")
+                is_refrigerator = bool(item.get("giro_is_refrigerator"))
+                balance = int(item.get("giro_balance", 0) or 0)
+                if (
+                    equipment_type not in {"visa", "sopi"}
+                    or not install_date
+                    or not is_refrigerator
+                    or balance <= 0
+                    or install_date < date(2023, 1, 1)
+                ):
+                    ignored_equipment += 1
+                    continue
+                db.add(GiroEquipment(
+                    client_code=code,
+                    equipment_type=equipment_type,
+                    snapshot_month=snapshot_month,
+                    install_date=install_date,
+                    quantity=balance,
+                    is_refrigerator=True,
+                    balance=balance,
+                ))
+                valid_equipment += 1
+
+        equipment_snapshot = (
+            db.query(GiroEquipmentSnapshot)
+            .filter(GiroEquipmentSnapshot.month == snapshot_month)
+            .first()
+        )
+        if equipment_snapshot is None:
+            equipment_snapshot = GiroEquipmentSnapshot(month=snapshot_month)
+            db.add(equipment_snapshot)
+        equipment_snapshot.file_name = Path(inventory_csv.filename or "").name[:255] if inventory_csv else ""
+        equipment_snapshot.rows_imported = valid_equipment
+        equipment_snapshot.rows_ignored = ignored_equipment
 
     batch.clients_count = len(merged_clients)
     batch.inventory_clients = len(inventory_rows)

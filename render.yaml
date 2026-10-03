@@ -10,7 +10,9 @@ services:
       - key: DATABASE_URL
         sync: false
       - key: SECRET_KEY
-        sync: false
+        # Para novas instâncias criadas pelo Blueprint, o Render gera e mantém
+        # uma chave aleatória de 256 bits em vez de depender de um placeholder.
+        generateValue: true
       - key: ALGORITHM
         value: HS256
       - key: APP_ENV

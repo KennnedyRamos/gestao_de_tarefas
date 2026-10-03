@@ -70,8 +70,12 @@ def _shift_month(value: date, offset: int) -> date:
     return date(month_index // 12, month_index % 12 + 1, 1)
 
 
-def _report_months() -> list[str]:
-    current = _month_start(datetime.now(BRAZIL_TZ).date())
+def _current_month() -> str:
+    return _month_start(datetime.now(BRAZIL_TZ).date()).strftime("%Y-%m")
+
+
+def _report_months(selected_month: str | None = None) -> list[str]:
+    current = date.fromisoformat(f"{selected_month or _current_month()}-01")
     return [_shift_month(current, offset).strftime("%Y-%m") for offset in (-3, -2, -1, 0)]
 
 
@@ -214,7 +218,7 @@ def _import_statuses(db: Session) -> list[GiroImportStatus]:
     return db.query(GiroImportStatus).order_by(GiroImportStatus.dataset).all()
 
 
-def _ensure_ready(db: Session) -> None:
+def _ensure_ready(db: Session, selected_month: str | None = None) -> None:
     completed = {row.dataset for row in _import_statuses(db)}
     missing = sorted({"sales", "targets"} - completed)
     if missing:
@@ -224,11 +228,32 @@ def _ensure_ready(db: Session) -> None:
         )
     if not db.query(PickupCatalogClient.id).first():
         raise HTTPException(status_code=409, detail="A base de clientes 01.20.11 não contém registros no banco de dados.")
-    if not any(_equipment_by_client(db, equipment_type) for equipment_type in MONTHLY_TARGETS):
+    equipment_available = (
+        bool(db.query(GiroEquipmentSnapshot.id).filter(
+            GiroEquipmentSnapshot.month == selected_month
+        ).first())
+        if selected_month and selected_month != _current_month()
+        else any(_equipment_by_client(db, equipment_type) for equipment_type in MONTHLY_TARGETS)
+    )
+    if not equipment_available:
         raise HTTPException(
             status_code=409,
             detail="A base de equipamentos 02.02.20 não contém comodatos VISA ou SOPI elegíveis no banco de dados.",
         )
+
+
+def _selected_month(db: Session, requested_month: str | None) -> str:
+    selected_month = requested_month or _current_month()
+    if selected_month > _current_month():
+        raise HTTPException(status_code=422, detail="A competência não pode ser futura.")
+    if selected_month != _current_month() and not db.query(GiroEquipmentSnapshot.id).filter(
+        GiroEquipmentSnapshot.month == selected_month
+    ).first():
+        raise HTTPException(
+            status_code=409,
+            detail=f"Não há snapshot de equipamentos para {selected_month}; não é possível calcular esse histórico.",
+        )
+    return selected_month
 
 
 def _equipment_by_client(db: Session, equipment_type: str) -> dict[str, Decimal]:
@@ -300,17 +325,45 @@ def _equipment_by_client(db: Session, equipment_type: str) -> dict[str, Decimal]
     return result
 
 
+def _equipment_snapshot_by_client(
+    db: Session,
+    equipment_type: str,
+    month: str,
+) -> dict[str, Decimal]:
+    result: dict[str, Decimal] = {}
+    rows = (
+        db.query(GiroEquipment.client_code, GiroEquipment.quantity)
+        .filter(
+            GiroEquipment.snapshot_month == month,
+            GiroEquipment.equipment_type == equipment_type,
+            GiroEquipment.install_date >= INSTALLATION_CUTOFF,
+            GiroEquipment.is_refrigerator == 1,
+            GiroEquipment.balance > 0,
+        )
+        .all()
+    )
+    for client_code, quantity in rows:
+        code = canonical_code(client_code)
+        if code:
+            result[code] = result.get(code, Decimal(0)) + Decimal(str(quantity))
+    return result
+
+
 def _report_rows(
     db: Session,
     equipment_type: str,
     months: list[str],
     *,
+    equipment_month: str | None = None,
     sector: str = "",
     city: str = "",
     mesa: str = "",
     search: str = "",
 ) -> list[GiroReportItemOut]:
-    equipment_counts = _equipment_by_client(db, equipment_type)
+    if equipment_month and equipment_month != _current_month():
+        equipment_counts = _equipment_snapshot_by_client(db, equipment_type, equipment_month)
+    else:
+        equipment_counts = _equipment_by_client(db, equipment_type)
     codes = set(equipment_counts)
     if not codes:
         return []
@@ -330,7 +383,19 @@ def _report_rows(
         )
         .all()
     ):
-        sales[(code, month)] = Decimal(amount)
+        sales[(canonical_code(code), month)] = Decimal(amount)
+    purchase_months: dict[str, str] = {}
+    for client_code, month in (
+        db.query(GiroMonthlySale.client_code, GiroMonthlySale.month)
+        .filter(
+            GiroMonthlySale.client_code.in_(codes),
+            GiroMonthlySale.basket == equipment_type,
+            GiroMonthlySale.amount > 0,
+        )
+        .order_by(GiroMonthlySale.month.desc())
+        .all()
+    ):
+        purchase_months.setdefault(canonical_code(client_code), month)
 
     normalized_search = str(search or "").strip().lower()
     rows: list[GiroReportItemOut] = []
@@ -370,6 +435,7 @@ def _report_rows(
                 mesa=mesa_name,
                 equipment_count=float(count),
                 month_sales=month_sales,
+                last_purchase_month=purchase_months.get(code),
                 monthly_target=_as_float(monthly_target),
                 gap=_as_float(gap),
                 giro_status="Atingindo" if meets else "Não atingiu",
@@ -378,7 +444,11 @@ def _report_rows(
     return sorted(rows, key=lambda item: (-item.gap, item.client_code))
 
 
-def _summary(rows: list[GiroReportItemOut], current_month: str) -> GiroSummaryOut:
+def _summary(
+    rows: list[GiroReportItemOut],
+    current_month: str,
+    target_percent: float | None = None,
+) -> GiroSummaryOut:
     equipment_count = sum(Decimal(str(item.equipment_count)) for item in rows)
     ok_equipment = sum(
         (Decimal(str(item.equipment_count)) for item in rows if item.giro_status == "Atingindo"),
@@ -393,7 +463,9 @@ def _summary(rows: list[GiroReportItemOut], current_month: str) -> GiroSummaryOu
         clients_not_meeting=sum(item.giro_status != "Atingindo" for item in rows),
         equipment_count=float(equipment_count),
         giro_ok_equipment=float(ok_equipment),
+        giro_nok_equipment=float(equipment_count - ok_equipment),
         giro_ok_percent=round(float(percent), 2),
+        target_percent=target_percent,
         monthly_target=_as_float(monthly_target),
         current_sales=_as_float(current_sales),
         gap=_as_float(gap),
@@ -431,7 +503,8 @@ def _quarter_summary(
     if not missing_targets:
         target_percent = round(float(sum(targets.values(), Decimal(0)) / len(quarter_months)), 2)
 
-    historical_months = [month for month in elapsed_months if month != current_month]
+    actual_current_month = _current_month()
+    historical_months = [month for month in elapsed_months if month != actual_current_month]
     snapshot_months = {
         row.month
         for row in db.query(GiroEquipmentSnapshot.month)
@@ -452,7 +525,10 @@ def _quarter_summary(
             )
             .all()
         ) if historical_months else []
-        current_equipment = _equipment_by_client(db, equipment_type)
+        current_equipment = (
+            _equipment_by_client(db, equipment_type)
+            if actual_current_month in elapsed_months else {}
+        )
         codes = {row.client_code for row in equipment_rows} | set(current_equipment)
         clients = {
             canonical_code(client.client_code): client
@@ -485,7 +561,7 @@ def _quarter_summary(
                 continue
             if mesa and mesa_for_sector(client_sector) != mesa:
                 continue
-            equipment_by_month.setdefault(current_month, {})[code] = count
+            equipment_by_month.setdefault(actual_current_month, {})[code] = count
 
         sales = {
             (code, month): Decimal(amount)
@@ -530,6 +606,18 @@ def _filters(db: Session) -> tuple[list[str], list[str]]:
         if str(city or "").strip()
     })
     return sectors, cities
+
+
+def _target_percent(db: Session, equipment_type: str, month: str) -> float | None:
+    target = (
+        db.query(GiroMonthlyTarget.target_percent)
+        .filter(
+            GiroMonthlyTarget.month == month,
+            GiroMonthlyTarget.equipment_type == equipment_type,
+        )
+        .first()
+    )
+    return round(float(target[0]), 2) if target else None
 
 
 @router.get("/imports", response_model=GiroImportStatusListOut)
@@ -582,6 +670,18 @@ def get_import_status(
         row.month
         for row in db.query(GiroEquipmentSnapshot.month).order_by(GiroEquipmentSnapshot.month.desc()).all()
     ]
+    sales_months = {
+        row.month for row in db.query(GiroMonthlySale.month).distinct().all()
+    }
+    current_month = _current_month()
+    available_months = sorted(
+        {month for month in snapshot_months if month <= current_month} | {current_month},
+        reverse=True,
+    )
+    months_without_snapshot = sorted(
+        {month for month in sales_months if month < current_month} - set(snapshot_months),
+        reverse=True,
+    )
     target_years = sorted({
         int(row.month[:4])
         for row in db.query(GiroMonthlyTarget.month).distinct().all()
@@ -591,6 +691,8 @@ def get_import_status(
         sectors=sectors,
         cities=cities,
         equipment_snapshot_months=snapshot_months,
+        available_months=available_months,
+        months_without_equipment_snapshot=months_without_snapshot,
         target_years=target_years,
     )
 
@@ -598,6 +700,7 @@ def get_import_status(
 @router.get("/reports/{equipment_type}", response_model=GiroReportOut)
 def get_report(
     equipment_type: str,
+    month: str | None = Query(default=None, pattern=r"^\d{4}-(0[1-9]|1[0-2])$"),
     sector: str = Query(default="", max_length=80),
     city: str = Query(default="", max_length=120),
     mesa: str = Query(default="", pattern="^(|Mesa 5|Mesa 6|Outros)$"),
@@ -610,12 +713,14 @@ def get_report(
     del current_user
     if equipment_type not in MONTHLY_TARGETS:
         raise HTTPException(status_code=404, detail="Tipo de equipamento inválido.")
-    _ensure_ready(db)
-    months = _report_months()
+    selected_month = _selected_month(db, month)
+    _ensure_ready(db, selected_month)
+    months = _report_months(selected_month)
     rows = _report_rows(
         db,
         equipment_type,
         months,
+        equipment_month=selected_month,
         sector=sector,
         city=city,
         mesa=mesa,
@@ -626,7 +731,7 @@ def get_report(
     return GiroReportOut(
         equipment_type=equipment_type,
         months=months,
-        summary=_summary(rows, months[-1]),
+        summary=_summary(rows, selected_month, _target_percent(db, equipment_type, selected_month)),
         tri=_quarter_summary(
             db,
             equipment_type,
@@ -649,6 +754,7 @@ def _breakdown(
     sopi_rows: list[GiroReportItemOut],
     current_month: str,
     key: str,
+    target_per_type: dict[str, float | None],
 ) -> list[GiroBreakdownOut]:
     rows = visa_rows + sopi_rows
     names = sorted({getattr(item, key) or "Sem informação" for item in rows})
@@ -659,8 +765,9 @@ def _breakdown(
         result.append(
             GiroBreakdownOut(
                 name=name,
-                visa=_summary(visa_group, current_month),
-                sopi=_summary(sopi_group, current_month),
+                mesa=mesa_for_sector(name) if key == "sector" else None,
+                visa=_summary(visa_group, current_month, target_per_type["visa"]),
+                sopi=_summary(sopi_group, current_month, target_per_type["sopi"]),
             )
         )
     return result
@@ -668,24 +775,30 @@ def _breakdown(
 
 @router.get("/overview", response_model=GiroOverviewOut)
 def get_overview(
+    month: str | None = Query(default=None, pattern=r"^\d{4}-(0[1-9]|1[0-2])$"),
     city: str = Query(default="", max_length=120),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_giro_viewer),
 ):
     del current_user
-    _ensure_ready(db)
-    months = _report_months()
-    visa = _report_rows(db, "visa", months, city=city)
-    sopi = _report_rows(db, "sopi", months, city=city)
+    selected_month = _selected_month(db, month)
+    _ensure_ready(db, selected_month)
+    months = _report_months(selected_month)
+    visa = _report_rows(db, "visa", months, equipment_month=selected_month, city=city)
+    sopi = _report_rows(db, "sopi", months, equipment_month=selected_month, city=city)
+    target_per_type = {
+        equipment_type: _target_percent(db, equipment_type, selected_month)
+        for equipment_type in MONTHLY_TARGETS
+    }
     return GiroOverviewOut(
-        month=months[-1],
-        visa=_summary(visa, months[-1]),
-        sopi=_summary(sopi, months[-1]),
+        month=selected_month,
+        visa=_summary(visa, selected_month, target_per_type["visa"]),
+        sopi=_summary(sopi, selected_month, target_per_type["sopi"]),
         visa_tri=_quarter_summary(db, "visa", months, city=city),
         sopi_tri=_quarter_summary(db, "sopi", months, city=city),
-        by_sector=_breakdown(visa, sopi, months[-1], "sector"),
-        by_mesa=_breakdown(visa, sopi, months[-1], "mesa"),
-        by_city=_breakdown(visa, sopi, months[-1], "city"),
+        by_sector=_breakdown(visa, sopi, selected_month, "sector", target_per_type),
+        by_mesa=_breakdown(visa, sopi, selected_month, "mesa", target_per_type),
+        by_city=_breakdown(visa, sopi, selected_month, "city", target_per_type),
     )
 
 
@@ -696,7 +809,7 @@ def _make_workbook(equipment_type: str, months: list[str], items: list[GiroRepor
     headers = [
         "Código do PDV", "Fantasia", "Documento", "Status", "Frequência", "Quantidade de equipamento",
         *[f"Faturamento {month}" for month in months],
-        "Meta do PDV", "GAP", "Status do Giro", "Setor", "Cidade", "Mesa",
+        "Último mês com compra", "Meta do PDV", "GAP", "Status do Giro", "Setor", "Cidade", "Mesa",
     ]
     sheet.append(headers)
     for item in items:
@@ -708,6 +821,7 @@ def _make_workbook(equipment_type: str, months: list[str], items: list[GiroRepor
             item.frequency,
             item.equipment_count,
             *[item.month_sales[month] for month in months],
+            item.last_purchase_month or "",
             item.monthly_target,
             item.gap,
             item.giro_status,
@@ -720,7 +834,10 @@ def _make_workbook(equipment_type: str, months: list[str], items: list[GiroRepor
         cell.fill = header_fill
         cell.font = Font(color="FFFFFF", bold=True)
         cell.alignment = Alignment(horizontal="center")
-    for row in sheet.iter_rows(min_row=2, min_col=7, max_col=12):
+    for row in sheet.iter_rows(min_row=2, min_col=7, max_col=6 + len(months)):
+        for cell in row:
+            cell.number_format = '"R$" #,##0.00'
+    for row in sheet.iter_rows(min_row=2, min_col=8 + len(months), max_col=9 + len(months)):
         for cell in row:
             cell.number_format = '"R$" #,##0.00'
     sheet.freeze_panes = "A2"
@@ -738,6 +855,7 @@ def _make_workbook(equipment_type: str, months: list[str], items: list[GiroRepor
 @router.get("/reports/{equipment_type}/export")
 def export_report(
     equipment_type: str,
+    month: str | None = Query(default=None, pattern=r"^\d{4}-(0[1-9]|1[0-2])$"),
     sector: str = Query(default="", max_length=80),
     city: str = Query(default="", max_length=120),
     mesa: str = Query(default="", pattern="^(|Mesa 5|Mesa 6|Outros)$"),
@@ -748,19 +866,21 @@ def export_report(
     del current_user
     if equipment_type not in MONTHLY_TARGETS:
         raise HTTPException(status_code=404, detail="Tipo de equipamento inválido.")
-    _ensure_ready(db)
-    months = _report_months()
+    selected_month = _selected_month(db, month)
+    _ensure_ready(db, selected_month)
+    months = _report_months(selected_month)
     rows = _report_rows(
         db,
         equipment_type,
         months,
+        equipment_month=selected_month,
         sector=sector,
         city=city,
         mesa=mesa,
         search=search,
     )
     workbook_file = _make_workbook(equipment_type, months, rows)
-    filename = f"giro-{equipment_type}-{months[-1]}.xlsx"
+    filename = f"giro-{equipment_type}-{selected_month}.xlsx"
     return StreamingResponse(
         workbook_file,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

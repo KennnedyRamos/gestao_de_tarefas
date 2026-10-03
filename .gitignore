@@ -12,6 +12,9 @@ backend/.venv/
 
 # Environment files
 backend/.env
+backend/task-manager-frontend/.env
+backend/task-manager-frontend/.env.local
+backend/task-manager-frontend/.env.*.local
 
 # Pytest cache
 backend/.pytest_cache/

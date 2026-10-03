@@ -24,7 +24,9 @@ class GiroSummaryOut(BaseModel):
     clients_not_meeting: int
     equipment_count: float
     giro_ok_equipment: float
+    giro_nok_equipment: float
     giro_ok_percent: float
+    target_percent: float | None = None
     monthly_target: float
     current_sales: float
     gap: float
@@ -49,6 +51,7 @@ class GiroReportItemOut(BaseModel):
     mesa: str
     equipment_count: float
     month_sales: dict[str, float]
+    last_purchase_month: str | None = None
     monthly_target: float
     gap: float
     giro_status: str
@@ -69,6 +72,7 @@ class GiroReportOut(BaseModel):
 
 class GiroBreakdownOut(BaseModel):
     name: str
+    mesa: str | None = None
     visa: GiroSummaryOut
     sopi: GiroSummaryOut
 
@@ -89,4 +93,6 @@ class GiroImportStatusListOut(BaseModel):
     sectors: list[str]
     cities: list[str]
     equipment_snapshot_months: list[str]
+    available_months: list[str]
+    months_without_equipment_snapshot: list[str]
     target_years: list[int]

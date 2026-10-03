@@ -44,11 +44,11 @@ const apiError = (error) => error?.response?.data?.detail || 'Não foi possível
 
 const SummaryCards = ({ summary, type }) => {
   const cards = [
-    { label: `Equipamentos ${type}`, value: summary.equipment_count },
-    { label: 'Giro OK', value: `${summary.giro_ok_percent}%` },
-    { label: 'Clientes fora da meta', value: summary.clients_not_meeting },
-    { label: 'Faturamento do mês', value: currency(summary.current_sales) },
-    { label: 'Meta dos PDVs', value: currency(summary.monthly_target) },
+    { label: `Base ${type}`, value: summary.equipment_count },
+    { label: 'Giro OK', value: summary.giro_ok_equipment },
+    { label: 'Giro NOK', value: summary.giro_nok_equipment },
+    { label: 'Meta', value: summary.target_percent === null ? '—' : `${summary.target_percent}%` },
+    { label: 'Atingimento real', value: `${summary.giro_ok_percent}%` },
     { label: 'GAP total', value: currency(summary.gap) }
   ];
   return (
@@ -65,58 +65,57 @@ const SummaryCards = ({ summary, type }) => {
   );
 };
 
-const QuarterSummary = ({ summary, type }) => (
-  <Paper variant="outlined" sx={{ p: 2 }}>
-    <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
-      TRI {type} · {summary.months.map(monthLabel).join(' · ')}
-    </Typography>
-    <Stack direction={{ xs: 'column', md: 'row' }} spacing={3} sx={{ mt: 1 }}>
-      <Typography>Meta TRI (média simples): {summary.target_percent === null ? 'indisponível' : `${summary.target_percent}%`}</Typography>
-      <Typography>Real TRI (ponderado até o mês atual): {summary.real_percent === null ? 'indisponível' : `${summary.real_percent}%`}</Typography>
-    </Stack>
-    {summary.missing_target_months.length > 0 && (
-      <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-        Faltam metas para: {summary.missing_target_months.map(monthLabel).join(', ')}.
-      </Typography>
-    )}
-    {summary.missing_equipment_months.length > 0 && (
-      <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-        Para calcular o real ponderado, importe os snapshots de equipamentos de: {summary.missing_equipment_months.map(monthLabel).join(', ')}.
-      </Typography>
-    )}
-  </Paper>
-);
+const SummaryTable = ({ rows }) => {
+  const mesaOrder = ['Mesa 5', 'Mesa 6', 'Outros'];
+  const mesaGroups = mesaOrder
+    .map((mesa) => ({ mesa, rows: rows.filter((row) => row.mesa === mesa) }))
+    .filter((group) => group.rows.length > 0);
 
-const SummaryTable = ({ title, rows }) => (
+  return (
   <Box>
-    <Typography variant="h6" sx={{ mb: 1 }}>{title}</Typography>
-    <TableContainer component={Paper} variant="outlined">
-      <Table size="small">
-        <TableHead>
-          <TableRow>
-            <TableCell>{title === 'Por setor' ? 'Setor' : title === 'Por mesa' ? 'Mesa' : 'Cidade'}</TableCell>
-            <TableCell align="right">VISA OK</TableCell>
-            <TableCell align="right">GAP VISA</TableCell>
-            <TableCell align="right">SOPI OK</TableCell>
-            <TableCell align="right">GAP SOPI</TableCell>
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          {rows.map((row) => (
-            <TableRow key={row.name}>
-              <TableCell>{row.name || 'Sem informação'}</TableCell>
-              <TableCell align="right">{row.visa.giro_ok_percent}%</TableCell>
-              <TableCell align="right">{currency(row.visa.gap)}</TableCell>
-              <TableCell align="right">{row.sopi.giro_ok_percent}%</TableCell>
-              <TableCell align="right">{currency(row.sopi.gap)}</TableCell>
-            </TableRow>
-          ))}
-          {rows.length === 0 && <TableRow><TableCell colSpan={5}>Sem equipamentos elegíveis.</TableCell></TableRow>}
-        </TableBody>
-      </Table>
-    </TableContainer>
+    <Typography variant="h6" sx={{ mb: 1 }}>Resultado por mesa e setor</Typography>
+    {mesaGroups.map(({ mesa, rows: sectorRows }) => (
+      <Box key={mesa} sx={{ mb: 2 }}>
+        <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 0.75 }}>{mesa}</Typography>
+        <TableContainer component={Paper} variant="outlined">
+          <Table size="small">
+            <TableHead>
+              <TableRow>
+                <TableCell rowSpan={2}>Setor</TableCell>
+                <TableCell align="center" colSpan={6}>VISA</TableCell>
+                <TableCell align="center" colSpan={6}>SOPI</TableCell>
+              </TableRow>
+              <TableRow>
+                {['Base', 'OK', 'NOK', 'Meta', 'Real', 'GAP', 'Base', 'OK', 'NOK', 'Meta', 'Real', 'GAP'].map((label, index) => (
+                  <TableCell key={`${label}-${index}`} align="right">{label}</TableCell>
+                ))}
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {sectorRows.map((row) => (
+                <TableRow key={row.name} hover>
+                  <TableCell>{row.name || 'Sem informação'}</TableCell>
+                  {[row.visa, row.sopi].flatMap((summary) => [
+                    summary.equipment_count,
+                    summary.giro_ok_equipment,
+                    summary.giro_nok_equipment,
+                    summary.target_percent === null ? '—' : `${summary.target_percent}%`,
+                    `${summary.giro_ok_percent}%`,
+                    currency(summary.gap)
+                  ]).map((value, index) => (
+                    <TableCell key={`${row.name}-${index}`} align="right" sx={{ whiteSpace: 'nowrap' }}>{value}</TableCell>
+                  ))}
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </TableContainer>
+      </Box>
+    ))}
+    {rows.length === 0 && <Alert severity="info">Sem equipamentos elegíveis nesta competência.</Alert>}
   </Box>
-);
+  );
+};
 
 const GiroManagement = () => {
   const location = useLocation();
@@ -127,6 +126,9 @@ const GiroManagement = () => {
   const [imports, setImports] = useState([]);
   const [sectors, setSectors] = useState([]);
   const [cities, setCities] = useState([]);
+  const [availableMonths, setAvailableMonths] = useState([]);
+  const [monthsWithoutSnapshot, setMonthsWithoutSnapshot] = useState([]);
+  const [selectedMonth, setSelectedMonth] = useState('');
   const [loadingImports, setLoadingImports] = useState(true);
   const [error, setError] = useState('');
   const [overview, setOverview] = useState(null);
@@ -159,6 +161,10 @@ const GiroManagement = () => {
       setImports(response.data.imports || []);
       setSectors(response.data.sectors || []);
       setCities(response.data.cities || []);
+      const months = response.data.available_months || [];
+      setAvailableMonths(months);
+      setMonthsWithoutSnapshot(response.data.months_without_equipment_snapshot || []);
+      setSelectedMonth((current) => months.includes(current) ? current : (months[0] || ''));
       setError('');
     } catch (requestError) {
       setError(apiError(requestError));
@@ -183,7 +189,7 @@ const GiroManagement = () => {
     }
     let cancelled = false;
     setLoadingReport(true);
-    api.get('/giro/overview', { params: { city } })
+    api.get('/giro/overview', { params: { city, month: selectedMonth } })
       .then((response) => {
         if (!cancelled) {
           setOverview(response.data);
@@ -197,7 +203,7 @@ const GiroManagement = () => {
         if (!cancelled) setLoadingReport(false);
       });
     return () => { cancelled = true; };
-  }, [activeTab, city, ready]);
+  }, [activeTab, city, ready, selectedMonth]);
 
   useEffect(() => {
     if (!ready || !['visa', 'sopi'].includes(activeTab)) {
@@ -211,6 +217,7 @@ const GiroManagement = () => {
         sector,
         city,
         mesa,
+        month: selectedMonth,
         search: debouncedSearch,
         page,
         page_size: 100
@@ -229,19 +236,19 @@ const GiroManagement = () => {
         if (!cancelled) setLoadingReport(false);
       });
     return () => { cancelled = true; };
-  }, [activeTab, city, debouncedSearch, equipmentType, mesa, page, ready, sector]);
+  }, [activeTab, city, debouncedSearch, equipmentType, mesa, page, ready, sector, selectedMonth]);
 
   const exportReport = async () => {
     try {
       setError('');
       const response = await api.get(`/giro/reports/${equipmentType}/export`, {
-        params: { sector, city, mesa, search: debouncedSearch },
+        params: { sector, city, mesa, month: selectedMonth, search: debouncedSearch },
         responseType: 'blob'
       });
       const url = URL.createObjectURL(response.data);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `giro-${equipmentType}-${report?.months?.[3] || 'atual'}.xlsx`;
+      link.download = `giro-${equipmentType}-${selectedMonth || 'atual'}.xlsx`;
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -256,6 +263,21 @@ const GiroManagement = () => {
     setPage(1);
     setError('');
   };
+  const monthFilter = (
+    <FormControl size="small" sx={{ minWidth: 180 }}>
+      <InputLabel id="giro-month-label">Competência</InputLabel>
+      <Select
+        labelId="giro-month-label"
+        label="Competência"
+        value={selectedMonth}
+        onChange={(event) => { setSelectedMonth(event.target.value); setPage(1); }}
+      >
+        {availableMonths.map((option) => (
+          <MenuItem key={option} value={option}>{monthLabel(option)}</MenuItem>
+        ))}
+      </Select>
+    </FormControl>
+  );
 
   return (
     <Box sx={{ display: 'grid', gap: 2, p: { xs: 1.5, md: 3 } }}>
@@ -290,7 +312,9 @@ const GiroManagement = () => {
             <Typography variant="h6">
               {overview ? `Competência ${monthLabel(overview.month)}` : 'Resultado do mês vigente'}
             </Typography>
-            <FormControl size="small" sx={{ minWidth: 220 }}>
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+              {monthFilter}
+              <FormControl size="small" sx={{ minWidth: 220 }}>
               <InputLabel id="giro-overview-city-label">Cidade</InputLabel>
               <Select
                 labelId="giro-overview-city-label"
@@ -301,18 +325,20 @@ const GiroManagement = () => {
                 <MenuItem value="">Todas as cidades</MenuItem>
                 {cities.map((option) => <MenuItem key={option} value={option}>{option}</MenuItem>)}
               </Select>
-            </FormControl>
+              </FormControl>
+            </Stack>
           </Stack>
+          {monthsWithoutSnapshot.length > 0 && (
+            <Alert severity="info">
+              Não há snapshot de equipamentos para as competências {monthsWithoutSnapshot.map(monthLabel).join(', ')}; elas não podem ser comparadas historicamente.
+            </Alert>
+          )}
           {loadingReport && <CircularProgress size={28} />}
           {overview && (
             <>
               <SummaryCards summary={overview.visa} type="VISA" />
-              <QuarterSummary summary={overview.visa_tri} type="VISA" />
               <SummaryCards summary={overview.sopi} type="SOPI" />
-              <QuarterSummary summary={overview.sopi_tri} type="SOPI" />
-              <SummaryTable title="Por setor" rows={overview.by_sector} />
-              <SummaryTable title="Por mesa" rows={overview.by_mesa} />
-              <SummaryTable title="Por cidade" rows={overview.by_city} />
+              <SummaryTable rows={overview.by_sector} />
             </>
           )}
         </Box>
@@ -320,9 +346,16 @@ const GiroManagement = () => {
 
       {!loadingImports && ready && ['visa', 'sopi'].includes(activeTab) && (
         <Box sx={{ display: 'grid', gap: 2 }}>
-          <Typography variant="h6">{equipmentType.toUpperCase()} · {report?.months?.[3] ? monthLabel(report.months[3]) : 'mês atual'}</Typography>
+          <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" alignItems={{ md: 'center' }}>
+            <Typography variant="h6">{equipmentType.toUpperCase()} · {selectedMonth ? monthLabel(selectedMonth) : 'mês atual'}</Typography>
+            {monthFilter}
+          </Stack>
           {report && <SummaryCards summary={report.summary} type={equipmentType.toUpperCase()} />}
-          {report && <QuarterSummary summary={report.tri} type={equipmentType.toUpperCase()} />}
+          {monthsWithoutSnapshot.length > 0 && (
+            <Alert severity="info">
+              Não há snapshot de equipamentos para as competências {monthsWithoutSnapshot.map(monthLabel).join(', ')}; elas não podem ser comparadas historicamente.
+            </Alert>
+          )}
           <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} flexWrap="wrap">
             <FormControl size="small" sx={{ minWidth: 150 }}>
               <InputLabel id="giro-sector-label">Setor</InputLabel>
@@ -375,29 +408,31 @@ const GiroManagement = () => {
             <Table size="small" stickyHeader>
               <TableHead>
                 <TableRow>
-                  {['Código PDV', 'Fantasia', 'Documento', 'Status', 'Frequência', 'Equip.', ...(report?.months || []).map(monthLabel), 'Meta PDV', 'GAP', 'Giro'].map((label) => (
+                  {['Código PDV', 'Fantasia', 'Setor', 'Cidade', 'Status', 'Frequência', 'Equip.', ...(report?.months || []).map(monthLabel), 'Última compra (mês)', 'Meta PDV', 'GAP', 'Giro'].map((label) => (
                     <TableCell key={label} sx={{ whiteSpace: 'nowrap', fontWeight: 700 }}>{label}</TableCell>
                   ))}
                 </TableRow>
               </TableHead>
               <TableBody>
-                {loadingReport && <TableRow><TableCell colSpan={13} align="center"><CircularProgress size={24} /></TableCell></TableRow>}
+                {loadingReport && <TableRow><TableCell colSpan={11 + (report?.months?.length || 0)} align="center"><CircularProgress size={24} /></TableCell></TableRow>}
                 {!loadingReport && report?.items.map((item) => (
                   <TableRow key={item.client_code} hover>
                     <TableCell>{item.client_code}</TableCell>
                     <TableCell>{item.fantasy_name || '-'}</TableCell>
-                    <TableCell>{item.document || '-'}</TableCell>
+                    <TableCell>{item.sector || '-'}</TableCell>
+                    <TableCell>{item.city || '-'}</TableCell>
                     <TableCell>{item.client_status || '-'}</TableCell>
                     <TableCell>{item.frequency || '-'}</TableCell>
                     <TableCell>{item.equipment_count}</TableCell>
                     {report.months.map((month) => <TableCell key={month}>{currency(item.month_sales[month])}</TableCell>)}
+                    <TableCell>{item.last_purchase_month ? monthLabel(item.last_purchase_month) : '-'}</TableCell>
                     <TableCell>{currency(item.monthly_target)}</TableCell>
                     <TableCell sx={{ color: item.gap > 0 ? 'error.main' : 'success.main' }}>{currency(item.gap)}</TableCell>
                     <TableCell>{item.giro_status}</TableCell>
                   </TableRow>
                 ))}
                 {!loadingReport && report?.items.length === 0 && (
-                  <TableRow><TableCell colSpan={13} align="center">Nenhum PDV encontrado para os filtros selecionados.</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={11 + (report?.months?.length || 0)} align="center">Nenhum PDV encontrado para os filtros selecionados.</TableCell></TableRow>
                 )}
               </TableBody>
             </Table>

@@ -23,6 +23,7 @@ from app.routes.giro import (
     _make_workbook,
     _quarter_summary,
     _report_rows,
+    _selected_month,
     _summary,
     _validate_upload_size,
     import_sales,
@@ -393,7 +394,7 @@ def test_giro_report_uses_strict_target_and_counts_all_client_equipment():
     _ensure_ready(session)
     months = ["2026-07", "2026-08", "2026-09", "2026-10"]
     rows = _report_rows(session, "visa", months)
-    summary = _summary(rows, months[-1])
+    summary = _summary(rows, months[-1], target_percent=8.5)
 
     assert rows[0].equipment_count == 2
     assert rows[0].monthly_target == 2400
@@ -401,6 +402,8 @@ def test_giro_report_uses_strict_target_and_counts_all_client_equipment():
     assert rows[0].gap == 0.01
     assert summary.clients_not_meeting == 1
     assert summary.giro_ok_percent == 0
+    assert summary.giro_nok_equipment == 2
+    assert summary.target_percent == 8.5
 
     sale = session.query(GiroMonthlySale).one()
     sale.amount = Decimal("2400.01")
@@ -415,11 +418,57 @@ def test_giro_report_uses_strict_target_and_counts_all_client_equipment():
     workbook = load_workbook(_make_workbook("visa", months, rows), read_only=True)
     sheet = workbook.active
     assert sheet.cell(1, 1).value == "Código do PDV"
-    assert sheet.cell(1, 11).value == "Meta do PDV"
+    assert sheet.cell(1, 12).value == "Meta do PDV"
     assert sheet.cell(2, 1).value == "100"
-    assert sheet.cell(2, 12).value == 0.01
+    assert sheet.cell(2, 13).value == 0.01
 
     workbook.close()
+    session.close()
+    engine.dispose()
+
+
+def test_historical_report_uses_snapshot_and_includes_last_purchase_month():
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine)()
+    client = PickupCatalogClient(client_code="100", nome_fantasia="Bar Central", setor="501")
+    session.add(client)
+    session.flush()
+    session.add(PickupCatalogInventoryItem(
+        client_id=client.id,
+        description="VISA Cooler atual",
+        giro_equipment_type="visa",
+        giro_install_date=date(2023, 1, 1),
+        giro_is_refrigerator=True,
+        giro_balance=7,
+    ))
+    session.add(GiroEquipmentSnapshot(month="2024-01"))
+    session.add(GiroEquipment(
+        client_code="100",
+        equipment_type="visa",
+        snapshot_month="2024-01",
+        install_date=date(2023, 1, 1),
+        quantity=2,
+        balance=2,
+        is_refrigerator=True,
+    ))
+    session.add_all([
+        GiroMonthlySale(client_code="100", month="2023-12", basket="visa", amount=Decimal("50.00")),
+        GiroMonthlySale(client_code="100", month="2024-01", basket="visa", amount=Decimal("100.00")),
+    ])
+    session.commit()
+
+    assert _selected_month(session, "2024-01") == "2024-01"
+    rows = _report_rows(
+        session,
+        "visa",
+        ["2023-10", "2023-11", "2023-12", "2024-01"],
+        equipment_month="2024-01",
+    )
+
+    assert rows[0].equipment_count == 2
+    assert rows[0].month_sales["2024-01"] == 100
+    assert rows[0].last_purchase_month == "2024-01"
     session.close()
     engine.dispose()
 

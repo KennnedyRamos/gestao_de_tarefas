@@ -25,8 +25,29 @@
   box-sizing: border-box;
 }
 
+img,
+svg,
+video,
+canvas {
+  max-width: 100%;
+}
+
+input,
+textarea,
+select,
+button {
+  font: inherit;
+}
+
 html, body, #root {
   min-height: 100%;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  min-width: 320px;
 }
 
 body {

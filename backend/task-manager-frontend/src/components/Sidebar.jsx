@@ -3,21 +3,27 @@ import {
   Box,
   Button,
   Divider,
+  Drawer,
+  IconButton,
   List,
   ListItemButton,
   ListItemText,
   Menu,
   MenuItem
 } from '@mui/material';
+import { useTheme } from '@mui/material/styles';
+import useMediaQuery from '@mui/material/useMediaQuery';
 import MenuIcon from '@mui/icons-material/Menu';
 import { useLocation, useNavigate } from 'react-router-dom';
 
 import api from '../services/api';
 import { hasAnyPermission, hasPermission, isAdmin } from '../utils/auth';
 
-const Sidebar = () => {
+const Sidebar = ({ mobileOpen = false, onMobileClose = () => {} }) => {
   const navigate = useNavigate();
   const location = useLocation();
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('md'));
 
   const showAdmin = isAdmin();
   const canManageDeliveries = hasPermission('deliveries.manage');
@@ -95,6 +101,11 @@ const Sidebar = () => {
     || location.pathname.startsWith('/pickups')
   );
   const userMenuOpen = Boolean(userMenuAnchor);
+
+  const navigateTo = (path) => {
+    navigate(path);
+    onMobileClose();
+  };
 
   const navItemSx = {
     borderRadius: 2,
@@ -176,14 +187,15 @@ const Sidebar = () => {
   };
 
   const handleUserMenuSelect = (userId) => {
-    navigate(`/dashboard?user=${userId}`);
+    navigateTo(`/dashboard?user=${userId}`);
     handleUserMenuClose();
   };
 
-  return (
+  const sidebarContent = (
     <Box
       sx={{
-        width: { xs: '100%', md: 240 },
+        width: { xs: 280, md: 240 },
+        maxWidth: '100%',
         background: 'linear-gradient(180deg, #ffffff 0%, var(--surface-warm) 100%)',
         borderRight: '1px solid var(--stroke)',
         px: 1,
@@ -191,14 +203,16 @@ const Sidebar = () => {
         boxShadow: '12px 0 30px rgba(32, 27, 22, 0.08)',
         position: { xs: 'static', md: 'sticky' },
         top: 0,
-        height: { xs: 'auto', md: '100vh' },
+        height: { xs: '100%', md: '100vh' },
+        minHeight: { xs: '100dvh', md: 'auto' },
+        overflowY: 'auto',
         display: 'flex',
         flexDirection: 'column'
       }}
     >
       <List sx={{ mb: 1 }}>
         <ListItemButton
-          onClick={() => navigate('/dashboard')}
+          onClick={() => navigateTo('/dashboard')}
           selected={isActive('/dashboard')}
           sx={navItemSx}
         >
@@ -207,7 +221,7 @@ const Sidebar = () => {
 
         {canViewComodatos && (
           <ListItemButton
-            onClick={() => navigate('/comodatos')}
+            onClick={() => navigateTo('/comodatos')}
             selected={isActive('/comodatos')}
             sx={navItemSx}
           >
@@ -217,7 +231,7 @@ const Sidebar = () => {
 
         {canAccessProductivity && (
           <ListItemButton
-            onClick={() => navigate(defaultProductivityRoute)}
+            onClick={() => navigateTo(defaultProductivityRoute)}
             selected={isProductivityActive}
             sx={navItemSx}
           >
@@ -227,7 +241,7 @@ const Sidebar = () => {
 
         {canAccessOperations && (
           <ListItemButton
-            onClick={() => navigate(defaultOperationsRoute)}
+            onClick={() => navigateTo(defaultOperationsRoute)}
             selected={isOperationsActive}
             sx={navItemSx}
           >
@@ -237,7 +251,7 @@ const Sidebar = () => {
 
         {canAccessEquipments && (
           <ListItemButton
-            onClick={() => navigate('/equipments')}
+            onClick={() => navigateTo('/equipments')}
             selected={isActive('/equipments')}
             sx={navItemSx}
           >
@@ -247,7 +261,7 @@ const Sidebar = () => {
 
         {canAccessGiro && (
           <ListItemButton
-            onClick={() => navigate('/giro')}
+            onClick={() => navigateTo('/giro')}
             selected={isGiroActive}
             sx={navItemSx}
           >
@@ -257,7 +271,7 @@ const Sidebar = () => {
 
         {canAccessRequests && (
           <ListItemButton
-            onClick={() => navigate('/requests')}
+            onClick={() => navigateTo('/requests')}
             selected={isActive('/requests')}
             sx={navItemSx}
           >
@@ -271,7 +285,7 @@ const Sidebar = () => {
           <Divider sx={{ my: 0.5 }} />
           {(canImportPickupBase || canManageGiro) && (
             <ListItemButton
-              onClick={() => navigate('/base-retiradas')}
+              onClick={() => navigateTo('/base-retiradas')}
               selected={isActive('/base-retiradas')}
               sx={navItemSx}
             >
@@ -282,7 +296,7 @@ const Sidebar = () => {
           {showAdmin && (
             <>
               <ListItemButton
-                onClick={() => navigate('/users')}
+                onClick={() => navigateTo('/users')}
                 selected={isActive('/users')}
                 sx={navItemSx}
               >
@@ -355,6 +369,27 @@ const Sidebar = () => {
         </Box>
       )}
     </Box>
+  );
+
+  if (!isMobile) {
+    return sidebarContent;
+  }
+
+  return (
+    <Drawer
+      anchor="left"
+      open={mobileOpen}
+      onClose={onMobileClose}
+      ModalProps={{ keepMounted: true }}
+      PaperProps={{ sx: { width: 280, maxWidth: '85vw' } }}
+    >
+      <Box sx={{ display: 'flex', justifyContent: 'flex-end', p: 0.5 }}>
+        <IconButton aria-label="Fechar menu" onClick={onMobileClose}>
+          <MenuIcon />
+        </IconButton>
+      </Box>
+      {sidebarContent}
+    </Drawer>
   );
 };
 

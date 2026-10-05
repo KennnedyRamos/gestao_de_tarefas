@@ -25,6 +25,7 @@ const Layout = () => {
   const location = useLocation();
   const [followupOpen, setFollowupOpen] = useState(false);
   const [followupInfo, setFollowupInfo] = useState(null);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   useEffect(() => {
     if (!hasPermission('pickups.withdrawals_history')) {
@@ -85,10 +86,10 @@ const Layout = () => {
   return (
     <>
       <Box className="app-shell">
-        <Sidebar />
-        <Box className="app-content">
-          <Header />
-          <Box className="page-anim">
+        <Sidebar mobileOpen={mobileMenuOpen} onMobileClose={() => setMobileMenuOpen(false)} />
+        <Box className="app-content" sx={{ minWidth: 0, width: '100%' }}>
+          <Header onMenuClick={() => setMobileMenuOpen(true)} />
+          <Box className="page-anim" sx={{ minWidth: 0, width: '100%' }}>
             <Outlet />
           </Box>
         </Box>
@@ -115,4 +116,3 @@ const Layout = () => {
 };
 
 export default Layout;
-

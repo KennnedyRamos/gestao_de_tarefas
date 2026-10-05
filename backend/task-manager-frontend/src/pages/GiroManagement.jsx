@@ -127,7 +127,6 @@ const GiroManagement = () => {
   const [sectors, setSectors] = useState([]);
   const [cities, setCities] = useState([]);
   const [availableMonths, setAvailableMonths] = useState([]);
-  const [monthsWithoutSnapshot, setMonthsWithoutSnapshot] = useState([]);
   const [salesMonthsByEquipment, setSalesMonthsByEquipment] = useState({ visa: [], sopi: [] });
   const [selectedMonth, setSelectedMonth] = useState('');
   const [loadingImports, setLoadingImports] = useState(true);
@@ -164,7 +163,6 @@ const GiroManagement = () => {
       setCities(response.data.cities || []);
       const months = response.data.available_months || [];
       setAvailableMonths(months);
-      setMonthsWithoutSnapshot(response.data.months_without_equipment_snapshot || []);
       const salesMonths = response.data.sales_months_by_equipment || { visa: [], sopi: [] };
       setSalesMonthsByEquipment(salesMonths);
       const latestMonthWithSales = months.find((month) => (
@@ -271,27 +269,63 @@ const GiroManagement = () => {
     setPage(1);
     setError('');
   };
+  const availableYears = [...new Set(availableMonths.map((month) => month.slice(0, 4)))].sort((a, b) => b.localeCompare(a));
+  const selectedYear = selectedMonth.slice(0, 4);
+  const monthsInSelectedYear = availableMonths
+    .filter((month) => month.startsWith(`${selectedYear}-`))
+    .sort((a, b) => b.localeCompare(a));
+  const chooseYear = (year) => {
+    const monthForYear = availableMonths.find((month) => month.startsWith(`${year}-`));
+    if (monthForYear) {
+      setSelectedMonth(monthForYear);
+      setPage(1);
+    }
+  };
   const monthFilter = (
-    <FormControl size="small" sx={{ minWidth: 180 }}>
-      <InputLabel id="giro-month-label">Competência</InputLabel>
-      <Select
-        labelId="giro-month-label"
-        label="Competência"
-        value={selectedMonth}
-        onChange={(event) => { setSelectedMonth(event.target.value); setPage(1); }}
+    <Stack spacing={0.75} sx={{ minWidth: 0, maxWidth: '100%' }}>
+      <Stack direction="row" spacing={1} alignItems="center">
+        <Typography variant="body2" color="text.secondary">Competência</Typography>
+        <FormControl size="small" sx={{ minWidth: 100 }}>
+          <InputLabel id="giro-year-label">Ano</InputLabel>
+          <Select
+            labelId="giro-year-label"
+            label="Ano"
+            value={selectedYear}
+            onChange={(event) => chooseYear(event.target.value)}
+          >
+            {availableYears.map((year) => <MenuItem key={year} value={year}>{year}</MenuItem>)}
+          </Select>
+        </FormControl>
+      </Stack>
+      <Box
+        role="group"
+        aria-label="Selecionar mês"
+        sx={{ display: 'flex', gap: 0.75, overflowX: 'auto', maxWidth: '100%', pb: 0.5 }}
       >
-          {[...new Set([...availableMonths, ...monthsWithoutSnapshot])]
-            .sort((left, right) => right.localeCompare(left))
-            .map((option) => {
-              const missingSnapshot = monthsWithoutSnapshot.includes(option);
-              return (
-                <MenuItem key={option} value={option} disabled={missingSnapshot}>
-                  {monthLabel(option)}{missingSnapshot ? ' · sem snapshot de equipamentos' : ''}
-                </MenuItem>
-              );
-            })}
-      </Select>
-      </FormControl>
+        {monthsInSelectedYear.map((option) => {
+          const monthName = new Intl.DateTimeFormat('pt-BR', { month: 'short' })
+            .format(new Date(Number(selectedYear), Number(option.slice(5, 7)) - 1, 1))
+            .replace('.', '');
+          return (
+            <Button
+              key={option}
+              size="small"
+              variant={selectedMonth === option ? 'contained' : 'outlined'}
+              aria-pressed={selectedMonth === option}
+              onClick={() => { setSelectedMonth(option); setPage(1); }}
+              sx={{ flex: '0 0 auto', minWidth: 64 }}
+            >
+              {monthName}
+            </Button>
+          );
+        })}
+      </Box>
+      {selectedMonth && (
+        <Typography variant="caption" color="text.secondary">
+          {monthLabel(selectedMonth)}
+        </Typography>
+      )}
+    </Stack>
   );
   const missingSalesTypes = ['visa', 'sopi'].filter(
       (type) => !salesMonthsByEquipment[type]?.includes(selectedMonth)
@@ -346,9 +380,9 @@ const GiroManagement = () => {
               </FormControl>
             </Stack>
           </Stack>
-          {monthsWithoutSnapshot.length > 0 && (
+          {overview?.equipment_is_estimated && (
             <Alert severity="info">
-              Não há snapshot de equipamentos para as competências {monthsWithoutSnapshot.map(monthLabel).join(', ')}; elas não podem ser comparadas historicamente.
+              Estimativa de equipamentos para {monthLabel(selectedMonth)}: VISA usa a base de {monthLabel(overview.visa_equipment_reference_month)} e SOPI usa a base de {monthLabel(overview.sopi_equipment_reference_month)}. O histórico de faturamento permanece referente à competência selecionada.
             </Alert>
           )}
           {missingSalesTypes.length > 0 && selectedMonth && (
@@ -374,9 +408,9 @@ const GiroManagement = () => {
             {monthFilter}
           </Stack>
           {report && <SummaryCards summary={report.summary} type={equipmentType.toUpperCase()} />}
-          {monthsWithoutSnapshot.length > 0 && (
+          {report?.equipment_is_estimated && (
             <Alert severity="info">
-              Não há snapshot de equipamentos para as competências {monthsWithoutSnapshot.map(monthLabel).join(', ')}; elas não podem ser comparadas historicamente.
+              Estimativa de equipamentos para {monthLabel(selectedMonth)}: usando a base de {monthLabel(report.equipment_reference_month)}. O histórico de faturamento permanece referente à competência selecionada.
             </Alert>
           )}
           {!salesMonthsByEquipment[equipmentType]?.includes(selectedMonth) && selectedMonth && (

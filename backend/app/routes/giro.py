@@ -228,12 +228,9 @@ def _ensure_ready(db: Session, selected_month: str | None = None) -> None:
         )
     if not db.query(PickupCatalogClient.id).first():
         raise HTTPException(status_code=409, detail="A base de clientes 01.20.11 não contém registros no banco de dados.")
-    equipment_available = (
-        bool(db.query(GiroEquipmentSnapshot.id).filter(
-            GiroEquipmentSnapshot.month == selected_month
-        ).first())
-        if selected_month and selected_month != _current_month()
-        else any(_equipment_by_client(db, equipment_type) for equipment_type in MONTHLY_TARGETS)
+    equipment_available = any(
+        _equipment_for_month(db, equipment_type, selected_month or _current_month())[0]
+        for equipment_type in MONTHLY_TARGETS
     )
     if not equipment_available:
         raise HTTPException(
@@ -246,13 +243,6 @@ def _selected_month(db: Session, requested_month: str | None) -> str:
     selected_month = requested_month or _current_month()
     if selected_month > _current_month():
         raise HTTPException(status_code=422, detail="A competência não pode ser futura.")
-    if selected_month != _current_month() and not db.query(GiroEquipmentSnapshot.id).filter(
-        GiroEquipmentSnapshot.month == selected_month
-    ).first():
-        raise HTTPException(
-            status_code=409,
-            detail=f"Não há snapshot de equipamentos para {selected_month}; não é possível calcular esse histórico.",
-        )
     return selected_month
 
 
@@ -349,6 +339,27 @@ def _equipment_snapshot_by_client(
     return result
 
 
+def _equipment_for_month(
+    db: Session,
+    equipment_type: str,
+    selected_month: str,
+) -> tuple[dict[str, Decimal], str]:
+    current_month = _current_month()
+    if selected_month == current_month:
+        return _equipment_by_client(db, equipment_type), current_month
+
+    snapshot_month = (
+        db.query(GiroEquipmentSnapshot.month)
+        .filter(GiroEquipmentSnapshot.month <= selected_month)
+        .order_by(GiroEquipmentSnapshot.month.desc())
+        .first()
+    )
+    if snapshot_month:
+        return _equipment_snapshot_by_client(db, equipment_type, snapshot_month[0]), snapshot_month[0]
+
+    return _equipment_by_client(db, equipment_type), current_month
+
+
 def _report_rows(
     db: Session,
     equipment_type: str,
@@ -360,10 +371,11 @@ def _report_rows(
     mesa: str = "",
     search: str = "",
 ) -> list[GiroReportItemOut]:
-    if equipment_month and equipment_month != _current_month():
-        equipment_counts = _equipment_snapshot_by_client(db, equipment_type, equipment_month)
-    else:
-        equipment_counts = _equipment_by_client(db, equipment_type)
+    equipment_counts = _equipment_for_month(
+        db,
+        equipment_type,
+        equipment_month or _current_month(),
+    )[0]
     codes = set(equipment_counts)
     if not codes:
         return []
@@ -679,7 +691,11 @@ def get_import_status(
     sales_months = set.union(*sales_by_equipment.values())
     current_month = _current_month()
     available_months = sorted(
-        {month for month in snapshot_months if month <= current_month} | {current_month},
+        (set(snapshot_months) | sales_months | {current_month}) - {
+            month
+            for month in set(snapshot_months) | sales_months
+            if month > current_month
+        },
         reverse=True,
     )
     months_without_snapshot = sorted(
@@ -724,6 +740,7 @@ def get_report(
     selected_month = _selected_month(db, month)
     _ensure_ready(db, selected_month)
     months = _report_months(selected_month)
+    equipment_reference_month = _equipment_for_month(db, equipment_type, selected_month)[1]
     rows = _report_rows(
         db,
         equipment_type,
@@ -739,6 +756,8 @@ def get_report(
     return GiroReportOut(
         equipment_type=equipment_type,
         months=months,
+        equipment_reference_month=equipment_reference_month,
+        equipment_is_estimated=equipment_reference_month != selected_month,
         summary=_summary(rows, selected_month, _target_percent(db, equipment_type, selected_month)),
         tri=_quarter_summary(
             db,
@@ -792,6 +811,11 @@ def get_overview(
     selected_month = _selected_month(db, month)
     _ensure_ready(db, selected_month)
     months = _report_months(selected_month)
+    equipment_references = {
+        equipment_type: _equipment_for_month(db, equipment_type, selected_month)[1]
+        for equipment_type in MONTHLY_TARGETS
+    }
+    equipment_reference_month = min(equipment_references.values(), default=selected_month)
     visa = _report_rows(db, "visa", months, equipment_month=selected_month, city=city)
     sopi = _report_rows(db, "sopi", months, equipment_month=selected_month, city=city)
     target_per_type = {
@@ -800,6 +824,12 @@ def get_overview(
     }
     return GiroOverviewOut(
         month=selected_month,
+        equipment_reference_month=equipment_reference_month,
+        equipment_is_estimated=equipment_reference_month != selected_month,
+        visa_equipment_reference_month=equipment_references["visa"],
+        visa_equipment_is_estimated=equipment_references["visa"] != selected_month,
+        sopi_equipment_reference_month=equipment_references["sopi"],
+        sopi_equipment_is_estimated=equipment_references["sopi"] != selected_month,
         visa=_summary(visa, selected_month, target_per_type["visa"]),
         sopi=_summary(sopi, selected_month, target_per_type["sopi"]),
         visa_tri=_quarter_summary(db, "visa", months, city=city),

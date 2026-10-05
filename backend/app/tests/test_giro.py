@@ -20,6 +20,7 @@ from app.models.pickup_catalog import PickupCatalogClient, PickupCatalogInventor
 from app.routes.giro import (
     _ensure_ready,
     _equipment_by_client,
+    _equipment_for_month,
     _make_workbook,
     _quarter_summary,
     _report_rows,
@@ -145,6 +146,70 @@ def test_giro_uses_equipment_mapping_for_legacy_inventory_rows():
     _ensure_ready(session)
     assert _equipment_by_client(session, "visa") == {"100": Decimal(2)}
     assert _equipment_by_client(session, "sopi") == {"100": Decimal(2)}
+    session.close()
+    engine.dispose()
+
+
+def test_historical_giro_uses_latest_equipment_snapshot_before_selected_month(monkeypatch):
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine)()
+    session.add_all([
+        GiroEquipmentSnapshot(month="2025-12", file_name="older.csv"),
+        GiroEquipmentSnapshot(month="2026-02", file_name="newer.csv"),
+        GiroEquipment(
+            snapshot_month="2025-12",
+            client_code="100",
+            equipment_type="visa",
+            quantity=2,
+            install_date=date(2025, 1, 1),
+            is_refrigerator=1,
+            balance=2,
+        ),
+        GiroEquipment(
+            snapshot_month="2026-02",
+            client_code="100",
+            equipment_type="visa",
+            quantity=4,
+            install_date=date(2025, 1, 1),
+            is_refrigerator=1,
+            balance=4,
+        ),
+    ])
+    session.commit()
+    monkeypatch.setattr("app.routes.giro._current_month", lambda: "2026-09")
+
+    equipment, reference_month = _equipment_for_month(session, "visa", "2026-04")
+
+    assert equipment == {"100": Decimal(4)}
+    assert reference_month == "2026-02"
+    session.close()
+    engine.dispose()
+
+
+def test_historical_giro_falls_back_to_current_equipment_when_no_snapshot_precedes_month(monkeypatch):
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine)()
+    session.add_all([
+        GiroEquipmentSnapshot(month="2026-02", file_name="newer.csv"),
+        GiroEquipment(
+            snapshot_month="2026-02",
+            client_code="100",
+            equipment_type="visa",
+            quantity=4,
+            install_date=date(2025, 1, 1),
+            is_refrigerator=1,
+            balance=4,
+        ),
+    ])
+    session.commit()
+    monkeypatch.setattr("app.routes.giro._current_month", lambda: "2026-09")
+
+    equipment, reference_month = _equipment_for_month(session, "visa", "2025-12")
+
+    assert equipment == {}
+    assert reference_month == "2026-09"
     session.close()
     engine.dispose()
 

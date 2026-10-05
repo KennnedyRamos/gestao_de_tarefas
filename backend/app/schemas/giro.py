@@ -60,6 +60,8 @@ class GiroReportItemOut(BaseModel):
 class GiroReportOut(BaseModel):
     equipment_type: str
     months: list[str]
+    equipment_reference_month: str | None = None
+    equipment_is_estimated: bool
     summary: GiroSummaryOut
     tri: GiroQuarterSummaryOut
     items: list[GiroReportItemOut]
@@ -79,6 +81,12 @@ class GiroBreakdownOut(BaseModel):
 
 class GiroOverviewOut(BaseModel):
     month: str
+    equipment_reference_month: str | None = None
+    equipment_is_estimated: bool
+    visa_equipment_reference_month: str | None = None
+    visa_equipment_is_estimated: bool
+    sopi_equipment_reference_month: str | None = None
+    sopi_equipment_is_estimated: bool
     visa: GiroSummaryOut
     sopi: GiroSummaryOut
     visa_tri: GiroQuarterSummaryOut

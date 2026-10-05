@@ -27,6 +27,7 @@ from app.models.pickup_catalog import (
     PickupCatalogInventoryItem,
     PickupCatalogOrder,
     PickupCatalogOrderItem,
+    PickupCatalogPendingRequest,
     PickupCatalogUploadBatch,
 )
 from app.models.equipment import Equipment
@@ -45,6 +46,9 @@ from app.schemas.pickup_catalog import (
     PickupCatalogOrderEmailOtherOut,
     PickupCatalogOrderEmailRefrigeratorOut,
     PickupCatalogOrderEmailRequestOut,
+    PickupCatalogPendingItemOut,
+    PickupCatalogPendingRequestIn,
+    PickupCatalogPendenciesOut,
     PickupCatalogOrderStatusUpdateIn,
     PickupCatalogPdfRequest,
     PickupCatalogStats,
@@ -57,7 +61,9 @@ from app.services.pickup_catalog_csv import (
     item_type_label,
     load_clients_csv,
     load_inventory_csv,
+    inventory_signature_headers_present,
     merge_clients_with_inventory_snapshots,
+    normalize_header,
 )
 from app.services.pickup_catalog_pdf import build_withdrawal_pdf
 
@@ -738,6 +744,270 @@ def _latest_status(db: Session) -> tuple[bool, PickupCatalogStats, datetime | No
     ), None
 
 
+def _pending_item_matches_inventory(
+    item: dict[str, Any],
+    pending: PickupCatalogPendingRequest,
+) -> bool:
+    if pending.comodato_number:
+        return _normalize_code_key(item.get("comodato_number")) == _normalize_code_key(pending.comodato_number)
+    if pending.rg:
+        return _normalize_code_key(item.get("rg")) == _normalize_code_key(pending.rg)
+
+    def normalize_description(value: Any) -> str:
+        return re.sub(r"\W+", "", _safe_text(value).casefold())
+
+    return normalize_description(item.get("description")) == normalize_description(pending.description)
+
+
+def _pending_item_out(
+    *,
+    item_id: str,
+    request_type: str,
+    client: PickupCatalogClient | None,
+    description: str,
+    quantity: int,
+    issue_date: str = "",
+    rg: str = "",
+    comodato_number: str = "",
+    destination_client_code: str = "",
+    destination_fantasy_name: str = "",
+    requested_at: datetime | None = None,
+    requested_by: str = "",
+) -> PickupCatalogPendingItemOut:
+    return PickupCatalogPendingItemOut(
+        id=item_id,
+        request_type=request_type,
+        client_code=_safe_text(getattr(client, "client_code", "")),
+        nome=_safe_text(getattr(client, "razao_social", "")),
+        fantasia=_safe_text(getattr(client, "nome_fantasia", "")),
+        document=_safe_text(getattr(client, "cnpj_cpf", "")),
+        setor=_safe_text(getattr(client, "setor", "")),
+        status=_safe_text(getattr(client, "status", "")),
+        description=description,
+        quantity=quantity,
+        issue_date=issue_date,
+        rg=rg,
+        comodato_number=comodato_number,
+        destination_client_code=destination_client_code,
+        destination_fantasy_name=destination_fantasy_name,
+        requested_at=requested_at,
+        requested_by=requested_by,
+    )
+
+
+@router.get("/pendencies", response_model=PickupCatalogPendenciesOut)
+def get_pendencies(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_any_permission(
+        "pickups.withdrawals_history",
+        "pickups.create_order",
+        "equipments.view",
+        "equipments.manage",
+    )),
+):
+    latest_batch = db.query(PickupCatalogUploadBatch).order_by(PickupCatalogUploadBatch.id.desc()).first()
+    signatures_available = bool(
+        latest_batch and latest_batch.inventory_has_cc and latest_batch.inventory_has_cnf
+    )
+    pending_signatures: list[PickupCatalogPendingItemOut] = []
+    if signatures_available:
+        query = db.query(PickupCatalogClient, PickupCatalogInventoryItem).join(
+            PickupCatalogInventoryItem,
+            PickupCatalogInventoryItem.client_id == PickupCatalogClient.id,
+        ).filter(PickupCatalogInventoryItem.open_quantity > 0)
+        if _uses_batched_inventory(db):
+            query = query.filter(PickupCatalogInventoryItem.batch_id == latest_batch.id)
+        for client, inventory_item in query.order_by(
+            PickupCatalogClient.nome_fantasia.asc(),
+            PickupCatalogInventoryItem.description.asc(),
+        ).all():
+            if (
+                normalize_header(inventory_item.cc) != "nao"
+                or normalize_header(inventory_item.cnf) != "nao"
+            ):
+                continue
+            pending_signatures.append(_pending_item_out(
+                item_id=f"signature:{inventory_item.id}",
+                request_type="assinatura",
+                client=client,
+                description=_safe_text(inventory_item.description),
+                quantity=int(inventory_item.open_quantity or 0),
+                issue_date=_safe_text(inventory_item.invoice_issue_date),
+                rg=_safe_text(inventory_item.rg),
+                comodato_number=_safe_text(inventory_item.comodato_number),
+            ))
+
+    stored_requests = (
+        db.query(PickupCatalogPendingRequest)
+        .filter(PickupCatalogPendingRequest.resolved_at.is_(None))
+        .order_by(PickupCatalogPendingRequest.requested_at.desc(), PickupCatalogPendingRequest.id.desc())
+        .all()
+    )
+    client_codes = {
+        canonical_code(item.source_client_code)
+        for item in stored_requests
+    }
+    clients_by_code = {
+        canonical_code(client.client_code): client
+        for client in db.query(PickupCatalogClient)
+        .filter(PickupCatalogClient.client_code.in_(client_codes))
+        .all()
+    } if client_codes else {}
+    pending_requests: list[PickupCatalogPendingItemOut] = []
+    represented_keys: set[tuple[str, str, str, str]] = set()
+    for pending in stored_requests:
+        code = canonical_code(pending.source_client_code)
+        key = (
+            code,
+            pending.request_type,
+            _normalize_code_key(pending.comodato_number or pending.rg or pending.description),
+            canonical_code(pending.destination_client_code),
+        )
+        represented_keys.add(key)
+        pending_requests.append(_pending_item_out(
+            item_id=f"request:{pending.id}",
+            request_type=pending.request_type,
+            client=clients_by_code.get(code),
+            description=_safe_text(pending.description),
+            quantity=int(pending.quantity or 0),
+            rg=_safe_text(pending.rg),
+            comodato_number=_safe_text(pending.comodato_number),
+            destination_client_code=_safe_text(pending.destination_client_code),
+            destination_fantasy_name=_safe_text(pending.destination_fantasy_name),
+            requested_at=pending.requested_at,
+            requested_by=_safe_text(pending.requested_by),
+        ))
+
+    legacy_orders = (
+        db.query(PickupCatalogOrder)
+        .filter(
+            PickupCatalogOrder.status == "concluida",
+            PickupCatalogOrder.email_request_status == "requested",
+        )
+        .order_by(PickupCatalogOrder.created_at.desc())
+        .all()
+    )
+    for order in legacy_orders:
+        code = canonical_code(order.client_code)
+        client = clients_by_code.get(code) or (
+            db.query(PickupCatalogClient)
+            .filter(PickupCatalogClient.client_code == code)
+            .first()
+        )
+        if client is None:
+            continue
+        current_items = _load_inventory_items_for_client(db, int(client.id))
+        for order_item in db.query(PickupCatalogOrderItem).filter(
+            PickupCatalogOrderItem.order_id == order.id
+        ).all():
+            match = next((
+                item for item in current_items
+                if (
+                    _normalize_code_key(order_item.comodato_number)
+                    and _normalize_code_key(order_item.comodato_number)
+                    == _normalize_code_key(item.comodato_number)
+                ) or (
+                    _normalize_code_key(order_item.rg)
+                    and _normalize_code_key(order_item.rg) == _normalize_code_key(item.rg)
+                ) or (
+                    not _normalize_code_key(order_item.comodato_number)
+                    and not _normalize_code_key(order_item.rg)
+                    and re.sub(r"\W+", "", _safe_text(order_item.description).casefold())
+                    == re.sub(r"\W+", "", _safe_text(item.description).casefold())
+                )
+            ), None)
+            if match is None:
+                continue
+            key = (
+                code,
+                "baixa",
+                _normalize_code_key(order_item.comodato_number or order_item.rg or order_item.description),
+                "",
+            )
+            if key in represented_keys:
+                continue
+            represented_keys.add(key)
+            pending_requests.append(_pending_item_out(
+                item_id=f"legacy-order:{order.id}:{order_item.id}",
+                request_type="baixa",
+                client=client,
+                description=_safe_text(order_item.description),
+                quantity=int(order_item.quantity or 0),
+                rg=_safe_text(order_item.rg),
+                comodato_number=_safe_text(order_item.comodato_number),
+                requested_at=order.created_at,
+                requested_by=_safe_text(order.email_request_updated_by),
+            ))
+
+    return PickupCatalogPendenciesOut(
+        loaded_at=latest_batch.uploaded_at if latest_batch else None,
+        signatures_available=signatures_available,
+        pending_signatures=pending_signatures,
+        pending_requests=pending_requests,
+    )
+
+
+@router.post("/pendencies/requests")
+def create_pending_requests(
+    payload: PickupCatalogPendingRequestIn,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_any_permission(
+        "pickups.withdrawals_history",
+        "pickups.create_order",
+    )),
+):
+    requested_by = _safe_text(current_user.name) or _safe_text(current_user.email)
+    source_order_ids = sorted({int(order_id) for order_id in payload.source_order_ids if int(order_id) > 0})
+    if source_order_ids:
+        source_orders = (
+            db.query(PickupCatalogOrder)
+            .filter(PickupCatalogOrder.id.in_(source_order_ids))
+            .all()
+        )
+        completed_orders = [
+            order for order in source_orders
+            if _normalized_order_status(order.status) == "concluida"
+        ]
+        if len(completed_orders) != len(source_order_ids):
+            raise HTTPException(status_code=422, detail="Uma ou mais ordens de origem não estão concluídas.")
+        for order in completed_orders:
+            order.email_request_status = "requested"
+            order.email_request_updated_at = _now_brazil()
+            order.email_request_updated_by = requested_by
+
+    pending_rows: list[PickupCatalogPendingRequest] = []
+    for item in payload.items:
+        source_code = canonical_code(item.source_client_code)
+        client = (
+            db.query(PickupCatalogClient)
+            .filter(PickupCatalogClient.client_code == source_code)
+            .first()
+        )
+        if client is None:
+            raise HTTPException(status_code=404, detail=f"Cliente de origem {source_code} não encontrado na base.")
+        pending = PickupCatalogPendingRequest(
+            request_type=payload.request_type,
+            source_client_code=source_code,
+            source_fantasy_name=_safe_text(client.nome_fantasia),
+            source_document=_safe_text(client.cnpj_cpf),
+            destination_client_code=canonical_code(item.destination_client_code),
+            destination_fantasy_name=_safe_text(item.destination_fantasy_name),
+            description=_safe_text(item.description),
+            quantity=int(item.quantity),
+            rg=_safe_text(item.rg),
+            comodato_number=_safe_text(item.comodato_number),
+            requested_by=requested_by,
+        )
+        db.add(pending)
+        pending_rows.append(pending)
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    return {"created_count": len(pending_rows)}
+
+
 def _format_brazil_date(value: str | None) -> str:
     raw = _safe_text(value)
     if not raw:
@@ -891,6 +1161,8 @@ def _load_existing_inventory_rows(db: Session) -> dict[str, list[dict[str, Any]]
             "giro_install_date": item.giro_install_date,
             "giro_is_refrigerator": bool(item.giro_is_refrigerator),
             "giro_balance": int(item.giro_balance or 0),
+            "cc": _safe_text(item.cc),
+            "cnf": _safe_text(item.cnf),
             "client_snapshot": client_snapshot,
         })
 
@@ -954,6 +1226,12 @@ async def upload_csv(
             else _load_existing_inventory_rows(db)
         )
         merged_clients = _prepare_merged_clients(clients_rows, inventory_rows)
+        if has_inventory_upload:
+            inventory_has_cc, inventory_has_cnf = inventory_signature_headers_present(inventory_bytes)
+        else:
+            previous_batch = db.query(PickupCatalogUploadBatch).order_by(PickupCatalogUploadBatch.id.desc()).first()
+            inventory_has_cc = bool(previous_batch and previous_batch.inventory_has_cc)
+            inventory_has_cnf = bool(previous_batch and previous_batch.inventory_has_cnf)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -984,6 +1262,8 @@ async def upload_csv(
     batch = PickupCatalogUploadBatch(
         clients_file_name=_safe_text(clients_csv.filename) if has_clients_upload and clients_csv else "",
         inventory_file_name=_safe_text(inventory_csv.filename) if has_inventory_upload and inventory_csv else "",
+        inventory_has_cc=inventory_has_cc,
+        inventory_has_cnf=inventory_has_cnf,
     )
     db.add(batch)
     db.flush()
@@ -1030,6 +1310,8 @@ async def upload_csv(
                     giro_install_date=item.get("giro_install_date"),
                     giro_is_refrigerator=bool(item.get("giro_is_refrigerator")),
                     giro_balance=int(item.get("giro_balance", 0) or 0),
+                    cc=_safe_text(item.get("cc")),
+                    cnf=_safe_text(item.get("cnf")),
                 )
             )
             open_items += 1
@@ -1082,6 +1364,27 @@ async def upload_csv(
     batch.clients_count = len(merged_clients)
     batch.inventory_clients = len(inventory_rows)
     batch.open_items = open_items
+
+    if has_inventory_upload:
+        active_requests = (
+            db.query(PickupCatalogPendingRequest)
+            .filter(PickupCatalogPendingRequest.resolved_at.is_(None))
+            .all()
+        )
+        inventory_by_client = {
+            code: items for code, items in inventory_rows.items()
+        }
+        for pending in active_requests:
+            current_quantity = sum(
+                int(item.get("open_quantity", 0) or 0)
+                for item in inventory_by_client.get(
+                    canonical_code(pending.source_client_code),
+                    [],
+                )
+                if _pending_item_matches_inventory(item, pending)
+            )
+            if current_quantity <= 0:
+                pending.resolved_at = _now_brazil()
 
     db.commit()
 

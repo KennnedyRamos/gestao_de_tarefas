@@ -250,3 +250,48 @@ class PickupCatalogDailyFollowupOut(BaseModel):
     can_prompt: bool = False
     total_pending: int = 0
     orders: List[PickupCatalogOrderOut] = Field(default_factory=list)
+
+
+class PickupCatalogPendingRequestItemIn(BaseModel):
+    source_client_code: str = Field(min_length=1, max_length=64)
+    source_fantasy_name: str = Field(default="", max_length=255)
+    source_document: str = Field(default="", max_length=64)
+    destination_client_code: str = Field(default="", max_length=64)
+    destination_fantasy_name: str = Field(default="", max_length=255)
+    description: str = Field(min_length=1, max_length=255)
+    quantity: int = Field(ge=1, le=999)
+    rg: str = Field(default="", max_length=120)
+    comodato_number: str = Field(default="", max_length=120)
+
+
+class PickupCatalogPendingRequestIn(BaseModel):
+    request_type: Literal["baixa", "de_para"]
+    items: List[PickupCatalogPendingRequestItemIn] = Field(min_length=1, max_length=300)
+    source_order_ids: List[int] = Field(default_factory=list, max_length=200)
+
+
+class PickupCatalogPendingItemOut(BaseModel):
+    id: str
+    request_type: Literal["assinatura", "baixa", "de_para"]
+    client_code: str = ""
+    nome: str = ""
+    fantasia: str = ""
+    document: str = ""
+    setor: str = ""
+    status: str = ""
+    description: str
+    quantity: int
+    issue_date: str = ""
+    rg: str = ""
+    comodato_number: str = ""
+    destination_client_code: str = ""
+    destination_fantasy_name: str = ""
+    requested_at: datetime | None = None
+    requested_by: str = ""
+
+
+class PickupCatalogPendenciesOut(BaseModel):
+    loaded_at: datetime | None = None
+    signatures_available: bool
+    pending_signatures: List[PickupCatalogPendingItemOut] = Field(default_factory=list)
+    pending_requests: List[PickupCatalogPendingItemOut] = Field(default_factory=list)

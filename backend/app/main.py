@@ -154,7 +154,8 @@ def ensure_user_token_version_column():
 
 def ensure_pickup_catalog_columns():
     inspector = inspect(engine)
-    if "pickup_catalog_inventory_items" not in inspector.get_table_names():
+    table_names = inspector.get_table_names()
+    if "pickup_catalog_inventory_items" not in table_names:
         return
     columns = [col["name"] for col in inspector.get_columns("pickup_catalog_inventory_items")]
     with engine.begin() as conn:
@@ -170,6 +171,17 @@ def ensure_pickup_catalog_columns():
             conn.execute(text("ALTER TABLE pickup_catalog_inventory_items ADD COLUMN giro_is_refrigerator INTEGER DEFAULT 0"))
         if "giro_balance" not in columns:
             conn.execute(text("ALTER TABLE pickup_catalog_inventory_items ADD COLUMN giro_balance INTEGER DEFAULT 0"))
+        if "cc" not in columns:
+            conn.execute(text("ALTER TABLE pickup_catalog_inventory_items ADD COLUMN cc VARCHAR(40) DEFAULT ''"))
+        if "cnf" not in columns:
+            conn.execute(text("ALTER TABLE pickup_catalog_inventory_items ADD COLUMN cnf VARCHAR(40) DEFAULT ''"))
+    if "pickup_catalog_upload_batches" in table_names:
+        batch_columns = [col["name"] for col in inspector.get_columns("pickup_catalog_upload_batches")]
+        with engine.begin() as conn:
+            if "inventory_has_cc" not in batch_columns:
+                conn.execute(text("ALTER TABLE pickup_catalog_upload_batches ADD COLUMN inventory_has_cc INTEGER NOT NULL DEFAULT 0"))
+            if "inventory_has_cnf" not in batch_columns:
+                conn.execute(text("ALTER TABLE pickup_catalog_upload_batches ADD COLUMN inventory_has_cnf INTEGER NOT NULL DEFAULT 0"))
     client_columns = [col["name"] for col in inspector.get_columns("pickup_catalog_clients")]
     with engine.begin() as conn:
         if "status" not in client_columns:

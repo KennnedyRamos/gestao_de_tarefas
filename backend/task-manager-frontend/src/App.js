@@ -21,6 +21,7 @@ const PickupsCenter = lazy(() => import('./pages/PickupsCenter'));
 const OperationsHub = lazy(() => import('./pages/OperationsHub'));
 const Equipments = lazy(() => import('./pages/Equipments'));
 const Requests = lazy(() => import('./pages/Requests'));
+const Pendencies = lazy(() => import('./pages/Pendencies'));
 const GiroManagement = lazy(() => import('./pages/GiroManagement'));
 
 const RequireAuth = ({ children }) => {
@@ -172,7 +173,22 @@ function App() {
                 <Requests />
               </RequireAnyPermission>
             )}
-          />
+            />
+            <Route
+              path="pendencies"
+              element={(
+                <RequireAnyPermission
+                  permissions={[
+                    'pickups.withdrawals_history',
+                    'pickups.create_order',
+                    'equipments.view',
+                    'equipments.manage'
+                  ]}
+                >
+                  <Pendencies />
+                </RequireAnyPermission>
+              )}
+            />
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Route>
         </Routes>

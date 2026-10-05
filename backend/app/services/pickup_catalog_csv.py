@@ -101,6 +101,8 @@ INVENTORY_ALIASES = {
     "giro_install_date": ["data operacao", "data operação", "data instalacao", "data instalação"],
     "giro_is_refrigerator": ["equipamento", "refrigerador", "refri"],
     "giro_balance": ["saldo"],
+    "cc": ["cc"],
+    "cnf": ["cnf"],
 }
 
 ITEM_TYPE_LABELS = {
@@ -503,6 +505,8 @@ def load_inventory_csv(raw_bytes: bytes) -> dict[str, list[dict[str, Any]]]:
     giro_date_col = _pick_column(header_map, INVENTORY_ALIASES["giro_install_date"], required=False)
     giro_refrigerator_col = _pick_column(header_map, INVENTORY_ALIASES["giro_is_refrigerator"], required=False)
     giro_balance_col = _pick_column(header_map, INVENTORY_ALIASES["giro_balance"], required=False)
+    cc_col = _pick_column(header_map, INVENTORY_ALIASES["cc"], required=False)
+    cnf_col = _pick_column(header_map, INVENTORY_ALIASES["cnf"], required=False)
 
     result: dict[str, list[dict[str, Any]]] = {}
     row_number = 0
@@ -572,11 +576,21 @@ def load_inventory_csv(raw_bytes: bytes) -> dict[str, list[dict[str, Any]]]:
                 abs(parse_integer(row.get(giro_balance_col or "", "0")))
                 if giro_balance_col else open_quantity
             ),
+            "cc": _compact_spaces(row.get(cc_col or "", "")) if cc_col else "",
+            "cnf": _compact_spaces(row.get(cnf_col or "", "")) if cnf_col else "",
             "client_snapshot": _extract_client_payload_from_row(row, header_map),
         }
         result.setdefault(code, []).append(item)
 
     return result
+
+
+def inventory_signature_headers_present(raw_bytes: bytes) -> tuple[bool, bool]:
+    _, header_map = _read_csv_rows(raw_bytes)
+    return (
+        _pick_column(header_map, INVENTORY_ALIASES["cc"], required=False) is not None,
+        _pick_column(header_map, INVENTORY_ALIASES["cnf"], required=False) is not None,
+    )
 
 
 def merge_clients_with_inventory_snapshots(

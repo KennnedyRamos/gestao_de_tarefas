@@ -2,6 +2,7 @@ import asyncio
 from io import BytesIO
 from datetime import date
 from decimal import Decimal
+from types import SimpleNamespace
 
 from fastapi import HTTPException, UploadFile
 from sqlalchemy import create_engine
@@ -16,7 +17,12 @@ from app.models.giro import (
     GiroMonthlySale,
     GiroMonthlyTarget,
 )
-from app.models.pickup_catalog import PickupCatalogClient, PickupCatalogInventoryItem
+from app.models.pickup_catalog import (
+    PickupCatalogClient,
+    PickupCatalogInventoryItem,
+    PickupCatalogPendingRequest,
+    PickupCatalogUploadBatch,
+)
 from app.routes.giro import (
     _ensure_ready,
     _equipment_by_client,
@@ -31,12 +37,18 @@ from app.routes.giro import (
     MAX_SALES_CSV_BYTES,
     mesa_for_sector,
 )
+from app.routes.pickup_catalog import create_pending_requests, get_pendencies, upload_csv
+from app.schemas.pickup_catalog import PickupCatalogPendingRequestIn
 from app.services.giro_csv import (
     parse_sales_rows,
     parse_target_rows,
 )
 from app.services.giro_reference import BASKET_BY_PRODUCT_CODE, EQUIPMENT_TYPE_BY_PRODUCT_CODE
-from app.services.pickup_catalog_csv import load_clients_csv, load_inventory_csv
+from app.services.pickup_catalog_csv import (
+    inventory_signature_headers_present,
+    load_clients_csv,
+    load_inventory_csv,
+)
 
 
 def test_existing_client_csv_import_includes_status_and_frequency_for_giro():
@@ -71,6 +83,151 @@ def test_existing_inventory_csv_import_captures_giro_equipment_fields():
     assert refrigerator["giro_is_refrigerator"] is True
     assert refrigerator["giro_install_date"] == date(2026, 10, 2)
     assert refrigerator["giro_balance"] == 2
+
+
+def test_inventory_csv_reads_signature_columns_for_negative_balance_items():
+    csv_data = (
+        "Codigo Cliente;Descricao;Saldo;Nro Comodato;CC;CNF;Data Emissao\n"
+        "100;REFRIGERADOR VISA;-2;COM-10;NAO;NAO;02/10/2026\n"
+    ).encode("utf-8")
+
+    inventory = load_inventory_csv(csv_data)
+
+    assert inventory["100"][0]["cc"] == "NAO"
+    assert inventory["100"][0]["cnf"] == "NAO"
+    assert inventory["100"][0]["comodato_number"] == "COM-10"
+    assert inventory_signature_headers_present(csv_data) == (True, True)
+
+
+def test_pendencies_lists_signature_items_only_when_both_flags_are_no():
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine)()
+    batch = PickupCatalogUploadBatch(
+        inventory_file_name="02.02.20.csv",
+        inventory_has_cc=1,
+        inventory_has_cnf=1,
+    )
+    client = PickupCatalogClient(
+        client_code="100",
+        razao_social="Razão Social",
+        nome_fantasia="Bar Central",
+        cnpj_cpf="123",
+        setor="501",
+        status="Ativo",
+    )
+    session.add_all([batch, client])
+    session.flush()
+    session.add_all([
+        PickupCatalogInventoryItem(
+            batch_id=batch.id,
+            client_id=client.id,
+            description="Refrigerador VISA",
+            open_quantity=2,
+            comodato_number="COM-10",
+            invoice_issue_date="02/10/2026",
+            cc="NAO",
+            cnf="NAO",
+        ),
+        PickupCatalogInventoryItem(
+            batch_id=batch.id,
+            client_id=client.id,
+            description="Refrigerador SOPI",
+            open_quantity=1,
+            cc="SIM",
+            cnf="NAO",
+        ),
+    ])
+    session.commit()
+
+    result = get_pendencies(session, current_user=None)
+
+    assert result.signatures_available is True
+    assert len(result.pending_signatures) == 1
+    assert result.pending_signatures[0].client_code == "100"
+    assert result.pending_signatures[0].nome == "Razão Social"
+    assert result.pending_signatures[0].quantity == 2
+    session.close()
+    engine.dispose()
+
+
+def test_confirmed_baja_request_is_stored_with_origin_and_destination():
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine)()
+    client = PickupCatalogClient(
+        client_code="100",
+        nome_fantasia="Origem",
+        razao_social="Cliente Origem Ltda",
+        cnpj_cpf="123",
+    )
+    session.add(client)
+    session.commit()
+    payload = PickupCatalogPendingRequestIn(
+        request_type="de_para",
+        items=[{
+            "source_client_code": "100",
+            "destination_client_code": "200",
+            "destination_fantasy_name": "Destino",
+            "description": "Refrigerador VISA",
+            "quantity": 1,
+            "rg": "RG-10",
+            "comodato_number": "COM-10",
+        }],
+    )
+
+    result = create_pending_requests(
+        payload,
+        db=session,
+        current_user=SimpleNamespace(name="Operador", email="operator@example.test"),
+    )
+    pending = session.query(PickupCatalogPendingRequest).one()
+    dashboard = get_pendencies(session, current_user=None)
+
+    assert result == {"created_count": 1}
+    assert pending.request_type == "de_para"
+    assert pending.source_client_code == "100"
+    assert pending.destination_client_code == "200"
+    assert pending.requested_by == "Operador"
+    assert dashboard.pending_requests[0].destination_fantasy_name == "Destino"
+    session.close()
+    engine.dispose()
+
+
+def test_inventory_refresh_resolves_pending_baja_when_item_leaves_negative_balance_base():
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine)()
+    client = PickupCatalogClient(client_code="100", nome_fantasia="Bar Central")
+    pending = PickupCatalogPendingRequest(
+        request_type="baixa",
+        source_client_code="100",
+        description="Refrigerador VISA",
+        quantity=1,
+        comodato_number="COM-10",
+    )
+    session.add_all([client, pending])
+    session.commit()
+    clients_csv = (
+        "Codigo Cliente;Nome Fantasia;CNPJ\n"
+        "100;Bar Central;12345678000199\n"
+    ).encode("utf-8")
+    inventory_csv = (
+        "Codigo Cliente;Descricao;Saldo;Nro Comodato;CC;CNF\n"
+        "100;Refrigerador SOPI;-1;COM-20;SIM;SIM\n"
+    ).encode("utf-8")
+
+    asyncio.run(upload_csv(
+        clients_csv=UploadFile(filename="clients.csv", file=BytesIO(clients_csv)),
+        inventory_csv=UploadFile(filename="inventory.csv", file=BytesIO(inventory_csv)),
+        db=session,
+        current_user=None,
+    ))
+
+    session.refresh(pending)
+    assert pending.resolved_at is not None
+    session.close()
+    engine.dispose()
 
 
 def test_inventory_csv_uses_issue_date_when_operation_date_is_invalid():

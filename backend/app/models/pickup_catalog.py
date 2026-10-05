@@ -37,6 +37,8 @@ class PickupCatalogUploadBatch(Base):
     clients_count = Column(Integer, default=0)
     inventory_clients = Column(Integer, default=0)
     open_items = Column(Integer, default=0)
+    inventory_has_cc = Column(Integer, nullable=False, default=0)
+    inventory_has_cnf = Column(Integer, nullable=False, default=0)
     uploaded_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
 
 
@@ -60,6 +62,8 @@ class PickupCatalogInventoryItem(Base):
     giro_install_date = Column(Date, nullable=True)
     giro_is_refrigerator = Column(Integer, nullable=False, default=0)
     giro_balance = Column(Integer, nullable=False, default=0)
+    cc = Column(String(40), default="")
+    cnf = Column(String(40), default="")
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
@@ -117,3 +121,22 @@ class PickupCatalogOrderItem(Base):
     comodato_number = Column(String(120), default="")
     refrigerator_condition = Column(String(20), default="")
     volume_key = Column(String(20), default="")
+
+
+class PickupCatalogPendingRequest(Base):
+    __tablename__ = "pickup_catalog_pending_requests"
+
+    id = Column(Integer, primary_key=True, index=True)
+    request_type = Column(String(20), nullable=False, index=True)
+    source_client_code = Column(String(64), nullable=False, index=True)
+    source_fantasy_name = Column(String(255), default="")
+    source_document = Column(String(64), default="")
+    destination_client_code = Column(String(64), default="")
+    destination_fantasy_name = Column(String(255), default="")
+    description = Column(String(255), nullable=False)
+    quantity = Column(Integer, nullable=False, default=1)
+    rg = Column(String(120), default="")
+    comodato_number = Column(String(120), default="")
+    requested_by = Column(String(120), default="")
+    requested_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+    resolved_at = Column(DateTime(timezone=True), nullable=True, index=True)

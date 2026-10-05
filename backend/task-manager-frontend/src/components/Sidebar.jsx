@@ -43,6 +43,12 @@ const Sidebar = ({ mobileOpen = false, onMobileClose = () => {} }) => {
     'equipments.view',
     'equipments.manage',
   ]);
+  const canAccessPendencies = hasAnyPermission([
+    'pickups.withdrawals_history',
+    'pickups.create_order',
+    'equipments.view',
+    'equipments.manage',
+  ]);
   const canAccessProductivity = true;
   const canAccessOperations = canManageDeliveries || hasPickupAreaAccess;
   const defaultProductivityRoute = '/produtividade/tarefas';
@@ -276,6 +282,15 @@ const Sidebar = ({ mobileOpen = false, onMobileClose = () => {} }) => {
             sx={navItemSx}
           >
             <ListItemText primary='Solicitações' />
+          </ListItemButton>
+        )}
+        {canAccessPendencies && (
+          <ListItemButton
+            onClick={() => navigateTo('/pendencies')}
+            selected={isActive('/pendencies')}
+            sx={navItemSx}
+          >
+            <ListItemText primary="Pendências" />
           </ListItemButton>
         )}
       </List>

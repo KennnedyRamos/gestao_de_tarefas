@@ -7,6 +7,11 @@ import {
   CardContent,
   Checkbox,
   CircularProgress,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogContentText,
+  DialogTitle,
   FormControlLabel,
   FormGroup,
   MenuItem,
@@ -488,6 +493,8 @@ const Requests = () => {
   const [selectedPendingLowEmailOrderIds, setSelectedPendingLowEmailOrderIds] = useState([]);
   const [sendingSinglePendingOrderId, setSendingSinglePendingOrderId] = useState(null);
   const [sendingBulkPendingOrders, setSendingBulkPendingOrders] = useState(false);
+  const [confirmPendingOpen, setConfirmPendingOpen] = useState(false);
+  const [savingPendingRequest, setSavingPendingRequest] = useState(false);
   const lookupTimersRef = useRef(new Map());
   const clientLookupCacheRef = useRef(new Map());
 
@@ -1387,36 +1394,82 @@ const Requests = () => {
       return;
     }
 
-    const lowEmailOrderIds = activeTab === 'baixa'
-      ? [...new Set(
-          selectedCurrentRequests
-            .map((requestBlock) => Number(requestBlock.sourceOrderId || 0))
-            .filter((orderId) => orderId > 0)
-        )]
-      : [];
-
-    if (lowEmailOrderIds.length > 0) {
-      try {
-        await api.patch('/pickup-catalog/orders/email-request/bulk', {
-          order_ids: lowEmailOrderIds,
-        });
-        setPendingLowEmailOrders((prev) => prev.filter((order) => !lowEmailOrderIds.includes(order.id)));
-        setSelectedPendingLowEmailOrderIds((prev) => prev.filter((orderId) => !lowEmailOrderIds.includes(orderId)));
-      } catch (error) {
-        const detail = error.response.data.detail;
-        setError(
-          typeof detail === 'string'
-            ? detail
-            : 'Não foi possível marcar as baixas sugeridas como solicitadas por e-mail.'
-        );
+    if (activeTab === 'baixa' || activeTab === 'de_para') {
+      const hasOrigin = selectedCurrentRequests.every((requestBlock) => (
+        Boolean(safeText(activeTab === 'de_para' ? requestBlock.fromClientCode : requestBlock.clientCode))
+      ));
+      if (!hasOrigin) {
+        setError('Informe o cliente de origem em todas as solicitações antes de confirmar.');
         return;
       }
+      setConfirmPendingOpen(true);
+      return;
     }
 
+    openPreparedEmail();
+  };
+
+  const openPreparedEmail = () => {
     const encodedSubject = encodeURIComponent(safeText(emailSubject));
     const encodedBody = encodeURIComponent(safeText(emailBody));
     window.location.href = `mailto:${safeText(mergedRecipients)}?subject=${encodedSubject}&body=${encodedBody}`;
     setSuccess('E-mail preparado no aplicativo padrão.');
+  };
+
+  const confirmPendingRequest = async () => {
+    const pendingItems = selectedCurrentRequests.flatMap((requestBlock) => {
+      const sourceCode = activeTab === 'de_para'
+        ? requestBlock.fromClientCode
+        : requestBlock.clientCode;
+      const materials = Array.isArray(requestBlock.materials) ? requestBlock.materials : [];
+      return materials
+        .filter((item) => safeText(item.material))
+        .map((item) => ({
+          source_client_code: safeText(sourceCode),
+          source_fantasy_name: safeText(activeTab === 'de_para'
+            ? requestBlock.fromFantasyName
+            : requestBlock.fantasyName),
+          source_document: safeText(activeTab === 'de_para'
+            ? requestBlock.fromDocument
+            : requestBlock.document),
+          destination_client_code: activeTab === 'de_para' ? safeText(requestBlock.toClientCode) : '',
+          destination_fantasy_name: activeTab === 'de_para' ? safeText(requestBlock.toFantasyName) : '',
+          description: safeText(item.material),
+          quantity: Math.max(1, Number.parseInt(item.quantidade, 10) || 1),
+          rg: safeText(item.rg),
+          comodato_number: safeText(item.nota),
+        }));
+    });
+    if (!pendingItems.length) {
+      setError('Inclua ao menos um equipamento na solicitação.');
+      return;
+    }
+
+    const sourceOrderIds = activeTab === 'baixa'
+      ? [...new Set(selectedCurrentRequests
+        .map((requestBlock) => Number(requestBlock.sourceOrderId || 0))
+        .filter((orderId) => orderId > 0))]
+      : [];
+
+    setSavingPendingRequest(true);
+    try {
+      await api.post('/pickup-catalog/pendencies/requests', {
+        request_type: activeTab,
+        items: pendingItems,
+        source_order_ids: sourceOrderIds,
+      });
+      setConfirmPendingOpen(false);
+      if (sourceOrderIds.length) {
+        setPendingLowEmailOrders((prev) => prev.filter((order) => !sourceOrderIds.includes(order.id)));
+        setSelectedPendingLowEmailOrderIds((prev) => prev.filter((orderId) => !sourceOrderIds.includes(orderId)));
+      }
+      openPreparedEmail();
+    } catch (error) {
+      const detail = error?.response?.data?.detail;
+      setError(typeof detail === 'string' ? detail : 'Não foi possível registrar a pendência.');
+    } finally {
+      setSavingPendingRequest(false);
+    }
   };
 
   const copyBody = async () => {
@@ -1584,6 +1637,7 @@ const Requests = () => {
   const sectionCardSx = { border: '1px solid var(--stroke)', boxShadow: 'var(--shadow-md)' };
 
   return (
+    <>
     <Box sx={{ p: { xs: 2, md: 3 }, display: 'grid', gap: 2 }}>
       <Box>
         <Typography variant="h5">Solicitações</Typography>
@@ -2557,6 +2611,30 @@ const Requests = () => {
         </CardContent>
       </Card>
     </Box>
+    <Dialog
+      open={confirmPendingOpen}
+      onClose={() => { if (!savingPendingRequest) setConfirmPendingOpen(false); }}
+      maxWidth="xs"
+      fullWidth
+    >
+      <DialogTitle>Confirmar solicitação</DialogTitle>
+      <DialogContent>
+        <DialogContentText>
+          Confirma registrar os equipamentos selecionados como pendência de
+          {activeTab === 'de_para' ? ' baixa do cliente de origem (DE-PARA)' : ' baixa'}?
+          A lista será atualizada automaticamente quando a base 02.02.20 indicar a baixa.
+        </DialogContentText>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={() => setConfirmPendingOpen(false)} disabled={savingPendingRequest}>
+          Cancelar
+        </Button>
+        <Button onClick={confirmPendingRequest} variant="contained" disabled={savingPendingRequest}>
+          {savingPendingRequest ? 'Registrando...' : 'Confirmar e abrir e-mail'}
+        </Button>
+      </DialogActions>
+    </Dialog>
+    </>
   );
 };
 

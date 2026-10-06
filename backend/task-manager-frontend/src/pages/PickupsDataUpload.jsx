@@ -16,10 +16,11 @@ import { hasPermission } from '../utils/auth';
 
 const MAX_CSV_UPLOAD_MB = 200;
 const MAX_CSV_UPLOAD_BYTES = MAX_CSV_UPLOAD_MB * 1024 * 1024;
-const MAX_GIRO_SALES_UPLOAD_MB = 500;
+const MAX_GIRO_SALES_UPLOAD_GB = 1;
+const MAX_GIRO_SALES_UPLOAD_BYTES = MAX_GIRO_SALES_UPLOAD_GB * 1024 * 1024 * 1024;
 const ACCEPTED_UPLOAD_EXTENSIONS = ['.csv', '.txt'];
 const GIRO_DATASETS = [
-  { key: 'sales', label: 'Vendas · 03.02.37 - 3 M', hint: 'O tipo de cesta é identificado pelo código do produto; no relatório 03.02.37 - 3 M, use a coluna Produto (coluna P). Não precisa incluir a cesta no arquivo.', maxBytes: MAX_GIRO_SALES_UPLOAD_MB * 1024 * 1024 },
+  { key: 'sales', label: 'Vendas · 03.02.37 - Ano', hint: 'O tipo de cesta é identificado pelo código do produto; use a coluna Produto (coluna P). Não precisa incluir a cesta no arquivo.', maxBytes: MAX_GIRO_SALES_UPLOAD_BYTES },
   { key: 'targets', label: 'Metas · METAS', hint: 'Indicador, Ano (opcional), Jan a Dez, com linhas GIRO VISA e GIRO SOPI.', maxBytes: 20 * 1024 * 1024 }
 ];
 const GIRO_TARGETS_TEMPLATE = [
@@ -53,7 +54,10 @@ const validateUploadFile = (file, label, maximumBytes = MAX_CSV_UPLOAD_BYTES) =>
   }
 
   if ((Number(file.size) || 0) > maximumBytes) {
-    return `${label} excede o limite de ${Math.floor(maximumBytes / (1024 * 1024))} MB.`;
+    const limitGb = maximumBytes / (1024 * 1024 * 1024);
+    const limitMb = maximumBytes / (1024 * 1024);
+    const limitLabel = limitGb >= 1 ? `${limitGb} GB` : `${limitMb} MB`;
+    return `${label} excede o limite de ${limitLabel}.`;
   }
 
   return '';
@@ -220,7 +224,16 @@ const PickupsDataUpload = () => {
       await loadStatus();
     } catch (err) {
       const detail = err?.response?.data?.detail;
-      setError(typeof detail === 'string' ? detail : 'Erro ao atualizar a base de retiradas.');
+      if (typeof detail === 'string') {
+        setError(detail);
+      } else if (Array.isArray(detail)) {
+        const messages = detail.map((item) => item?.msg).filter(Boolean);
+        setError(messages.length ? messages.join(' ') : 'A API rejeitou os dados enviados.');
+      } else if (err?.response?.status) {
+        setError(`Erro ao atualizar a base de retiradas (HTTP ${err.response.status}).`);
+      } else {
+        setError(`Não foi possível conectar à API para atualizar a base de retiradas. ${err?.message || ''}`.trim());
+      }
     } finally {
       setUploading(false);
     }
@@ -391,10 +404,10 @@ const PickupsDataUpload = () => {
         <Box sx={panelSx}>
           <Typography variant="h6" sx={{ mb: 0.5 }}>Bases de Giro</Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Clientes (01.20.11) e equipamentos (02.02.20) usam as bases compartilhadas acima. Aqui, envie somente vendas (03.02.37 - 3 M) e metas.
+            Clientes (01.20.11) e equipamentos (02.02.20) usam as bases compartilhadas acima. Aqui, envie somente o histórico anual de vendas (03.02.37) e metas.
           </Typography>
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
-            Formatos aceitos: .csv e .txt. Limites: vendas 500 MB; metas 20 MB. O modelo de metas contém percentuais ilustrativos: substitua-os pelos valores oficiais antes de enviar.
+            Formatos aceitos: .csv e .txt. Limites: vendas 1 GB; metas 20 MB. O modelo de metas contém percentuais ilustrativos: substitua-os pelos valores oficiais antes de enviar.
           </Typography>
           {giroError && <Alert severity="error" sx={{ mb: 2 }}>{giroError}</Alert>}
           {giroSuccess && <Alert severity="success" sx={{ mb: 2 }}>{giroSuccess}</Alert>}

@@ -470,7 +470,7 @@ def test_sales_csv_uses_client_column_c_and_operation_date_column_f():
     assert ignored == 0
 
 
-def test_sales_upload_limit_accepts_files_over_200_mb_and_rejects_above_500_mb():
+def test_sales_upload_limit_accepts_files_over_500_mb_and_rejects_above_1_gb():
     class SizedFile:
         def __init__(self, size):
             self.size = size
@@ -482,11 +482,11 @@ def test_sales_upload_limit_accepts_files_over_200_mb_and_rejects_above_500_mb()
         def tell(self):
             return self.position
 
-    over_200_mb = UploadFile(
+    over_500_mb = UploadFile(
         filename="sales.csv",
-        file=SizedFile(201 * 1024 * 1024),
+        file=SizedFile(696 * 1024 * 1024),
     )
-    assert _validate_upload_size(over_200_mb, MAX_SALES_CSV_BYTES, "vendas") == 201 * 1024 * 1024
+    assert _validate_upload_size(over_500_mb, MAX_SALES_CSV_BYTES, "vendas") == 696 * 1024 * 1024
 
     over_limit = UploadFile(
         filename="sales.csv",

@@ -54,7 +54,7 @@ BRAZIL_TZ = ZoneInfo("America/Sao_Paulo")
 INSTALLATION_CUTOFF = date(2023, 1, 1)
 MONTHLY_TARGETS = {"visa": Decimal("1200.00"), "sopi": Decimal("2000.00")}
 CENT = Decimal("0.01")
-MAX_SALES_CSV_BYTES = 500 * 1024 * 1024
+MAX_SALES_CSV_BYTES = 1024 * 1024 * 1024
 MAX_MASTER_CSV_BYTES = 20 * 1024 * 1024
 ALLOWED_UPLOAD_SUFFIXES = {".csv", ".txt"}
 MESA_6_SECTORS = {"501", "502", "601", "602", "603", "605", "606"}
@@ -104,8 +104,10 @@ def _validate_upload_size(upload: UploadFile, maximum_bytes: int, label: str) ->
     size = upload.file.tell()
     upload.file.seek(0)
     if size > maximum_bytes:
-        limit_mb = maximum_bytes // (1024 * 1024)
-        raise HTTPException(status_code=413, detail=f"O CSV de {label} excede o limite de {limit_mb} MB.")
+        limit_gb = maximum_bytes / (1024 * 1024 * 1024)
+        limit_mb = maximum_bytes / (1024 * 1024)
+        limit_label = f"{limit_gb:g} GB" if limit_gb >= 1 else f"{limit_mb:g} MB"
+        raise HTTPException(status_code=413, detail=f"O CSV de {label} excede o limite de {limit_label}.")
     if size == 0:
         raise HTTPException(status_code=400, detail=f"O CSV de {label} está vazio.")
     return size
@@ -224,7 +226,7 @@ def _ensure_ready(db: Session, selected_month: str | None = None) -> None:
     if missing:
         raise HTTPException(
             status_code=409,
-            detail="Importe as bases de vendas (03.02.37 - 3 M) e metas na área Atualizar base.",
+            detail="Importe a base anual de vendas (03.02.37) e as metas na área Atualizar base.",
         )
     if not db.query(PickupCatalogClient.id).first():
         raise HTTPException(status_code=409, detail="A base de clientes 01.20.11 não contém registros no banco de dados.")

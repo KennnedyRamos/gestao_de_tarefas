@@ -351,7 +351,7 @@ const GiroManagement = () => {
 
       {!loadingImports && !ready && (
         <Alert severity="info">
-          Atualize as bases compartilhadas 01.20.11/02.02.20 e importe 03.02.37 - 3 M e METAS em “Atualizar base”.
+          Atualize as bases compartilhadas 01.20.11/02.02.20 e importe o histórico anual 03.02.37 e METAS em “Atualizar base”.
           {canManage
             ? <Button sx={{ ml: 1 }} onClick={() => navigate('/base-retiradas')}>Ir para atualização de bases</Button>
             : ' Solicite a um usuário com permissão para atualizar as bases.'}

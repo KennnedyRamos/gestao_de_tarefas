@@ -70,6 +70,11 @@ def _shift_month(value: date, offset: int) -> date:
     return date(month_index // 12, month_index % 12 + 1, 1)
 
 
+def _month_end_exclusive(month: str) -> date:
+    year, month_number = (int(part) for part in month.split("-"))
+    return _shift_month(date(year, month_number, 1), 1)
+
+
 def _current_month() -> str:
     return _month_start(datetime.now(BRAZIL_TZ).date()).strftime("%Y-%m")
 
@@ -248,8 +253,13 @@ def _selected_month(db: Session, requested_month: str | None) -> str:
     return selected_month
 
 
-def _equipment_by_client(db: Session, equipment_type: str) -> dict[str, Decimal]:
+def _equipment_by_client(
+    db: Session,
+    equipment_type: str,
+    as_of_month: str | None = None,
+) -> dict[str, Decimal]:
     result: dict[str, Decimal] = {}
+    as_of_cutoff = _month_end_exclusive(as_of_month) if as_of_month else None
     equipment_base = db.query(PickupCatalogInventoryItem)
     latest_equipment_batch = (
         db.query(PickupCatalogInventoryItem.batch_id)
@@ -300,6 +310,8 @@ def _equipment_by_client(db: Session, equipment_type: str) -> dict[str, Decimal]
         install_date = stored_install_date or parse_giro_date(issue_date)
         if not install_date or install_date < INSTALLATION_CUTOFF:
             continue
+        if as_of_cutoff is not None and install_date >= as_of_cutoff:
+            continue
         if not bool(is_refrigerator) and not mapped_type:
             continue
 
@@ -321,14 +333,17 @@ def _equipment_snapshot_by_client(
     db: Session,
     equipment_type: str,
     month: str,
+    as_of_month: str | None = None,
 ) -> dict[str, Decimal]:
     result: dict[str, Decimal] = {}
+    as_of_cutoff = _month_end_exclusive(as_of_month or month)
     rows = (
         db.query(GiroEquipment.client_code, GiroEquipment.quantity)
         .filter(
             GiroEquipment.snapshot_month == month,
             GiroEquipment.equipment_type == equipment_type,
             GiroEquipment.install_date >= INSTALLATION_CUTOFF,
+            GiroEquipment.install_date < as_of_cutoff,
             GiroEquipment.is_refrigerator == 1,
             GiroEquipment.balance > 0,
         )
@@ -348,7 +363,7 @@ def _equipment_for_month(
 ) -> tuple[dict[str, Decimal], str]:
     current_month = _current_month()
     if selected_month == current_month:
-        return _equipment_by_client(db, equipment_type), current_month
+        return _equipment_by_client(db, equipment_type, as_of_month=selected_month), current_month
 
     snapshot_month = (
         db.query(GiroEquipmentSnapshot.month)
@@ -357,9 +372,12 @@ def _equipment_for_month(
         .first()
     )
     if snapshot_month:
-        return _equipment_snapshot_by_client(db, equipment_type, snapshot_month[0]), snapshot_month[0]
+        return (
+            _equipment_snapshot_by_client(db, equipment_type, snapshot_month[0], as_of_month=selected_month),
+            snapshot_month[0],
+        )
 
-    return _equipment_by_client(db, equipment_type), current_month
+    return _equipment_by_client(db, equipment_type, as_of_month=selected_month), current_month
 
 
 def _report_rows(
@@ -540,7 +558,7 @@ def _quarter_summary(
             .all()
         ) if historical_months else []
         current_equipment = (
-            _equipment_by_client(db, equipment_type)
+            _equipment_by_client(db, equipment_type, as_of_month=actual_current_month)
             if actual_current_month in elapsed_months else {}
         )
         codes = {row.client_code for row in equipment_rows} | set(current_equipment)
@@ -552,6 +570,8 @@ def _quarter_summary(
         } if codes else {}
         equipment_by_month: dict[str, dict[str, Decimal]] = {}
         for equipment in equipment_rows:
+            if equipment.install_date >= _month_end_exclusive(equipment.snapshot_month):
+                continue
             client = clients.get(canonical_code(equipment.client_code))
             client_sector = client.setor if client else ""
             client_city = client.cidade if client else ""

@@ -1262,8 +1262,8 @@ async def upload_csv(
     batch = PickupCatalogUploadBatch(
         clients_file_name=_safe_text(clients_csv.filename) if has_clients_upload and clients_csv else "",
         inventory_file_name=_safe_text(inventory_csv.filename) if has_inventory_upload and inventory_csv else "",
-        inventory_has_cc=inventory_has_cc,
-        inventory_has_cnf=inventory_has_cnf,
+        inventory_has_cc=int(bool(inventory_has_cc)),
+        inventory_has_cnf=int(bool(inventory_has_cnf)),
     )
     db.add(batch)
     db.flush()

@@ -248,6 +248,10 @@ def _ensure_ready(db: Session, selected_month: str | None = None) -> None:
 
 def _selected_month(db: Session, requested_month: str | None) -> str:
     selected_month = requested_month or _current_month()
+    try:
+        date.fromisoformat(f"{selected_month}-01")
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="Competência inválida. Use YYYY-MM.") from exc
     if selected_month > _current_month():
         raise HTTPException(status_code=422, detail="A competência não pode ser futura.")
     return selected_month

@@ -118,9 +118,9 @@ def _validate_upload_size(upload: UploadFile, maximum_bytes: int, label: str) ->
     return size
 
 
-async def _read_upload(upload: UploadFile, maximum_bytes: int, label: str) -> bytes:
+def _read_upload(upload: UploadFile, maximum_bytes: int, label: str) -> bytes:
     size = _validate_upload_size(upload, maximum_bytes, label)
-    content = await upload.read(size + 1)
+    content = upload.file.read(size + 1)
     return content
 
 
@@ -159,7 +159,7 @@ def _commit_import(db: Session, *, dataset: str, filename: str, imported: int, i
 
 
 @router.post("/imports/sales", response_model=GiroImportResultOut)
-async def import_sales(
+def import_sales(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_giro_manager),
@@ -191,13 +191,13 @@ async def import_sales(
 
 
 @router.post("/imports/targets", response_model=GiroImportResultOut)
-async def import_targets(
+def import_targets(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_giro_manager),
 ):
     del current_user
-    raw = await _read_upload(file, MAX_MASTER_CSV_BYTES, "metas")
+    raw = _read_upload(file, MAX_MASTER_CSV_BYTES, "metas")
     try:
         targets = parse_target_rows(raw)
     except GiroCsvError as exc:

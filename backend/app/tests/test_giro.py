@@ -547,11 +547,11 @@ def test_sales_import_removes_previous_month_values_when_new_file_has_only_exclu
         "NAB;-;100;01/09/2026;1.200,00;Marketplace;GUARANA LATA;A\n"
     ).encode("utf-8")
 
-    result = asyncio.run(import_sales(
+    result = import_sales(
         file=UploadFile(filename="vendas.csv", file=BytesIO(csv_data)),
         db=session,
         current_user=None,
-    ))
+    )
 
     assert result.rows_imported == 0
     assert session.query(GiroMonthlySale).count() == 0

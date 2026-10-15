@@ -286,7 +286,7 @@ async def _read_csv_upload_bytes(
 ) -> bytes:
     file_name = _safe_text(getattr(upload, "filename", ""))
     suffix = Path(file_name).suffix.lower()
-    if suffix and suffix not in ALLOWED_CSV_UPLOAD_SUFFIXES:
+    if suffix not in ALLOWED_CSV_UPLOAD_SUFFIXES:
         raise HTTPException(status_code=400, detail=f"{label} deve estar em formato CSV ou TXT.")
 
     content_type = _safe_text(getattr(upload, "content_type", "")).lower()
@@ -1386,7 +1386,14 @@ async def upload_csv(
             if current_quantity <= 0:
                 pending.resolved_at = _now_brazil()
 
-    db.commit()
+    try:
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail="Falha ao gravar a base importada. Nenhuma alteração foi aplicada.",
+        ) from exc
 
     if has_clients_upload and has_inventory_upload:
         message = "Dados gravados com sucesso. Base anterior substituída."
